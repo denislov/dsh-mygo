@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { stat } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
+import { ApprovalQueue } from './approval.mjs'
 
 export const protocolVersion = 1
 export const releaseVersion = '0.1.0'
@@ -18,7 +19,7 @@ function text(value, field, limit = 256) {
 }
 
 export class MygoServer {
-  constructor(ctx, { notify, createUserMessage, reasoningEffort, ensureProvider, dshVersion, maxSessions = 8, cancelTimeoutMs = 5000 }) {
+  constructor(ctx, { notify, createUserMessage, reasoningEffort, ensureProvider, dshVersion, maxSessions = 8, cancelTimeoutMs = 5000, maxPendingApprovals = 32 }) {
     this.ctx = ctx
     this.notify = notify
     this.createUserMessage = createUserMessage
@@ -28,6 +29,7 @@ export class MygoServer {
     this.maxSessions = maxSessions
     this.cancelTimeoutMs = cancelTimeoutMs
     this.capabilities = []
+    this.approvals = new ApprovalQueue({ notify, maxPending: maxPendingApprovals })
     this.sessions = new Map()
     this.initialized = false
     this.stopping = false
@@ -35,16 +37,25 @@ export class MygoServer {
       ctx.on('session/event', (session, event) => {
         const record = this.sessions.get(String(session.id))
         if (record?.handle?.agent.session !== session) return
+        if (event.type === 'tool/call') {
+          if (typeof event.data.callId === 'string' && record.calls.size < 256) record.calls.set(event.data.callId, { name: event.data.name, arguments: event.data.arguments })
+        } else if (event.type === 'tool/result') {
+          record.calls.delete(event.data.message?.toolCallId)
+        } else if (event.type === 'turn/end') {
+          record.calls.clear()
+          this.approvals.cancelSession(String(session.id))
+        }
         this.notify('session/event', { sessionId: String(session.id), seq: event.seq, event })
       }),
       ctx.on('agent/status', ({ agent, status }) => {
         const record = this.sessions.get(String(agent.session.id))
         if (record?.handle?.agent !== agent) return
-        if (status === 'idle') record.busy = false
+        if (status === 'idle') { record.busy = false; this.approvals.cancelSession(String(agent.session.id)) }
         this.notify('session/status', { sessionId: String(agent.session.id), status })
       }),
       ctx.on('agent/error', ({ agent }) => {
         if (this.sessions.get(String(agent.session.id))?.handle?.agent !== agent) return
+        this.approvals.cancelSession(String(agent.session.id))
         this.notify('host/fatal', { message: 'The agent failed. Restart the host before retrying.' })
       }),
     ]
@@ -59,6 +70,9 @@ export class MygoServer {
       case 'session/create': return this.create(params)
       case 'session/prompt': return this.prompt(params)
       case 'session/cancel': return this.cancel(params)
+      case 'approval/respond':
+        if (!this.capabilities.includes('approval')) throw fault('protocol/capability-unavailable', 'Approval was not negotiated')
+        return this.approvals.respond(params)
       default: throw fault('protocol/method-not-found', 'Unknown channel method', -32601)
     }
   }
@@ -74,7 +88,7 @@ export class MygoServer {
     if (!Array.isArray(params.capabilities) || params.capabilities.length > 64) throw fault('protocol/invalid-params', 'Invalid capabilities', -32602)
     for (const capability of params.capabilities) text(capability, 'capability')
     this.initialized = true
-    this.capabilities = params.capabilities.includes('session.cancel') ? ['session.cancel'] : []
+    this.capabilities = ['session.cancel', 'approval'].filter((capability) => params.capabilities.includes(capability))
     return {
       server: { name: 'dsh-mygo-host', version: releaseVersion, dshVersion: this.dshVersion },
       protocolVersion, capabilities: this.capabilities,
@@ -90,7 +104,7 @@ export class MygoServer {
     const model = text(params.model, 'model')
     const effort = params.effort === undefined ? undefined : text(params.effort, 'effort')
     if (this.sessions.size >= this.maxSessions) throw fault('session/limit', 'Host session limit reached')
-    const record = { handle: undefined, busy: false }
+    const record = { handle: undefined, busy: false, calls: new Map() }
     const sessionId = randomUUID()
     this.sessions.set(sessionId, record)
     try {
@@ -136,6 +150,15 @@ export class MygoServer {
     return this.shutdownTask
   }
 
+  requestApproval(request, next = () => Promise.resolve('unavailable')) {
+    const sessionId = String(request.agent?.session.id ?? '')
+    const record = this.sessions.get(sessionId)
+    if (!record?.handle || record.handle.agent !== request.agent) return next()
+    if (this.stopping) return Promise.resolve('cancelled')
+    if (!this.capabilities.includes('approval')) return Promise.resolve('unavailable')
+    return this.approvals.ask(request, { sessionId, call: record.calls.get(request.callId) })
+  }
+
   cancel(params) {
     if (!this.capabilities.includes('session.cancel')) throw fault('protocol/capability-unavailable', 'Session cancellation was not negotiated')
     const sessionId = text(params.sessionId, 'sessionId', 128)
@@ -152,6 +175,7 @@ export class MygoServer {
     let timeout
     try {
       record.handle.agent.cancel({ kind: 'user' })
+      this.approvals.cancelSession(sessionId)
       await Promise.race([
         record.handle.agent.whenIdle(),
         new Promise((_resolve, reject) => {
@@ -171,6 +195,7 @@ export class MygoServer {
 
   async dispose() {
     this.stopping = true
+    this.approvals.close()
     for (const dispose of this.disposers.splice(0)) dispose()
     const records = [...this.sessions.values()]
     await this.ctx.get('subagents')?.drainDescendants(records.filter((record) => record.handle).map((record) => record.handle.agent))

@@ -71,13 +71,13 @@ tests/fixtures/protocol/
 Go channel 与 Node transport 共用非法帧 fixture；握手、重复初始化、模型路由校验、busy/外来 session、text content 校验、输出背压、顺序响应、shutdown 和错误信息隔离由 `resources/host/tests/protocol.test.mjs` 与 Go App 测试覆盖。
 
 ```sh
-node --test resources/host/tests/protocol.test.mjs
+node --test resources/host/tests/*.test.mjs
 go test ./internal/channel ./internal/app
 ```
 
 回合取消已由 Node/Go 测试覆盖：能力协商、外来 session、空闲取消、并发合并、Host 超时、错误隔离、立即取消的请求顺序、旧响应隔离和草稿保留。`ui.NewTester` 覆盖 Stop → Stopping → Send → Stop 的生命周期与无 capability 时隐藏按钮。
 
-审批、RPC 请求取消、流式等尚未实现的协议随功能落地增加对应 fixture。完整目标断言：
+审批已有 Node 队列、Go 状态、App 和 ui.NewTester 覆盖：一次性回答、撤销、重复/过期身份、队列上限、参数超限、关联与 external 警告、FIFO、防重复点击、失败重试、Escape 拒绝和草稿保留。RPC 请求取消、流式等尚未实现的协议随功能落地增加对应 fixture。完整目标断言：
 
 断言：
 
@@ -156,6 +156,8 @@ node -e 'process.loadEnvFile(".env"); process.env.DSH_MYGO_DSH_DIR = "D:/Workspa
 阶段 1 已落地 `TestAgainstMygoRealComposition`：设置 `DSH_MYGO_DSH_DIR` 即可运行，不需要 API key。测试创建临时 `DSH_HOME`、初始化真实 `mygo` profile，再用 `--patch` 加入 `testdata/mygo-mock-llm.mjs`。通过真实 CLI/Loader、session log 和 agent loop 完成一轮 `pong`，严格校验协议帧、连续 seq 和退出码。Host 自身校验 `profileContext.startedBundles` 包含两个 bundle。测试不修改 DSH checkout，也不手工 `ctx.plugin(...)` 拼装应用。
 
 `TestAgainstMygoRealCancellation` 进一步验证真实 agent loop 的取消：mock adapter 用随机 localhost 端口仅向测试进程发送 `started` / `aborted` 信号；测试等待真实模型 stream 开始后调用 Stop，断言 abort signal、提交的取消 notice、草稿保留，并在同一 session 再完成 `pong`。该控制端口只存在于 fixture，不是产品 Host transport，也不需要 API key。
+
+`TestAgainstMygoRealApprovals` 使用同一真实 Loader 和 mock adapter，触发真实 approval 服务：允许后才写临时目录的标记文件，拒绝/取消不写，随后在同一 session 完成 pong 并正常退出；另验证待审批时退出会清空面板、回收 Host 且不执行工具。无需 API key。`TestAgainstMygoFakeApprovals` 覆盖 fake Host 的相同三条路径与草稿保留；Windows 原生窗口可用 `--approval` fixture 验收。
 
 ```sh
 go test ./internal/app -run TestAgainstMygoRealComposition -v -timeout 2m

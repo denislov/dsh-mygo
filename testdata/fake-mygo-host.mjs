@@ -14,7 +14,7 @@ const ctx = {
       const agent = {
         session: { id: sessionId, seq: 0 }, status: 'idle', turns: 0,
         followup(message) {
-          const work = { ...Promise.withResolvers(), finished: false, cancelled: false }
+          const work = { ...Promise.withResolvers(), finished: false, cancelled: false, abort: new AbortController() }
           agent.work = work
           const turn = ++agent.turns
           setImmediate(() => {
@@ -23,14 +23,15 @@ const ctx = {
             const event = (type, data) => events.emit('session/event', agent.session, { type, data, seq: agent.session.seq++, time: Date.now() })
             event('turn/start', { turn: 1 })
             event('user/message', message)
-            work.finish = (aborted) => {
+            work.finish = (aborted, approvalOutcome) => {
               if (work.finished) return
               work.finished = true
               if (!aborted) {
                 const callId = `fake-${turn}`
-                event('tool/call', { callId, name: 'read_file', arguments: '{"path":"README.md"}' })
-                event('tool/result', { message: { toolCallId: callId, content: [{ type: 'text', text: '# dsh-mygo' }] } })
-                event('assistant/message', { message: { content: [{ type: 'text', text: `Echo: ${message.content.map((block) => block.text).join('\n')}` }] } })
+                if (!work.approval) event('tool/call', { callId, name: 'read_file', arguments: '{"path":"README.md"}' })
+                const reply = work.approval ? approvalOutcome === 'allowed-once' ? 'Approved write' : 'Denied write' : `Echo: ${message.content.map((block) => block.text).join('\n')}`
+                event('tool/result', { message: { toolCallId: callId, content: [{ type: 'text', text: work.approval ? reply : '# dsh-mygo' }] } })
+                event('assistant/message', { message: { content: [{ type: 'text', text: reply }] } })
               }
               event('turn/end', { reason: aborted ? { kind: 'aborted', reason: { kind: 'user' } } : { kind: 'completed' } })
               agent.status = 'idle'
@@ -39,12 +40,20 @@ const ctx = {
               work.resolve()
             }
             if (work.cancelled) work.finish(true)
+            else if (process.argv.includes('--approval') && turn === 1) {
+              work.approval = true
+              const callId = `fake-${turn}`
+              event('tool/call', { callId, name: 'write', arguments: '{"file_path":"approval-marker.txt","content":"hello"}' })
+              void server.requestApproval({ agent, toolName: 'write', callId, reason: 'Write a file in the temporary workspace', signal: work.abort.signal })
+                .then((outcome) => work.finish(false, outcome))
+            }
             else if (!process.argv.includes('--wait-for-cancel') || turn > 1) work.finish(false)
           })
         },
         cancel() {
           if (!agent.work) return
           agent.work.cancelled = true
+          agent.work.abort.abort()
           agent.work.finish?.(true)
         },
         whenIdle() { return agent.work?.promise ?? Promise.resolve() },

@@ -5,6 +5,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"dsh-mygo/internal/interaction"
 	"dsh-mygo/internal/projection"
 )
 
@@ -200,5 +201,67 @@ func TestStopIsHiddenWithoutCapability(t *testing.T) {
 	tt := tester(model)
 	if tt.HasText("Stop") {
 		t.Fatal("Stop shown without capability")
+	}
+}
+
+func TestApprovalModalShowsParametersAndSendsOnlyOneDecision(t *testing.T) {
+	model := NewModel()
+	model.Phase = PhaseRunning
+	model.CanApprove = true
+	model.ApprovalOpen = true
+	model.Approvals = []interaction.Approval{{RequestID: "a1", SessionID: "s1", ToolName: "write", Arguments: `{"file_path":"outside.txt"}`, Reason: "Write outside workspace"}}
+	decisions := 0
+	model.RespondApproval = func(requestID, decision string) {
+		if requestID != "a1" || decision != "allow" {
+			t.Fatalf("decision = %s %s", requestID, decision)
+		}
+		decisions++
+		model.Approvals[0].Responding = true
+	}
+	tt := tester(model)
+	for _, text := range []string{"Tool approval", "write", "Write outside workspace", `{"file_path":"outside.txt"}`, "Approval 1 of 1"} {
+		if !tt.HasText(text) {
+			t.Fatalf("approval is missing %q", text)
+		}
+	}
+	if err := tt.Click("Allow once"); err != nil {
+		t.Fatal(err)
+	}
+	_ = tt.Click("Allow once")
+	if decisions != 1 || !tt.HasText("Sending decision…") {
+		t.Fatal("decision was duplicated or not shown as pending")
+	}
+}
+
+func TestApprovalEscapeRejectsAndExternalRequestWarns(t *testing.T) {
+	model := NewModel()
+	model.Phase = PhaseRunning
+	model.CanApprove = true
+	model.ApprovalOpen = true
+	model.Approvals = []interaction.Approval{{RequestID: "a1", SessionID: "s1", ToolName: "write", External: true}}
+	denied := false
+	model.RespondApproval = func(requestID, decision string) {
+		denied = requestID == "a1" && decision == "deny"
+		model.Approvals[0].Responding = true
+	}
+	tt := tester(model)
+	if !tt.HasText("Unlinked approval: verify this request before allowing.") {
+		t.Fatal("external approval did not warn")
+	}
+	tt.Key(0, ui.KeyEscape)
+	if !denied {
+		t.Fatal("Escape did not reject the approval")
+	}
+	if !model.ApprovalOpen {
+		t.Fatal("approval disappeared before host confirmation")
+	}
+	model.Approvals = nil
+	model.ApprovalOpen = false
+	tt.Frame()
+	model.Approvals = []interaction.Approval{{RequestID: "a2", SessionID: "s1", ToolName: "read", External: true}}
+	model.ApprovalOpen = true
+	tt.Frame()
+	if !tt.HasText("read") || !tt.HasText("Deny") {
+		t.Fatal("returning approval lost its controls")
 	}
 }

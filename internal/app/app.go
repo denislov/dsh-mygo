@@ -19,6 +19,7 @@ import (
 
 	"dsh-mygo/internal/channel"
 	"dsh-mygo/internal/host"
+	"dsh-mygo/internal/interaction"
 	"dsh-mygo/internal/projection"
 	"dsh-mygo/internal/view"
 )
@@ -69,6 +70,7 @@ type App struct {
 	options    Options
 	model      *view.Model
 	transcript projection.Transcript
+	approvals  interaction.ApprovalQueue
 
 	mu         sync.Mutex
 	supervisor *host.Supervisor
@@ -101,6 +103,7 @@ func New(options Options) *App {
 	app.model.Send = app.Send
 	app.model.Dismiss = app.DismissError
 	app.model.Cancel = app.Cancel
+	app.model.RespondApproval = app.RespondApproval
 	return app
 }
 
@@ -175,6 +178,7 @@ func (a *App) Start() {
 		a.sessionID = initialized.sessionID
 		a.nextSeq = initialized.nextSeq
 		a.model.CanCancel = initialized.canCancel
+		a.model.CanApprove = initialized.canApprove
 		a.model.Detail = initialized.detail
 		if a.model.Phase == view.PhaseStarting {
 			a.model.Phase = view.PhaseIdle
@@ -183,10 +187,11 @@ func (a *App) Start() {
 }
 
 type initializedSession struct {
-	sessionID string
-	nextSeq   uint64
-	detail    string
-	canCancel bool
+	sessionID  string
+	nextSeq    uint64
+	detail     string
+	canCancel  bool
+	canApprove bool
 }
 
 func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSession, error) {
@@ -213,7 +218,7 @@ func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSess
 	result, err := client.Call(ctx, "initialize", map[string]any{
 		"protocolVersion": channel.ProtocolVersion,
 		"client":          map[string]string{"name": "dsh-mygo", "version": channel.ReleaseVersion, "platform": runtime.GOOS, "locale": "zh-CN"},
-		"capabilities":    []string{"session.cancel"},
+		"capabilities":    []string{"session.cancel", "approval"},
 	})
 	if err != nil {
 		return initializedSession{}, err
@@ -242,8 +247,9 @@ func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSess
 	}
 	return initializedSession{
 		sessionID: created.Session.ID, nextSeq: *created.Session.NextSeq,
-		detail:    initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
-		canCancel: slices.Contains(initialized.Capabilities, "session.cancel"),
+		detail:     initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
+		canCancel:  slices.Contains(initialized.Capabilities, "session.cancel"),
+		canApprove: slices.Contains(initialized.Capabilities, "approval"),
 	}, nil
 }
 
@@ -401,6 +407,9 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 	}
 	if !a.options.SDKProtocol {
 		switch method {
+		case "approval/request", "approval/closed":
+			a.handleApprovalNotification(method, params)
+			return
 		case "session/event":
 			method = "session.event"
 		case "session/status":
@@ -497,11 +506,13 @@ func (a *App) applyStatus(status string) {
 			a.sawActivity = false
 		}
 		if a.model.CancelPending {
+			a.clearApprovals()
 			a.cancelIdle = true
 			return
 		}
 		a.model.Phase = view.PhaseIdle
 		a.model.CancelPending = false
+		a.clearApprovals()
 	}
 }
 
@@ -512,6 +523,7 @@ func (a *App) Shutdown(timeout time.Duration) {
 		return
 	}
 	close(a.stopped)
+	a.post(a.clearApprovals)
 	a.mu.Lock()
 	client := a.client
 	supervisor := a.supervisor
@@ -558,6 +570,7 @@ func (a *App) setFailure(summary string, err error) {
 	}
 	a.model.Phase = view.PhaseFailed
 	a.model.CancelPending = false
+	a.clearApprovals()
 	a.model.Error = summary
 	detail := ""
 	if err != nil {

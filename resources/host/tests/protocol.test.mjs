@@ -52,7 +52,7 @@ test('handshake gates methods, rejects incompatible versions and never advertise
   const result = await server.handle('initialize', handshake)
   assert.equal(result.protocolVersion, 1)
   assert.equal(result.server.version, '0.1.0')
-  assert.deepEqual(result.capabilities, [])
+  assert.deepEqual(result.capabilities, ['approval'])
   await assert.rejects(server.handle('initialize', handshake), { kind: 'protocol/already-initialized' })
   await assert.rejects(server.handle('settings/get', {}), { code: -32601 })
   await server.shutdown()
@@ -100,7 +100,7 @@ test('cancel requires negotiation, validates ownership and does not arm idle ses
 
   const negotiated = runtime()
   const result = await negotiated.server.handle('initialize', { ...handshake, capabilities: ['session.cancel', 'approval'] })
-  assert.deepEqual(result.capabilities, ['session.cancel'])
+  assert.deepEqual(result.capabilities, ['session.cancel', 'approval'])
   const created = await negotiated.server.handle('session/create', { cwd: process.cwd(), provider: 'test', model: 'echo' })
   await assert.rejects(negotiated.server.handle('session/cancel', { sessionId: '../unsafe' }), { code: -32602 })
   await assert.rejects(negotiated.server.handle('session/cancel', { sessionId: 'foreign' }), { kind: 'session/not-found' })
@@ -158,6 +158,38 @@ test('cancel timeout is bounded and does not report an idle session', async (con
   await timedOut
   await assert.rejects(server.handle('session/prompt', { sessionId: session.id, content: [{ type: 'text', text: 'too soon' }] }), { kind: 'session/busy' })
   await server.shutdown()
+})
+
+test('host approval binds to an owned live tool call and delegates foreign agents', async () => {
+  const { server, handles, listeners, notifications } = runtime()
+  await server.handle('initialize', handshake)
+  const { session } = await server.handle('session/create', { cwd: process.cwd(), provider: 'test', model: 'echo' })
+  const agent = handles[0].agent
+  listeners.get('session/event')(agent.session, { type: 'tool/call', seq: 0, data: { callId: 'c1', name: 'write', arguments: '{"file_path":"marker"}' } })
+  const waiting = server.requestApproval({ agent, toolName: 'write', callId: 'c1' })
+  const pending = notifications.at(-1).params
+  assert.equal(pending.external, false)
+  assert.equal(pending.sessionId, session.id)
+  assert.equal(pending.arguments, '{"file_path":"marker"}')
+  await server.handle('approval/respond', { requestId: pending.requestId, decision: 'allow' })
+  assert.equal(await waiting, 'allowed-once')
+  assert.equal(await server.requestApproval({ agent: { session: { id: session.id } }, toolName: 'write' }, () => Promise.resolve('rejected')), 'rejected')
+  await server.shutdown()
+})
+
+test('host cancellation and shutdown resolve approvals even without a request signal', async () => {
+  const { server, handles } = runtime()
+  await server.handle('initialize', { ...handshake, capabilities: ['session.cancel', 'approval'] })
+  const { session } = await server.handle('session/create', { cwd: process.cwd(), provider: 'test', model: 'echo' })
+  const params = { sessionId: session.id, content: [{ type: 'text', text: 'long turn' }] }
+  await server.handle('session/prompt', params)
+  const waiting = server.requestApproval({ agent: handles[0].agent, toolName: 'write' })
+  await server.handle('session/cancel', { sessionId: session.id })
+  assert.equal(await waiting, 'cancelled')
+  await server.handle('session/prompt', params)
+  const next = server.requestApproval({ agent: handles[0].agent, toolName: 'write' })
+  await server.shutdown()
+  assert.equal(await next, 'cancelled')
 })
 
 test('channel returns structured errors before EOF', async () => {

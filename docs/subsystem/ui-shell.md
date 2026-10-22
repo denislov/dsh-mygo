@@ -26,7 +26,8 @@ P1 的单窗口只有 header、transcript 列表、composer：
 - Enter 发送，Shift+Enter 换行；发送期间仍可编辑草稿，但发送按钮与 Enter 发送禁用。
 - 状态来自自定义 channel 的 `session/status`（显式 SDK 模式为 `session.status`）：starting / ready / working / host error。发送失败保留草稿并显示可关闭的错误横幅。自定义 channel 的错误详情不展示原始 stderr。
 - 协商 `session.cancel` 后，working 时的 Send 替换为 Stop；点击后显示禁用的 `Stopping…`，直到取消请求返回且 Host 确认 idle。提前收到 idle 也不会放行新消息；取消失败显示错误并允许重试。取消不清除下一条草稿。Stop 和 Send 使用不同的稳定 key，反复消失/返回时不复用错误控件状态。SDK/旧 Host 不启用 Stop。
-- 尚未实现：流式占位、Markdown、工具卡片折叠/diff、审批、提问、历史、会话列表、设置、附件。
+- 协商 `approval` 后，通过原生 Modal 按 FIFO 展示工具、原因和完整关联参数；提供 Allow once / Deny / Stop turn。Escape 或点击弹窗外拒绝，提交时防重复，失败可重试，草稿保留；external 请求显示未关联警告。请求身份作为稳定 key，关闭后下一请求不继承旧控件状态。
+- 尚未实现：流式占位、Markdown、工具卡片折叠/diff、提问、历史、会话列表、设置、附件。
 
 ## 视图模型
 
@@ -126,8 +127,8 @@ App
 
 - `ui.Modal` / `ui.AlertDialog`；一次一个，显示队列位置。
 - 键盘：Tab 在选项间移动，Enter 确认，Esc 取消/拒绝。
-- 审批详情可折叠；默认只显示工具名、原因、命令摘要。
-- 提问支持多问题、单选/多选/自由文本；提交前校验必填。
+- 当前审批直接展示工具名、原因和可滚动的完整原始参数；折叠详情留待后续，不使用截断摘要做允许判断。
+- 提问尚未实现；目标支持多问题、单选/多选/自由文本，提交前校验必填。
 - 队列变化时不要抢走用户正在编辑的输入焦点。
 
 ## 会话列表

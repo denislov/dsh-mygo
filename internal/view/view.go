@@ -9,6 +9,7 @@ import (
 
 	mgo "github.com/egoist/mygo/ui"
 
+	"dsh-mygo/internal/interaction"
 	"dsh-mygo/internal/projection"
 )
 
@@ -31,19 +32,23 @@ const (
 // Model is the window's state. The app mutates it on the main thread and
 // keeps the transcript and draft outside the view.
 type Model struct {
-	Items         []projection.Item
-	Draft         string
-	Phase         Phase
-	ModelLabel    string
-	Detail        string
-	Error         string
-	ErrorDetail   string
-	Send          func(text string)
-	Dismiss       func()
-	Cancel        func()
-	CanCancel     bool
-	CancelPending bool
-	List          mgo.ListState
+	Items           []projection.Item
+	Draft           string
+	Phase           Phase
+	ModelLabel      string
+	Detail          string
+	Error           string
+	ErrorDetail     string
+	Send            func(text string)
+	Dismiss         func()
+	Cancel          func()
+	CanCancel       bool
+	CancelPending   bool
+	CanApprove      bool
+	ApprovalOpen    bool
+	Approvals       []interaction.Approval
+	RespondApproval func(requestID, decision string)
+	List            mgo.ListState
 }
 
 // NewModel returns a model with a list that follows the newest row and keeps
@@ -66,6 +71,7 @@ func View(c *mgo.Context, model *Model) {
 		transcript(c, model)
 		composer(c, model)
 	})
+	approvalModal(c, model)
 }
 
 func header(c *mgo.Context, model *Model) {
