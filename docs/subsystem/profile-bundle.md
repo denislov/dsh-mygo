@@ -22,6 +22,8 @@ profile 由 `dsh-base` + `@dsh-mygo/host` 组成。channel 依赖 launcher 的 `
 
 Host 历史通过 `session.history` capability 启用，使用公开 sessionPersistence 与 agents.resume，不扫描私有存储或修改 DSH core。根会话目录、冷恢复路由、分页边界和预算以 [通道协议](channel-protocol.md#当前-host-历史能力) 为准；原生 Sessions 弹窗已接入列表/新建/恢复。
 
+模型设置通过 model.selection capability 启用；channel 从同版本 @deepseek-ai/dsh-agent 引入公开 installModelSelection，在 create/resume 的 Agent setup 中安装作用域内选择引用。校验后向 Host 日志提交 model/selection，再由该公开适配器在下一次 prompt/request 组装时应用；不修改 Agent 内部字段、全局默认模型或 profile patch。目录及 secret 边界以 [设置与凭据](settings-credentials.md) 为准。
+
 审批通过 `approval` capability 启用，等待原生 UI 允许一次或拒绝；`maxPendingApprovals` 默认 32，范围 1–64，超限返回 unavailable。提问通过 `question` capability 启用，`maxPendingQuestions` 默认 32，范围 1–64；未协商或超限返回 NO_PROVIDER，不悬挂。
 
 base 只提供提问服务；自有 patch 增加稳定行 `tool-ask-user`，绑定 `@deepseek-ai/dsh-tool-ask-user` 同版本并显式配置 `mode: legacy`，注册阻塞式 `ask_user_question`。当前不支持 timed foreground claim、continued/迟到回复，不通过隐式改配置冒充支持。后文私有 Host、发布安装和包管理描述后续设计。

@@ -97,6 +97,12 @@ Markdown 的投影测试验证前导缩进、末尾换行、开放围栏和截�
 
 fake host 的 `--sessions` 提供内存 persistence 和 `demo-history` 已存会话，供 Windows 原生 UI Automation 检查 Sessions 弹窗、历史正文、恢复后发送、新建、草稿往返、窄窗口布局与退出回收。它不承诺跨 fake Host 重启持久化；真实持久化由真实 Loader 测试证明。macOS 原生窗口仍需平台验收。
 
+模型设置：Node models.test.mjs 覆盖能力协商、白名单目录/secret 排除、目录与帧预算、元数据失败、字段与 busy 校验、持久事件提交失败回滚、并发写入预约、校验超时和退出后拒绝迟到提交。Go reader/App 测试覆盖目录 schema、Host 确认后更新、缺失选择事件时失败、表单/草稿保留、读取取消与迟到响应隔离、提交结果未确认时禁止发送/切换直到 Host Refresh 完成；ui.NewTester 覆盖 Apply 防重复、effort/default、Escape、旧 Host 隐藏入口、未确认模型提示和最小窗口。
+
+`TestAgainstMygoModelSettings/{fake,real}` 在已完成一次请求的同一会话切到 route-probe/high，断言实际生成请求返回选择的 provider/model/effort；再清除 effort，断言下一请求不继承 high。新建不改变启动默认，切回已有会话保留其模型并可继续请求。real 使用正式公开 installModelSelection、真实 Agent loop 和 mock adapter，不使用付费 API。
+
+fake `--models` 暴露 test provider 与 echo/route-probe，可结合 --sessions 演示。Windows 原生窗口检查 Settings、手动模型应用、实际后续回复、错误反馈、草稿保留、窄窗口与退出回收；effort 选择/清除由 Tester 与真实 Loader 请求测试验证，不以 UI Automation 不支持的只读 Value/SelectionItem 模式冒充原生点击验收。
+
 `TestAgainstMygoRealStreaming/markdown` 与 `markdown-cancel` 在真实 Loader mock adapter 暂停点验证完整/中断 Markdown 的源文（包括空白）从 stream 到 durable 提交保持一致，之后同会话继续 pong。fake `--markdown` / `--markdown-wait` 供 Windows 原生渲染、代码/消息复制和系统剪贴板精确内容验收，无付费模型调用。
 
 断言：

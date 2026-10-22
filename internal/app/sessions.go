@@ -183,7 +183,7 @@ func (a *App) loadSession(id string) {
 			a.stream = projection.AssistantStream{}
 			a.model.ResetTranscript(transcript.Items())
 			a.model.Draft = a.drafts[summary.ID]
-			a.model.ModelLabel = summary.Provider + " · " + summary.Model
+			a.model.SetActiveRoute(view.ModelRoute{Provider: summary.Provider, Model: summary.Model, Effort: summary.Effort})
 			a.model.Error = ""
 			a.model.ErrorDetail = ""
 			a.model.SessionsOpen = false

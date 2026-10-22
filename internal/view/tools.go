@@ -67,7 +67,7 @@ func toolInspectorModal(c *mgo.Context, model *Model) {
 		model.ToolInspector = nil
 		return
 	}
-	if len(model.Approvals) > 0 || len(model.Questions) > 0 || model.SessionsOpen {
+	if len(model.Approvals) > 0 || len(model.Questions) > 0 || model.SessionsOpen || model.SettingsOpen {
 		return
 	}
 	if inspector.source != item.Tool {

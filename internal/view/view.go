@@ -33,48 +33,64 @@ const (
 // Model is the window's state. The app mutates it on the main thread and
 // keeps the transcript and draft outside the view.
 type Model struct {
-	Items               []projection.Item
-	Draft               string
-	Phase               Phase
-	ModelLabel          string
-	Detail              string
-	Error               string
-	ErrorDetail         string
-	Send                func(text string)
-	Dismiss             func()
-	Cancel              func()
-	CanCancel           bool
-	CanStream           bool
-	CancelPending       bool
-	CanApprove          bool
-	ApprovalOpen        bool
-	Approvals           []interaction.Approval
-	RespondApproval     func(requestID, decision string)
-	CanQuestion         bool
-	QuestionOpen        bool
-	Questions           []*interaction.QuestionRequest
-	RespondQuestion     func(requestID string, cancel bool)
-	List                mgo.ListState
-	ToolCards           map[string]*ToolCardState
-	ToolInspector       *ToolInspectorState
-	Markdown            markdown.Options
-	InterruptedMarkdown markdown.Options
-	CopiedMessageID     string
-	CopiedMessageText   string
-	CanHistory          bool
-	SessionID           string
-	SessionCWD          string
-	Sessions            []SessionSummary
-	SessionsOpen        bool
-	SessionBusy         bool
-	SessionSwitching    bool
-	SessionsError       string
-	SessionList         mgo.ListState
-	OpenSessions        func()
-	RefreshSessions     func()
-	CloseSessions       func()
-	NewSession          func()
-	SwitchSession       func(string)
+	Items                []projection.Item
+	Draft                string
+	Phase                Phase
+	ModelLabel           string
+	Detail               string
+	Error                string
+	ErrorDetail          string
+	Send                 func(text string)
+	Dismiss              func()
+	Cancel               func()
+	CanCancel            bool
+	CanStream            bool
+	CancelPending        bool
+	CanApprove           bool
+	ApprovalOpen         bool
+	Approvals            []interaction.Approval
+	RespondApproval      func(requestID, decision string)
+	CanQuestion          bool
+	QuestionOpen         bool
+	Questions            []*interaction.QuestionRequest
+	RespondQuestion      func(requestID string, cancel bool)
+	List                 mgo.ListState
+	ToolCards            map[string]*ToolCardState
+	ToolInspector        *ToolInspectorState
+	Markdown             markdown.Options
+	InterruptedMarkdown  markdown.Options
+	CopiedMessageID      string
+	CopiedMessageText    string
+	CanHistory           bool
+	SessionID            string
+	SessionCWD           string
+	Sessions             []SessionSummary
+	SessionsOpen         bool
+	SessionBusy          bool
+	SessionSwitching     bool
+	SessionsError        string
+	SessionList          mgo.ListState
+	OpenSessions         func()
+	RefreshSessions      func()
+	CloseSessions        func()
+	NewSession           func()
+	SwitchSession        func(string)
+	CanModels            bool
+	ActiveRoute          ModelRoute
+	Catalog              ModelCatalog
+	SettingsOpen         bool
+	SettingsBusy         bool
+	SettingsApplying     bool
+	ModelUncertain       bool
+	SettingsError        string
+	SettingsProvider     string
+	SettingsModel        string
+	SettingsCatalogModel string
+	SettingsEffort       string
+	OpenSettings         func()
+	CloseSettings        func()
+	RefreshSettings      func()
+	ApplySettings        func()
 }
 
 // NewModel returns a model with a list that follows the newest row and keeps
@@ -111,6 +127,7 @@ func View(c *mgo.Context, model *Model) {
 	questionModal(c, model)
 	toolInspectorModal(c, model)
 	sessionsModal(c, model)
+	settingsModal(c, model)
 }
 
 func header(c *mgo.Context, model *Model) {
@@ -120,15 +137,24 @@ func header(c *mgo.Context, model *Model) {
 		if model.CanHistory && model.OpenSessions != nil {
 			mgo.Button(c.Key("sessions"), "Sessions").Disabled(!model.CanChooseSession()).OnClick(model.OpenSessions)
 		}
-		if model.ModelLabel != "" {
+		if model.CanModels && model.OpenSettings != nil {
+			mgo.Button(c.Key("settings"), "Settings").Disabled(!model.CanEditSettings()).OnClick(model.OpenSettings)
+		}
+		if model.ModelLabel != "" && !model.CanModels {
 			mgo.Text(c, model.ModelLabel).FontSize(12).TextColor(theme.TextMuted)
 		}
 		mgo.Spacer(c)
-		if model.Detail != "" {
+		if model.Detail != "" && !model.CanModels {
 			mgo.Text(c, model.Detail).FontSize(11).TextColor(theme.TextMuted)
 		}
 		mgo.Text(c, phaseLabel(model.Phase)).FontSize(12).TextColor(phaseColor(model.Phase, theme))
 	})
+	if model.CanModels {
+		mgo.Row(c.Key("model-route")).Padding(0, 20, 8, 20).Gap(12).Children(func() {
+			mgo.Text(c, model.ModelLabel).FontSize(12).TextColor(theme.TextMuted).SingleLine().Grow(1)
+			mgo.Text(c, model.Detail).FontSize(11).TextColor(theme.TextMuted).SingleLine()
+		})
+	}
 	if model.CanHistory && model.SessionID != "" {
 		mgo.Row(c.Key("active-session")).Padding(0, 20, 8, 20).Gap(12).Children(func() {
 			mgo.Text(c, sessionLabel(SessionSummary{ID: model.SessionID})).FontSize(11).TextColor(theme.TextMuted)
@@ -266,7 +292,7 @@ func toolCard(c *mgo.Context, model *Model, item projection.Item) {
 func composer(c *mgo.Context, model *Model) {
 	theme := c.Theme()
 	stopped := model.Phase == PhaseStopped || model.Phase == PhaseFailed || model.SessionSwitching
-	canSend := model.Phase == PhaseIdle && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy
+	canSend := model.Phase == PhaseIdle && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy && !model.SettingsOpen && !model.SettingsBusy && !model.ModelUncertain
 	mgo.Column(c).Padding(12, 20, 16, 20).Gap(8).Children(func() {
 		mgo.TextArea(c.Key("composer-"+model.SessionID), &model.Draft).Lines(1, 8).
 			Label("Message").Placeholder("Message DeepSeek…").AutoFocus().Disabled(stopped).
@@ -308,6 +334,9 @@ func composer(c *mgo.Context, model *Model) {
 }
 
 func composerHint(model *Model) string {
+	if model.ModelUncertain && model.Phase == PhaseIdle {
+		return "Model selection unconfirmed · open Settings to refresh"
+	}
 	if model.SessionSwitching {
 		return "Loading session history…"
 	}

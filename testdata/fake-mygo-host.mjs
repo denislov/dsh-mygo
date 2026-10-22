@@ -13,11 +13,12 @@ const ctx = {
   on(name, handler) { events.on(name, handler); return () => events.off(name, handler) },
   llm: { async resolveCallConfig() {} },
   agents: {
-    async create({ sessionId, meta }) {
+    async create({ sessionId, meta, setup }) {
       const source = stored.get(sessionId) ?? { header: { id: sessionId, cwd: meta?.cwd ?? process.cwd(), createdAt: Date.now(), version: 1, isSeeded: false }, events: [] }
       stored.set(sessionId, source)
+      const agentScope = {}
       const agent = {
-        session: { id: sessionId, header: source.header, seq: source.events.length }, status: 'idle', turns: source.events.filter((event) => event.type === 'turn/start').length, revision: 0,
+        session: { id: sessionId, header: source.header, seq: source.events.length, append(type, data) { events.emit('session/event', this, { type, data, seq: this.seq++, time: Date.now() }) } }, status: 'idle', turns: source.events.filter((event) => event.type === 'turn/start').length, revision: 0,
         followup(message) {
           const work = { ...Promise.withResolvers(), finished: false, cancelled: false, abort: new AbortController() }
           agent.work = work
@@ -45,7 +46,9 @@ const ctx = {
                 if (!work.approval && !work.question && !work.streaming) event('tool/call', diffFixture
                   ? { callId, name: 'edit', arguments: '{"file_path":"demo.txt","old_string":"before","new_string":"after"}' }
                   : { callId, name: 'read_file', arguments: '{"path":"README.md"}' })
-                const reply = work.streaming ? work.markdown ? markdownReply : 'Live prefix complete' : work.question ? approvalOutcome : work.approval ? approvalOutcome === 'allowed-once' ? 'Approved write' : 'Denied write' : `Echo: ${message.content.map((block) => block.text).join('\n')}`
+                let reply = work.streaming ? work.markdown ? markdownReply : 'Live prefix complete' : work.question ? approvalOutcome : work.approval ? approvalOutcome === 'allowed-once' ? 'Approved write' : 'Denied write' : `Echo: ${message.content.map((block) => block.text).join('\n')}`
+                const selected = agentScope.selection?.current
+                if (selected?.model === 'route-probe') reply = `Selected ${selected.provider}/${selected.model}/${selected.reasoningEffort ?? 'default'}`
                 if (work.streaming) {
                   chunk({ type: 'text-delta', index: 0, text: work.markdown ? markdownReply.slice(markdownPrefix.length) : ' complete' })
                   chunk({ type: 'block-end', index: 0, block: { type: 'text', text: reply } })
@@ -105,6 +108,7 @@ const ctx = {
         },
         whenIdle() { return agent.work?.promise ?? Promise.resolve() },
       }
+      setup?.(agentScope, agent)
       return { agent, async dispose() { agent.cancel(); await agent.whenIdle() } }
     },
   },
@@ -118,9 +122,9 @@ if (process.argv.includes('--sessions')) {
     { seq: 2, time, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Saved conversation' }] } } },
     { seq: 3, time, type: 'turn/end', data: { reason: { kind: 'completed' } } },
   ] })
-  ctx.agents.resume = async ({ resumeSessionId }) => {
+  ctx.agents.resume = async ({ resumeSessionId, setup }) => {
     if (!stored.has(resumeSessionId)) throw new Error('Unknown fixture session')
-    return ctx.agents.create({ sessionId: resumeSessionId })
+    return ctx.agents.create({ sessionId: resumeSessionId, setup })
   }
   ctx.sessionPersistence = {
     async list() { return [...stored.values()].map(({ header }) => ({ header })) },
@@ -131,11 +135,20 @@ if (process.argv.includes('--sessions')) {
     },
   }
 }
+if (process.argv.includes('--models')) {
+  ctx.llm.listProviders = () => [{ id: 'test', name: 'Test provider' }]
+  ctx.llm.listModels = async (provider) => [{ provider, id: 'echo', name: 'Echo' }, { provider, id: 'route-probe', name: 'Route probe' }]
+  ctx.llm.resolveModelInfo = async (_provider, model) => model === 'route-probe' ? { reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }] } } : {}
+  ctx.llm.resolveCallConfig = async ({ provider, model, reasoningEffort }) => {
+    if (provider !== 'test' || model === 'bad' || reasoningEffort !== undefined && (model !== 'route-probe' || !['low', 'high'].includes(reasoningEffort))) throw new Error('Invalid fixture model route')
+  }
+}
 const channel = new LineChannel(process.stdin, process.stdout, { maxFrameBytes: 16 * 1024 * 1024 })
 const server = new MygoServer(ctx, {
   notify: (method, params) => channel.notify(method, params),
   createUserMessage: (options) => ({ ...options, id: randomUUID() }),
   reasoningEffort: (value) => value, dshVersion: '0.2.1-rc.2',
+  ...(process.argv.includes('--models') ? { installModelSelection: (agentScope, selection) => { agentScope.selection = selection } } : {}),
 })
 channel.start(async (method, params) => {
   const result = await server.handle(method, params)

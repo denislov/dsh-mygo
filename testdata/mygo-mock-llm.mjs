@@ -7,12 +7,17 @@ import { once } from 'node:events'
 import { markdownPrefix, markdownReply } from './markdown-sample.mjs'
 
 class MygoMockAdapter extends LlmAdapter {
+  async listModels(provider) {
+    return [{ provider, id: 'echo', name: 'Echo' }, { provider, id: 'route-probe', name: 'Route probe' }]
+  }
+
   async resolveModel(provider, model) {
-    return { provider, id: model, name: model }
+    return { provider, id: model, name: model, ...(model === 'route-probe' ? { reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }] } } : {}) }
   }
 
   async *stream(options) {
     let reply = 'pong'
+    if (options.model === 'route-probe') reply = `Selected ${options.provider}/${options.model}/${options.reasoningEffort ?? 'default'}`
     if (options.model === 'diff-probe') {
       const step = this.diffCalls ?? 0
       if (step < 2) {

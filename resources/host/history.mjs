@@ -99,7 +99,7 @@ export class SessionHistory {
     if (params.direction !== undefined && params.direction !== 'forward') throw fault('protocol/invalid-params', 'Only forward history is supported', -32602)
     const record = this.sessions.get(id)
     if (!record?.handle) throw fault('session/not-found', 'Session is not owned by this host')
-    if (record.busy || record.handle.agent.status !== 'idle') throw fault('session/busy', 'Wait for the session to become idle before reading history')
+    if (record.busy || record.modelUpdating || record.handle.agent.status !== 'idle') throw fault('session/busy', 'Wait for the session to become idle before reading history')
     const state = params.cursor === undefined ? { kind: 'history', id, offset: 0, nextSeq: record.handle.agent.session.seq } : this.cursor(params.cursor, 'history', id)
     const persistence = this.ctx.get('sessionPersistence')
     let events

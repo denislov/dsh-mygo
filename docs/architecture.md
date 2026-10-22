@@ -245,7 +245,7 @@ Go 的 `SessionProjection` 从 `session/assistant-stream` 与 `session/event` �
 - 成功标准：登录/模型配置后能完成一个真实回合；取消与退出可用。
 - 不做：live 流式、审批、提问、历史、设置。
 
-**当前进度**：P1 原生窗口和 SDK 闭环已完成；自定义 channel、回合取消、工具审批、阻塞式用户提问、原生 Markdown 流式/复制与工具折叠/diff 已完成。默认入口使用 `mygo` profile，工具详情与只读 hunk 来自 Host 提交，不重读文件或推算历史；Markdown 不加载外部图片或执行代码，流式仍只是临时投影，提交日志为唯一真相。SDK 作为显式回归模式保留。Host 通过公开 persistence/agents.resume 提供列表、冷恢复和分页历史，Go 的原生 Sessions 弹窗已接入新建/列表/恢复与内存草稿隔离，验证 App 重启回放后继续对话；实时缺口自动 resync 尚未实现。当前能力边界见 [通道协议](subsystem/channel-protocol.md)；timed/continued 提问和设置仍在后续阶段。
+**当前进度**：P1 原生窗口和 SDK 闭环已完成；自定义 channel、回合取消、工具审批、阻塞式用户提问、原生 Markdown 流式/复制与工具折叠/diff 已完成。默认入口使用 `mygo` profile，工具详情与只读 hunk 来自 Host 提交，不重读文件或推算历史；Markdown 不加载外部图片或执行代码，流式仍只是临时投影，提交日志为唯一真相。SDK 作为显式回归模式保留。Host 通过公开 persistence/agents.resume 提供列表、冷恢复和分页历史，Sessions 已接入新建/列表/恢复与内存草稿隔离；Settings 通过公开 llm 目录和 installModelSelection 实现当前会话模型/effort 选择，真实请求验证下回合应用与清除继承 effort。实时缺口自动 resync 尚未实现。当前能力边界见 [通道协议](subsystem/channel-protocol.md)；timed/continued 提问、通用设置/凭据编辑仍在后续阶段。
 
 ### 阶段 B：自定义 profile
 

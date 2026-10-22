@@ -19,6 +19,7 @@ UI 壳层是 MyGo 进程里的原生界面：
 | `internal/app/app.go` | Host 启动/停止、版本握手、`session/create` / `session/prompt`、有界通知分发、`Window.Update` |
 | `internal/app/sessions.go` / `session_reader.go` | 会话操作、草稿隔离、列表/历史分页校验与后台回放 |
 | `internal/view/sessions.go` | 原生会话选择弹窗、刷新/新建/选择、transcript 控件重置 |
+| `internal/app/settings.go` / `internal/view/settings.go` | 白名单模型目录、会话级应用状态机与原生 Settings 面板 |
 | `internal/projection/` | 提交事件 → `Item`（user / assistant / tool / notice） |
 | `main.go` | flag、窗口、退出时停止 Host |
 
@@ -40,7 +41,8 @@ P1 的单窗口只有 header、transcript 列表、composer：
 - 协商 `session.history` 后，header 提供 Sessions，当前会话 ID 与 cwd 显示在独立信息行。原生选择弹窗显示当前 profile 的有界完整摘要列表、时间、状态与目录，支持 Refresh / New conversation / 选择恢复。第一版使用弹窗而非固定 Sidebar，兼容 560×420 窗口；旧 Host/SDK 不显示入口。
 - 仅 idle 且无审批/提问时允许导航。刷新可 Close/Escape 取消；历史加载期间显示 Loading、禁用发送与编辑，不能重复新建/切换或关闭弹窗。失败保留当前 transcript/草稿，弹窗中显示可重试的安全错误；审批/提问优先，不叠加会话弹窗与工具检视器。
 - 切换成功后才整体替换 transcript，清除工具展开/检视器、复制反馈、旧 ListState 和临时流式状态；transcript 与 composer 的控件身份包含 session id。每个会话草稿仅在本 App 内存中保存，返回时恢复，重启不恢复草稿。新建使用启动配置 cwd/模型；冷恢复使用启动模型与持久 cwd，已拥有会话保持 Host 原路由。
-- 尚未实现：timed/continued 提问、固定侧栏、搜索/重命名/归档/删除/fork、正在运行会话 attach、seq 缺口自动恢复、设置、附件。
+- Settings 提供当前会话模型面板：provider、模型目录建议、实际 Model ID、effort 与 Refresh/Apply model/Close。只在 idle 无交互、无会话操作时启用，Host 确认后显示新模型；读取可取消，提交期间防重复/禁止关闭，失败保留表单和草稿。面板内容可滚动，底部操作始终可达；header 将模型/Host 版本信息放在独立行，避免窄窗口挤掉 Sessions/Settings。
+- 尚未实现：timed/continued 提问、固定侧栏、搜索/重命名/归档/删除/fork、正在运行会话 attach、seq 缺口自动恢复、通用设置/凭据编辑、附件。
 
 ## 视图模型
 

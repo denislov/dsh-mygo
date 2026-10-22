@@ -4,6 +4,7 @@ import { isAbsolute } from 'node:path'
 import { ApprovalQueue } from './approval.mjs'
 import { QuestionQueue } from './question.mjs'
 import { SessionHistory, sessionID, sessionSummary } from './history.mjs'
+import { ModelSettings } from './models.mjs'
 
 export const protocolVersion = 1
 export const releaseVersion = '0.1.0'
@@ -21,12 +22,13 @@ function text(value, field, limit = 256) {
 }
 
 export class MygoServer {
-  constructor(ctx, { notify, createUserMessage, reasoningEffort, ensureProvider, dshVersion, maxSessions = 8, cancelTimeoutMs = 5000, maxPendingApprovals = 32, maxPendingQuestions = 32, maxFrameBytes = 16 * 1024 * 1024 }) {
+  constructor(ctx, { notify, createUserMessage, reasoningEffort, ensureProvider, installModelSelection, dshVersion, maxSessions = 8, cancelTimeoutMs = 5000, maxPendingApprovals = 32, maxPendingQuestions = 32, maxFrameBytes = 16 * 1024 * 1024 }) {
     this.ctx = ctx
     this.notify = notify
     this.createUserMessage = createUserMessage
     this.reasoningEffort = reasoningEffort
     this.ensureProvider = ensureProvider
+    this.installModelSelection = installModelSelection
     this.dshVersion = dshVersion
     this.maxSessions = maxSessions
     this.cancelTimeoutMs = cancelTimeoutMs
@@ -35,6 +37,7 @@ export class MygoServer {
     this.questions = new QuestionQueue({ notify, maxPending: maxPendingQuestions })
     this.sessions = new Map()
     this.history = new SessionHistory(ctx, this.sessions, Math.floor(maxFrameBytes / 2))
+    this.models = new ModelSettings(this, Math.floor(maxFrameBytes / 2))
     this.initialized = false
     this.stopping = false
     this.disposers = [
@@ -84,6 +87,10 @@ export class MygoServer {
     if (!this.initialized) throw fault('protocol/not-initialized', 'Initialize the host first')
     switch (method) {
       case 'session/create': return this.create(params)
+      case 'model/list':
+      case 'model/select':
+        if (!this.capabilities.includes('model.selection')) throw fault('protocol/capability-unavailable', 'Model selection was not negotiated')
+        return method === 'model/list' ? this.models.list(params) : this.models.select(params)
       case 'session/list':
       case 'session/resume':
       case 'session/history':
@@ -116,6 +123,7 @@ export class MygoServer {
     this.initialized = true
     this.capabilities = ['session.cancel', 'approval', 'question', 'session.assistant-stream'].filter((capability) => params.capabilities.includes(capability))
     const persistence = this.ctx.get('sessionPersistence')
+    if (params.capabilities.includes('model.selection') && typeof this.installModelSelection === 'function' && ['listProviders', 'listModels', 'resolveModelInfo', 'resolveCallConfig'].every((method) => typeof this.ctx.llm[method] === 'function')) this.capabilities.push('model.selection')
     if (params.capabilities.includes('session.history') && ['list', 'stat', 'open', 'flush'].every((method) => typeof persistence?.[method] === 'function') && typeof this.ctx.agents.resume === 'function') {
       this.capabilities.push('session.history')
     }
@@ -134,14 +142,14 @@ export class MygoServer {
     const model = text(params.model, 'model')
     const effort = params.effort === undefined ? undefined : text(params.effort, 'effort')
     if (this.sessions.size >= this.maxSessions) throw fault('session/limit', 'Host session limit reached')
-    const record = { handle: undefined, busy: false, calls: new Map(), route: { provider, model, effort: effort ?? '' } }
+    const record = { handle: undefined, busy: false, calls: new Map(), route: { provider, model, effort: effort ?? '' }, selection: { current: undefined, assembled: undefined } }
     const sessionId = randomUUID()
     this.sessions.set(sessionId, record)
     try {
       await this.ensureProvider?.(provider)
       const agentOptions = { provider, model, ...(effort === undefined ? {} : { reasoningEffort: this.reasoningEffort(effort) }) }
       await this.ctx.llm.resolveCallConfig(agentOptions)
-      record.handle = await this.ctx.agents.create({ sessionId, meta: { cwd }, agentOptions })
+      record.handle = await this.ctx.agents.create({ sessionId, meta: { cwd }, agentOptions, ...(this.installModelSelection ? { setup: (agentCtx) => { this.installModelSelection(agentCtx, record.selection) } } : {}) })
       return { session: {
         id: sessionId, title: '', cwd, provider, model, effort: effort ?? '',
         createdAt: Date.now(), updatedAt: Date.now(), status: 'idle', archived: false,
@@ -157,14 +165,14 @@ export class MygoServer {
     const id = sessionID(params.sessionId)
     const existing = this.sessions.get(id)
     if (existing) {
-      if (!existing.handle || existing.busy || existing.handle.agent.status !== 'idle') throw fault('session/busy', 'Session is running or being restored')
+      if (!existing.handle || existing.busy || existing.modelUpdating || existing.handle.agent.status !== 'idle') throw fault('session/busy', 'Session is running or being restored')
       return { session: sessionSummary(existing.handle.agent.session.header, existing) }
     }
     const provider = text(params.provider, 'provider')
     const model = text(params.model, 'model')
     const effort = params.effort === undefined ? undefined : text(params.effort, 'effort')
     if (this.sessions.size >= this.maxSessions) throw fault('session/limit', 'Host session limit reached')
-    const record = { handle: undefined, busy: false, calls: new Map(), route: { provider, model, effort: effort ?? '' }, abort: new AbortController() }
+    const record = { handle: undefined, busy: false, calls: new Map(), route: { provider, model, effort: effort ?? '' }, abort: new AbortController(), selection: { current: undefined, assembled: undefined } }
     this.sessions.set(id, record)
     const task = (async () => {
       try {
@@ -176,7 +184,7 @@ export class MygoServer {
         const agentOptions = { provider, model, ...(effort === undefined ? {} : { reasoningEffort: this.reasoningEffort(effort) }) }
         await this.ctx.llm.resolveCallConfig(agentOptions)
         record.abort.signal.throwIfAborted()
-        record.handle = await this.ctx.agents.resume({ resumeSessionId: id, agentOptions, signal: record.abort.signal })
+        record.handle = await this.ctx.agents.resume({ resumeSessionId: id, agentOptions, signal: record.abort.signal, ...(this.installModelSelection ? { setup: (agentCtx) => { this.installModelSelection(agentCtx, record.selection) } } : {}) })
         if (this.stopping) {
           await record.handle.dispose()
           record.handle = undefined
@@ -207,7 +215,7 @@ export class MygoServer {
       if (block === null || typeof block !== 'object' || Array.isArray(block) || block.type !== 'text') throw fault('protocol/invalid-params', 'Only text content is supported', -32602)
       return { type: 'text', text: text(block.text, 'content text', 1024 * 1024) }
     })
-    if (record.busy || record.handle.agent.status !== 'idle') throw fault('session/busy', 'Session is running')
+    if (record.busy || record.modelUpdating || record.handle.agent.status !== 'idle') throw fault('session/busy', 'Session is running')
     record.busy = true
     try {
       const message = this.createUserMessage({ content, source: { kind: 'user' } })

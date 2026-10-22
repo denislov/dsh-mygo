@@ -6,7 +6,7 @@ DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node Host（`dsh-ba
 - 当前阶段：路线 A（SDK 验证）→ 路线 C（自定义 channel）。
 - 目标平台：macOS、Windows；Linux 视后续需要。
 
-自定义 channel、回合取消、工具审批、用户提问、Markdown 流式与工具折叠/diff 已落地：默认使用 `mygo` profile，校验 UI/Host/DSH 版本，显式创建会话、发送 prompt、显示提交后的 user/assistant/tool 事件与 running/idle 状态。原生助手正文支持 Markdown、只读高亮代码块与代码/源文复制；提供 Stop、审批与问答表单，保留下一条草稿。工具默认折叠，支持有界详情与只读 hunk；流式提交后不重复答案。SDK 链路保留作回归入口。Sessions 原生弹窗支持会话列表、新建、恢复、有界分页历史与会话间草稿隔离，已验证重启后继续对话。timed/continued 提问、自动补齐实时缺口、设置与打包尚未实现。
+自定义 channel、回合取消、工具审批、用户提问、Markdown 流式与工具折叠/diff 已落地：默认使用 `mygo` profile，校验 UI/Host/DSH 版本，显式创建会话、发送 prompt、显示提交后的 user/assistant/tool 事件与 running/idle 状态。原生助手正文支持 Markdown、只读高亮代码块与代码/源文复制；提供 Stop、审批与问答表单，保留下一条草稿。工具默认折叠，支持有界详情与只读 hunk；流式提交后不重复答案。SDK 链路保留作回归入口。Sessions 支持会话列表、新建、恢复、分页历史与草稿隔离；Settings 支持当前会话的 provider/model/effort，Host 确认后下个回合生效。timed/continued 提问、自动补齐实时缺口、通用设置/凭据编辑与打包尚未实现。
 
 ## 文档
 
@@ -45,6 +45,10 @@ go run . -host-command node -host-arg testdata/fake-mygo-host.mjs
 
 验证会话列表时额外传入 `-host-arg --sessions`：点击 **Sessions**，选择 `Session demo-history` 回放已有正文；可继续发送，或 **New conversation** 后切回验证草稿隔离。fake 历史仅在当前 Host 内存中保存，不跨进程重启持久化。
 
+验证模型设置时额外传入 `-host-arg --models -provider test -model echo`（可与 `--sessions` 组合）：空闲时点击 **Settings**，Model ID 填 `route-probe`，选择 effort 后 **Apply model**，再发送消息；回复会显示实际使用的测试路由。选择 Provider default 清除 effort，`bad` 模型演示错误反馈，不调用外部 API。
+
+Settings 只影响当前已拥有会话的下个回合，不修改启动默认、profile 或 API key。新建及重启后的显式冷恢复仍使用启动参数；当前 App 内切回已拥有会话保留其选择。旧 Host/SDK 未协商模型能力时隐藏入口。API key 继续由 Host 的环境/凭据机制管理，面板不读取 `.env` 或展示 secret。
+
 原生窗口 + 真实自定义 profile（Node 24+；DSH `0.2.1-rc.2`）：
 
 ```sh
@@ -63,6 +67,7 @@ go run . -dsh-dir D:/Workspace/deepseek-harness -dsh-home D:/Temp/dsh-mygo-dev
 $env:DSH_MYGO_DSH_DIR = 'D:/Workspace/deepseek-harness'
 go test ./internal/app -run TestAgainstMygoRealComposition -v -timeout 2m
 go test ./internal/app -run TestAgainstMygoSessionSwitching -v -timeout 3m
+go test ./internal/app -run TestAgainstMygoModelSettings -v -timeout 3m
 node --test resources/host/tests/*.test.mjs
 ```
 

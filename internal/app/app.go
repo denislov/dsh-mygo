@@ -95,6 +95,8 @@ type App struct {
 	sessionBuffer      []hostNotification
 	sessionBufferBytes int
 	drafts             map[string]string
+	settingsOperation  uint64
+	settingsCancel     context.CancelFunc
 
 	shuttingDown atomic.Bool
 	stopped      chan struct{}
@@ -109,7 +111,7 @@ func New(options Options) *App {
 	app := &App{options: options, sessionID: options.SessionID, stopped: make(chan struct{}), pendingUI: make(chan struct{}, maxPendingUIUpdates)}
 	app.model = view.NewModel()
 	if options.Provider != "" && options.Model != "" {
-		app.model.ModelLabel = options.Provider + " · " + options.Model
+		app.model.SetActiveRoute(view.ModelRoute{Provider: options.Provider, Model: options.Model, Effort: options.ReasoningEffort})
 	}
 	app.model.Send = app.Send
 	app.model.Dismiss = app.DismissError
@@ -121,6 +123,11 @@ func New(options Options) *App {
 	app.model.RefreshSessions = app.RefreshSessions
 	app.model.NewSession = app.NewSession
 	app.model.SwitchSession = app.SwitchSession
+	app.model.OpenSettings = app.OpenSettings
+	app.model.CloseSettings = app.CloseSettings
+	app.model.RefreshSettings = app.RefreshSettings
+	app.model.ApplySettings = app.ApplySettings
+	app.model.ActiveRoute = view.ModelRoute{Provider: options.Provider, Model: options.Model, Effort: options.ReasoningEffort}
 	return app
 }
 
@@ -196,6 +203,7 @@ func (a *App) Start() {
 		a.model.SessionID = initialized.sessionID
 		a.model.SessionCWD = a.options.CWD
 		a.model.CanHistory = initialized.canHistory
+		a.model.CanModels = initialized.canModels
 		a.model.CanCancel = initialized.canCancel
 		a.model.CanApprove = initialized.canApprove
 		a.model.CanQuestion = initialized.canQuestion
@@ -216,6 +224,7 @@ type initializedSession struct {
 	canQuestion bool
 	canStream   bool
 	canHistory  bool
+	canModels   bool
 }
 
 func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSession, error) {
@@ -242,7 +251,7 @@ func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSess
 	result, err := client.Call(ctx, "initialize", map[string]any{
 		"protocolVersion": channel.ProtocolVersion,
 		"client":          map[string]string{"name": "dsh-mygo", "version": channel.ReleaseVersion, "platform": runtime.GOOS, "locale": "zh-CN"},
-		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history"},
+		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history", "model.selection"},
 	})
 	if err != nil {
 		return initializedSession{}, err
@@ -277,6 +286,7 @@ func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSess
 		canQuestion: slices.Contains(initialized.Capabilities, "question"),
 		canStream:   slices.Contains(initialized.Capabilities, "session.assistant-stream"),
 		canHistory:  slices.Contains(initialized.Capabilities, "session.history"),
+		canModels:   slices.Contains(initialized.Capabilities, "model.selection"),
 	}, nil
 }
 
@@ -296,7 +306,7 @@ func validSessionID(value string) bool {
 // while the host is busy or not ready.
 func (a *App) Send(text string) {
 	text = strings.TrimSpace(text)
-	if text == "" || a.shuttingDown.Load() || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 || a.model.SessionBusy {
+	if text == "" || a.shuttingDown.Load() || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 || a.model.SessionBusy || a.model.SettingsBusy || a.model.SettingsOpen || a.model.ModelUncertain {
 		return
 	}
 	client := a.currentClient()
@@ -567,6 +577,7 @@ func (a *App) Shutdown(timeout time.Duration) {
 	a.post(a.clearQuestions)
 	a.post(a.clearStream)
 	a.post(a.cancelSessionOperation)
+	a.post(a.cancelSettingsOperation)
 	a.mu.Lock()
 	client := a.client
 	supervisor := a.supervisor
@@ -614,6 +625,8 @@ func (a *App) setFailure(summary string, err error) {
 	a.model.Phase = view.PhaseFailed
 	a.cancelSessionOperation()
 	a.model.SessionsOpen = false
+	a.cancelSettingsOperation()
+	a.model.SettingsOpen = false
 	a.model.CancelPending = false
 	a.clearApprovals()
 	a.clearQuestions()

@@ -12,7 +12,7 @@
 ## 当前实现（自定义 channel + 取消 + 人机交互 + 文本流式）
 
 - UI/Host 发布版本 `0.1.0`、`protocolVersion: 1`、DSH `0.2.1-rc.2` 精确绑定；不匹配时拒绝进入 ready。
-- 已实现 `initialize`、`session/create`、`session/list`、`session/resume`、`session/history`、`session/prompt`、`session/cancel`、`approval/respond`、`question/respond`、`question/cancel`、`shutdown`；通知为 `session/event`、`session/assistant-stream`、`session/status`、`approval/request`、`approval/closed`、`question/request`、`question/closed`、`host/fatal`。
+- 已实现 `initialize`、`session/create`、`session/list`、`session/resume`、`session/history`、`session/prompt`、`session/cancel`、`model/list`、`model/select`、`approval/respond`、`question/respond`、`question/cancel`、`shutdown`；通知为 `session/event`、`session/assistant-stream`、`session/status`、`approval/request`、`approval/closed`、`question/request`、`question/closed`、`host/fatal`。
 - UI 声明 `session.cancel`，Host 仅在双方支持时返回该 capability；未协商时调用取消返回 `protocol/capability-unavailable`。旧 Host 不声明时，UI 不展示 Stop。UI 通过 `session.history` 协商 list/resume/history，并提供原生 Sessions 入口；下文其余未列为已实现的方法、附件、RPC 请求取消仍是后续契约。
 - 文本流式通过 `session.assistant-stream` capability 启用；Host 只转发自己拥有的确切 agent 的公开流式帧。旧 Host/SDK 保持仅提交模式，不自动降级协议。Go 只展示 text，reasoning/工具参数不进入临时行。
 - `session/create` 当前要求已有绝对目录 `cwd`、`provider`、`model`，可选 `effort`；Host 验证模型路由后创建并拥有 session id。prompt 只接受自己创建或通过公开 agents.resume 恢复并拥有的会话和 text content，忙碌时拒绝新 prompt。
@@ -108,13 +108,13 @@
 
 | 方法 | 参数 | 结果 |
 | --- | --- | --- |
-| `model/list` | `{}` | `{ providers: ProviderCatalog[] }` |
-| `model/select` | `{ sessionId, provider, model, effort? }` | `{ session: SessionSummary }` |
+| `model/list` | `{ sessionId, provider? }`（需 model.selection） | `{ providers: {id,name}[], provider, models: {id,name,available,efforts:{id,name}[],reason?}[], selection:{provider,model,effort}, available, reason? }` |
+| `model/select` | `{ sessionId, provider, model, effort? }`（需 model.selection） | `{ session: SessionSummary }` |
 | `settings/get` | `{ namespace? }` | `{ values }`（只返回非 secret） |
 | `settings/set` | `{ namespace, values }` | `{ values }` |
 | `settings/open-document` | `{ namespace }` | `{}`（可选；由 Host 打开原生编辑器） |
 
-第一版可以只实现 `model/list`、`model/select` 和少量设置；其余用 profile patch 或 CLI。
+当前只实现模型目录和当前会话选择，通过 model.selection 协商；settings/get/set/open-document 均未实现，不接受任意命名空间写入。目录、范围、资源限制和凭据边界见 [设置与凭据](settings-credentials.md#当前实现会话模型设置)。model/select 的 effort 省略或空字符串均代表清除显式 override；成功提交一个 model/selection 事件并返回新的 nextSeq，不修改历史消息或全局默认值。
 
 ### 交互
 

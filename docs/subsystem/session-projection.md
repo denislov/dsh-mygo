@@ -32,6 +32,7 @@
 - `question/request` / `question/closed` 同样由交互层管理，不把本地表单或取消动作写成历史。结构化答案通过真实 `ask_user_question` 工具结果进入 Host 日志；当前仅支持阻塞等待，尚不投影 timed/continued 问题或迟到回复。会话 idle 清理本会话提问，无 agent 请求不随会话 idle 消失。
 - 列表预览按 rune 截断：消息 8000、工具参数/结果 4000；工具详情按下述独立字节预算保留，超限或淘汰必须提示，不冒充完整内容。打开历史也遵守相同展示上限，不承诺完整原文复制或按需加载被淘汰详情。
 - 已有助手 Markdown 增量展示及工具折叠/只读 diff；reasoning、工具参数不展示为临时正文。已有原生 Sessions 历史入口，尚无 usage/context 展示。
+- model/selection 是 Host 提交的持久选择意图，参与 nextSeq 顺序与历史回放，但不增加聊天正文行。Settings 以匹配的 Host 确认更新当前模型标签；真实请求配置仍由 DSH 生成。模型变更产生的 synthetic model-selection context 不是用户输入，不进入 transcript。
 - 助手保留文本块的前导空白与末尾换行，不用 TrimSpace 改写代码缩进/开放围栏；多文本块仍以两个换行连接。临时和提交投影均显式标记 Truncated，截断上限仍为 8000 rune（省略标记另计），不保留第二份完整历史或推断缺失内容。
 
 ## 真相源
