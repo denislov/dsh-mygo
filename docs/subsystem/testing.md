@@ -91,6 +91,8 @@ go test ./internal/channel ./internal/app
 
 Markdown 的投影测试验证前导缩进、末尾换行、开放围栏和截断标记；ui.NewTester 验证原生格式、中文代码精确复制、完整源文复制、开放/中断代码禁用复制、截断原文回退、反馈身份以及用户/工具原文隔离。链接测试使用 Tester 的虚拟 URL 服务，不实际打开网站；不安装图片/HTML 加载器。
 
+`resources/host/tests/history.test.mjs` 覆盖 history 能力协商、拥有句柄、固定前缀与列表快照、forward 分页、游标作用域/过期/淘汰、页与目录预算、busy/非法输入、短页/乱序拒绝、错误脱敏、失败重试、退出中的恢复与句柄关闭。`TestMygoRealHistoryAfterRestart` 使用真实 Loader、JSONL persistence 和 mock adapter：第一进程完成并关闭，第二进程 list/resume/分页回放，确认原始日志前缀不变、继续 pong，使用现有投影得到恰好两个助手答案；额外进程验证单写者争用拒绝。设置 DSH_MYGO_DSH_DIR 运行，不需要 API key。原生历史 UI 尚未接入，因此此阶段不声称完成窗口切换验收。
+
 `TestAgainstMygoRealStreaming/markdown` 与 `markdown-cancel` 在真实 Loader mock adapter 暂停点验证完整/中断 Markdown 的源文（包括空白）从 stream 到 durable 提交保持一致，之后同会话继续 pong。fake `--markdown` / `--markdown-wait` 供 Windows 原生渲染、代码/消息复制和系统剪贴板精确内容验收，无付费模型调用。
 
 断言：

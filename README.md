@@ -6,7 +6,7 @@ DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node Host（`dsh-ba
 - 当前阶段：路线 A（SDK 验证）→ 路线 C（自定义 channel）。
 - 目标平台：macOS、Windows；Linux 视后续需要。
 
-自定义 channel、回合取消、工具审批、用户提问、Markdown 流式与工具折叠/diff 已落地：默认使用 `mygo` profile，校验 UI/Host/DSH 版本，显式创建会话、发送 prompt、显示提交后的 user/assistant/tool 事件与 running/idle 状态。原生助手正文支持 Markdown、只读高亮代码块与代码/源文复制；提供 Stop、审批与问答表单，保留下一条草稿。工具默认折叠，支持有界详情与只读 hunk；流式提交后不重复答案。SDK 链路保留作回归入口。timed/continued 提问、历史、设置与打包尚未实现。
+自定义 channel、回合取消、工具审批、用户提问、Markdown 流式与工具折叠/diff 已落地：默认使用 `mygo` profile，校验 UI/Host/DSH 版本，显式创建会话、发送 prompt、显示提交后的 user/assistant/tool 事件与 running/idle 状态。原生助手正文支持 Markdown、只读高亮代码块与代码/源文复制；提供 Stop、审批与问答表单，保留下一条草稿。工具默认折叠，支持有界详情与只读 hunk；流式提交后不重复答案。SDK 链路保留作回归入口。Host 已提供会话列表、冷恢复与有界分页历史，并验证重启后继续对话；原生历史入口与会话切换、timed/continued 提问、设置与打包尚未实现。
 
 ## 文档
 

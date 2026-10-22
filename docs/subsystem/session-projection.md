@@ -25,13 +25,13 @@
 
 - synthetic user context（`source.kind != "user"`）、system/developer 消息、reasoning、`assistant/attempt`、请求元数据不进入 transcript。
 - 每个事件的 `seq` 去重；工具结果先到时保留稳定占位，后续仅按确切 callId 补齐，不按工具名/位置猜测。工具行身份始终是 `tool:<callId>`，补齐不覆盖已记录结果与错误状态。
-- 自定义 channel 的 `session/create.session.nextSeq` 提供实时事件起点；App 校验外层 `seq` 与 `event.seq` 一致，重复事件忽略，缺口停止 Host 并报错。history capability 落地前不尝试拼接缺失事件。
+- 自定义 channel 的 `session/create.session.nextSeq` 提供实时事件起点；App 校验外层 `seq` 与 `event.seq` 一致，重复事件忽略，缺口停止 Host 并报错。Host 已提供 history capability，但 Go 尚未接入，不尝试拼接缺失事件。
 - 旧 SDK 回归模式仍消费 `session.event`；两种 envelope 共用相同提交事件投影，UI 不生成或持久化会话历史。
 - Stop 不直接修改 transcript；DSH 提交的 `turn/end.reason.kind == "aborted"` 投影为取消 notice。若取消发生在回合完成之后，按实际提交结果展示，不补造取消行。取消后的同一 session 继续从原有 `nextSeq` 接收下一回合。
 - `approval/request` / `approval/closed` 是连接内临时交互，由 `internal/interaction` 管理，不进入 transcript。审批结果只通过 Host 提交的工具结果体现；弹窗展示原始关联参数，不使用下述截断后的工具行。idle、失败和退出清理临时队列，不伪造审批历史。
 - `question/request` / `question/closed` 同样由交互层管理，不把本地表单或取消动作写成历史。结构化答案通过真实 `ask_user_question` 工具结果进入 Host 日志；当前仅支持阻塞等待，尚不投影 timed/continued 问题或迟到回复。会话 idle 清理本会话提问，无 agent 请求不随会话 idle 消失。
 - 列表预览按 rune 截断：消息 8000、工具参数/结果 4000；工具详情按下述独立字节预算保留，超限或淘汰必须提示，不冒充完整内容。完整历史仍待实现。
-- 已有助手 Markdown 增量展示及工具折叠/只读 diff；reasoning、工具参数不展示为临时正文。无 history、无 usage/context 展示。
+- 已有助手 Markdown 增量展示及工具折叠/只读 diff；reasoning、工具参数不展示为临时正文。尚无原生历史入口或 usage/context 展示。
 - 助手保留文本块的前导空白与末尾换行，不用 TrimSpace 改写代码缩进/开放围栏；多文本块仍以两个换行连接。临时和提交投影均显式标记 Truncated，截断上限仍为 8000 rune（省略标记另计），不保留第二份完整历史或推断缺失内容。
 
 ## 真相源
@@ -148,6 +148,10 @@ idle
 
 ## 历史回放
 
+当前已实现 Host list/resume/history，具体参数、快照边界和资源预算以 [通道协议](channel-protocol.md#当前-host-历史能力) 为准。真实 Loader 集成验证停机后通过 persistence 列表找回会话、分页重放同一日志前缀，并恢复后继续生成第二回合；回放使用现有 Transcript.Apply，UI 不持久化副本。
+
+Go App 尚未协商该能力，原生列表与切换仍待下一阶段。当前 Host 只支持 idle 历史，客户端应在完整回放并确认 nextSeq 前禁止新 prompt；以下历史/实时缓冲与自动 resync 是后续 UI 契约，不是当前行为。
+
 打开旧会话：
 
 1. `session/resume` 恢复 Agent（不重发旧事件）。
@@ -158,7 +162,7 @@ idle
 
 分页：
 
-- `session/history` 使用 `cursor` + `limit` + `direction`；第一版从最新往回翻，或从最旧往后翻，固定一种。
+- `session/history` 使用 `cursor` + `limit` + `direction`；当前 Host 固定从 seq 0 向前分页。
 - UI 只保留窗口内的 turn；向上滚动时再拉上一页。
 - 历史页与实时事件的投影函数必须相同，避免两套渲染。
 
@@ -210,7 +214,7 @@ idle
 | 失败 | 处理 |
 | --- | --- |
 | 未知事件类型 | 忽略 + 一次性诊断日志 |
-| `seq` 缺口 | 标记 `resyncing`，拉 history，合并后恢复 |
+| `seq` 缺口 | 当前连接失败并停止 Host；未来 UI 接入 history 后实现 resync |
 | 流式帧乱序/缺口 | 丢弃当前 attempt，等待 `start` |
 | 提交事件缺失 | end 本身不成为历史；保留前缀等待提交，idle/turn 结束时清理，不伪造最终答案 |
 | 工具参数 JSON 非法 | 展示原文 + 解析错误 |

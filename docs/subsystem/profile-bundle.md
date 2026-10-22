@@ -20,6 +20,8 @@ profile 由 `dsh-base` + `@dsh-mygo/host` 组成。channel 依赖 launcher 的 `
 
 文本流式通过 `session.assistant-stream` capability 启用；自有 channel 监听公开 `agent/assistant-stream`，仅转发拥有的确切 agent，不修改 DSH core，也不移除持久提交中内嵌的 stream。
 
+Host 历史通过 `session.history` capability 启用，使用公开 sessionPersistence 与 agents.resume，不扫描私有存储或修改 DSH core。根会话目录、冷恢复路由、分页边界和预算以 [通道协议](channel-protocol.md#当前-host-历史能力) 为准；原生 UI 尚未接入。
+
 审批通过 `approval` capability 启用，等待原生 UI 允许一次或拒绝；`maxPendingApprovals` 默认 32，范围 1–64，超限返回 unavailable。提问通过 `question` capability 启用，`maxPendingQuestions` 默认 32，范围 1–64；未协商或超限返回 NO_PROVIDER，不悬挂。
 
 base 只提供提问服务；自有 patch 增加稳定行 `tool-ask-user`，绑定 `@deepseek-ai/dsh-tool-ask-user` 同版本并显式配置 `mode: legacy`，注册阻塞式 `ask_user_question`。当前不支持 timed foreground claim、continued/迟到回复，不通过隐式改配置冒充支持。后文私有 Host、发布安装和包管理描述后续设计。

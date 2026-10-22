@@ -3,6 +3,7 @@ import { stat } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import { ApprovalQueue } from './approval.mjs'
 import { QuestionQueue } from './question.mjs'
+import { SessionHistory, sessionID, sessionSummary } from './history.mjs'
 
 export const protocolVersion = 1
 export const releaseVersion = '0.1.0'
@@ -20,7 +21,7 @@ function text(value, field, limit = 256) {
 }
 
 export class MygoServer {
-  constructor(ctx, { notify, createUserMessage, reasoningEffort, ensureProvider, dshVersion, maxSessions = 8, cancelTimeoutMs = 5000, maxPendingApprovals = 32, maxPendingQuestions = 32 }) {
+  constructor(ctx, { notify, createUserMessage, reasoningEffort, ensureProvider, dshVersion, maxSessions = 8, cancelTimeoutMs = 5000, maxPendingApprovals = 32, maxPendingQuestions = 32, maxFrameBytes = 16 * 1024 * 1024 }) {
     this.ctx = ctx
     this.notify = notify
     this.createUserMessage = createUserMessage
@@ -33,6 +34,7 @@ export class MygoServer {
     this.approvals = new ApprovalQueue({ notify, maxPending: maxPendingApprovals })
     this.questions = new QuestionQueue({ notify, maxPending: maxPendingQuestions })
     this.sessions = new Map()
+    this.history = new SessionHistory(ctx, this.sessions, Math.floor(maxFrameBytes / 2))
     this.initialized = false
     this.stopping = false
     this.disposers = [
@@ -82,6 +84,12 @@ export class MygoServer {
     if (!this.initialized) throw fault('protocol/not-initialized', 'Initialize the host first')
     switch (method) {
       case 'session/create': return this.create(params)
+      case 'session/list':
+      case 'session/resume':
+      case 'session/history':
+        if (!this.capabilities.includes('session.history')) throw fault('protocol/capability-unavailable', 'Session history was not negotiated')
+        if (method === 'session/list') return this.history.list(params)
+        return method === 'session/resume' ? this.resume(params) : this.history.history(params)
       case 'session/prompt': return this.prompt(params)
       case 'session/cancel': return this.cancel(params)
       case 'approval/respond':
@@ -107,6 +115,10 @@ export class MygoServer {
     for (const capability of params.capabilities) text(capability, 'capability')
     this.initialized = true
     this.capabilities = ['session.cancel', 'approval', 'question', 'session.assistant-stream'].filter((capability) => params.capabilities.includes(capability))
+    const persistence = this.ctx.get('sessionPersistence')
+    if (params.capabilities.includes('session.history') && ['list', 'stat', 'open', 'flush'].every((method) => typeof persistence?.[method] === 'function') && typeof this.ctx.agents.resume === 'function') {
+      this.capabilities.push('session.history')
+    }
     return {
       server: { name: 'dsh-mygo-host', version: releaseVersion, dshVersion: this.dshVersion },
       protocolVersion, capabilities: this.capabilities,
@@ -122,7 +134,7 @@ export class MygoServer {
     const model = text(params.model, 'model')
     const effort = params.effort === undefined ? undefined : text(params.effort, 'effort')
     if (this.sessions.size >= this.maxSessions) throw fault('session/limit', 'Host session limit reached')
-    const record = { handle: undefined, busy: false, calls: new Map() }
+    const record = { handle: undefined, busy: false, calls: new Map(), route: { provider, model, effort: effort ?? '' } }
     const sessionId = randomUUID()
     this.sessions.set(sessionId, record)
     try {
@@ -139,6 +151,50 @@ export class MygoServer {
       this.sessions.delete(sessionId)
       throw fault('session/create-failed', 'Could not create the session; check the model route and host configuration')
     }
+  }
+
+  async resume(params) {
+    const id = sessionID(params.sessionId)
+    const existing = this.sessions.get(id)
+    if (existing) {
+      if (!existing.handle || existing.busy || existing.handle.agent.status !== 'idle') throw fault('session/busy', 'Session is running or being restored')
+      return { session: sessionSummary(existing.handle.agent.session.header, existing) }
+    }
+    const provider = text(params.provider, 'provider')
+    const model = text(params.model, 'model')
+    const effort = params.effort === undefined ? undefined : text(params.effort, 'effort')
+    if (this.sessions.size >= this.maxSessions) throw fault('session/limit', 'Host session limit reached')
+    const record = { handle: undefined, busy: false, calls: new Map(), route: { provider, model, effort: effort ?? '' }, abort: new AbortController() }
+    this.sessions.set(id, record)
+    const task = (async () => {
+      try {
+        const snapshot = await this.ctx.get('sessionPersistence').stat(id, { signal: record.abort.signal })
+        const header = snapshot?.header
+        if (!header || header.origin === 'subagent' || snapshot.formatStatus === 'migration-required') throw fault('session/unavailable', 'This stored session cannot be resumed')
+        if (typeof header.cwd !== 'string' || !isAbsolute(header.cwd) || !(await stat(header.cwd).catch(() => undefined))?.isDirectory()) throw fault('session/unavailable', 'The stored working directory is unavailable')
+        await this.ensureProvider?.(provider)
+        const agentOptions = { provider, model, ...(effort === undefined ? {} : { reasoningEffort: this.reasoningEffort(effort) }) }
+        await this.ctx.llm.resolveCallConfig(agentOptions)
+        record.abort.signal.throwIfAborted()
+        record.handle = await this.ctx.agents.resume({ resumeSessionId: id, agentOptions, signal: record.abort.signal })
+        if (this.stopping) {
+          await record.handle.dispose()
+          record.handle = undefined
+          throw fault('host/stopping', 'Host is stopping')
+        }
+        return { session: sessionSummary(record.handle.agent.session.header, record) }
+      } catch (error) {
+        if (record.handle) {
+          await record.handle.dispose().catch(() => {})
+          record.handle = undefined
+        }
+        this.sessions.delete(id)
+        if (error.kind === 'session/unavailable' || error.kind === 'host/stopping') throw error
+        throw fault('session/resume-failed', 'Could not restore the session; check ownership, model route and host configuration')
+      }
+    })()
+    record.resumeTask = task
+    return task
   }
 
   prompt(params) {
@@ -224,8 +280,11 @@ export class MygoServer {
     this.stopping = true
     this.approvals.close()
     this.questions.close()
+    this.history.close()
     for (const dispose of this.disposers.splice(0)) dispose()
     const records = [...this.sessions.values()]
+    for (const record of records) record.abort?.abort()
+    await Promise.allSettled(records.map((record) => record.resumeTask))
     await this.ctx.get('subagents')?.drainDescendants(records.filter((record) => record.handle).map((record) => record.handle.agent))
     await Promise.all(records.map((record) => record.handle?.dispose()))
     this.sessions.clear()

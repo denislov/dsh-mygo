@@ -31,6 +31,7 @@ export function apply(ctx, config) {
     cancelTimeoutMs: config.cancelTimeoutMs,
     maxPendingApprovals: config.maxPendingApprovals,
     maxPendingQuestions: config.maxPendingQuestions,
+    maxFrameBytes: config.maxFrameBytes,
     ensureProvider: async (provider) => {
       if (ctx.llm.listProviders().some((entry) => entry.id === provider)) return
       if (provider !== 'deepseek-official') throw new Error('Model provider is unavailable')
