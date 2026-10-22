@@ -38,6 +38,50 @@
 - 任务提交时区分：设计契约变化（改设计文档）与实现进度变化（改路线图）。
 - 设计文档中不应出现进度口吻；路线图中不应出现设计细节的重复维护。
 
+### D-002 任务完成后用 git commit 记录"影响子系统 + 实现功能"
+
+**规则**
+
+- 每个完成且验证通过的任务对应一个提交；提交标题用 `type(scope): summary`，`scope` 是主要子系统。
+- 提交正文必须包含两个清单，按子系统逐条写：
+  1. **影响子系统**：本次改动落在哪些子系统（如 `channel`、`projection`、`view`、`app`、`interaction`、`host`、`resources/host`、`docs/subsystem/*`）。
+  2. **实现功能**：每个子系统新增/改变了哪些具体能力或契约（方法、通知、事件、UI 交互、资源、文档契约），不能只写"更新代码/修复问题"。
+- 再列出**契约变化**（协议/设计文档是否变化；没有就写"无"）与**检查**（实际跑过的命令与结果）。
+- 纯文档任务同样适用：列出受影响的文档子系统，以及补充或修正了哪些规则/契约。
+
+**模板**
+
+```text
+feat(channel): add session rename and archive
+
+影响子系统:
+- channel: session/rename、session/archive 请求、参数校验与错误
+- resources/host: Host 侧方法实现与会话元数据更新
+- view/app: 侧栏重命名/归档入口与列表刷新
+- docs: channel-protocol.md 方法表；ui-shell.md 列表行为
+
+实现功能:
+- 会话重命名：修改标题并持久化，列表立即刷新
+- 会话归档：默认列表隐藏归档会话，可筛选查看
+
+契约变化:
+- 新增 session.rename / session.archive 方法与对应 capability
+
+检查:
+- go test ./...
+- node --test resources/host/tests/*.test.mjs
+```
+
+**反例**
+
+- `git commit -m "update"`、`"fix bug"`、`"update docs"`。
+- 只写"完成会话管理"，不说明各子系统分别实现了什么。
+
+**检查方式**
+
+- 提交前对照 `git diff --stat` 与设计文档，确认每个受影响子系统都在正文出现。
+- 评审时先看提交正文，能否还原"改了哪些子系统、各实现了什么功能、契约是否变化"。
+
 ## 相关文档
 
 - [经验教训](../LESSONS.md)
