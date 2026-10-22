@@ -1,0 +1,161 @@
+package projection
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+func event(seq uint64, eventType, data string) Event {
+	return Event{Type: eventType, Seq: seq, Data: json.RawMessage(data)}
+}
+
+func TestApplySkipsSyntheticUserContext(t *testing.T) {
+	var transcript Transcript
+	changed := transcript.Apply(event(1, "user/message", `{
+		"source": {"kind": "runtime-context"},
+		"content": [{"type": "text", "text": "Current runtime context"}]
+	}`))
+	if changed {
+		t.Fatal("synthetic context was projected")
+	}
+	if len(transcript.Items()) != 0 {
+		t.Fatalf("items = %+v", transcript.Items())
+	}
+}
+
+func TestApplyUserAndAssistantMessages(t *testing.T) {
+	var transcript Transcript
+	if !transcript.Apply(event(1, "user/message", `{
+		"source": {"kind": "user"},
+		"content": [{"type": "text", "text": "hello"}]
+	}`)) {
+		t.Fatal("user message did not change the transcript")
+	}
+	if !transcript.Apply(event(2, "assistant/message", `{
+		"message": {"content": [
+			{"type": "reasoning", "text": "private"},
+			{"type": "text", "text": "pong"}
+		]}
+	}`)) {
+		t.Fatal("assistant message did not change the transcript")
+	}
+	items := transcript.Items()
+	if len(items) != 2 {
+		t.Fatalf("items = %+v", items)
+	}
+	if items[0].Kind != KindUser || items[0].Title != "You" || items[0].Text != "hello" {
+		t.Fatalf("user item = %+v", items[0])
+	}
+	if items[1].Kind != KindAssistant || items[1].Title != "Assistant" || items[1].Text != "pong" {
+		t.Fatalf("assistant item = %+v", items[1])
+	}
+}
+
+func TestApplyToolCallAndResultPair(t *testing.T) {
+	var transcript Transcript
+	transcript.Apply(event(1, "tool/call", `{
+		"callId": "c1", "name": "read_file", "arguments": "{\"path\":\"a.txt\"}"
+	}`))
+	if items := transcript.Items(); len(items) != 1 || items[0].State != "running" {
+		t.Fatalf("after call: %+v", items)
+	}
+	transcript.Apply(event(2, "tool/result", `{
+		"message": {
+			"toolCallId": "c1",
+			"content": [{"type": "text", "text": "file contents"}],
+			"isError": false
+		}
+	}`))
+	items := transcript.Items()
+	if len(items) != 1 {
+		t.Fatalf("items = %+v", items)
+	}
+	if items[0].State != "done" || items[0].Detail != "file contents" || items[0].IsError {
+		t.Fatalf("result item = %+v", items[0])
+	}
+	if !strings.Contains(items[0].Text, `"path": "a.txt"`) {
+		t.Fatalf("arguments = %q", items[0].Text)
+	}
+}
+
+func TestApplyToolResultErrorUsesReason(t *testing.T) {
+	var transcript Transcript
+	transcript.Apply(event(1, "tool/call", `{
+		"callId": "c1", "name": "shell", "arguments": "{}"
+	}`))
+	transcript.Apply(event(2, "tool/result", `{
+		"message": {
+			"toolCallId": "c1",
+			"content": [{"type": "text", "text": "raw"}],
+			"isError": true
+		},
+		"error": {"code": "DENIED", "reason": "permission denied"}
+	}`))
+	item := transcript.Items()[0]
+	if item.State != "error" || !item.IsError || item.Detail != "permission denied" {
+		t.Fatalf("item = %+v", item)
+	}
+}
+
+func TestApplyTurnEndErrorAddsNotice(t *testing.T) {
+	var transcript Transcript
+	transcript.Apply(event(1, "turn/end", `{
+		"turn": 1,
+		"reason": {"kind": "error", "error": {"message": "network down", "code": "UNKNOWN"}}
+	}`))
+	items := transcript.Items()
+	if len(items) != 1 || items[0].Kind != KindNotice || !items[0].IsError {
+		t.Fatalf("items = %+v", items)
+	}
+	if !strings.Contains(items[0].Text, "network down") {
+		t.Fatalf("text = %q", items[0].Text)
+	}
+}
+
+func TestApplyIgnoresCompletedTurnAndDuplicateSeq(t *testing.T) {
+	var transcript Transcript
+	completed := event(1, "turn/end", `{"reason": {"kind": "completed"}}`)
+	if transcript.Apply(completed) {
+		t.Fatal("completed turn changed the transcript")
+	}
+	user := event(2, "user/message", `{
+		"source": {"kind": "user"},
+		"content": [{"type": "text", "text": "hi"}]
+	}`)
+	if !transcript.Apply(user) {
+		t.Fatal("first user message was skipped")
+	}
+	if transcript.Apply(user) {
+		t.Fatal("duplicate event changed the transcript")
+	}
+	if len(transcript.Items()) != 1 {
+		t.Fatalf("items = %+v", transcript.Items())
+	}
+}
+
+func TestDecodeNotificationValidatesEnvelope(t *testing.T) {
+	notification, err := DecodeNotification(json.RawMessage(`{
+		"sessionId": "s1",
+		"event": {"type": "turn/start", "seq": 7, "time": 1, "data": {"turn": 1}}
+	}`))
+	if err != nil {
+		t.Fatalf("DecodeNotification: %v", err)
+	}
+	if notification.SessionID != "s1" || notification.Event.Type != "turn/start" || notification.Event.Seq != 7 {
+		t.Fatalf("notification = %+v", notification)
+	}
+	if _, err := DecodeNotification(json.RawMessage(`{"event": {"type": "turn/start"}}`)); err == nil {
+		t.Fatal("DecodeNotification accepted a missing sessionId")
+	}
+	if _, err := DecodeNotification(json.RawMessage(`{"sessionId": "s1", "event": {}}`)); err == nil {
+		t.Fatal("DecodeNotification accepted a missing event type")
+	}
+}
+
+func TestClipBoundsLongText(t *testing.T) {
+	text := clip(strings.Repeat("a", 20), 10)
+	if text != strings.Repeat("a", 10)+"…" {
+		t.Fatalf("clip = %q", text)
+	}
+}

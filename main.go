@@ -1,0 +1,122 @@
+// Command dsh-mygo is the native desktop client: a MyGo window that drives a
+// DeepSeek Harness host process over newline-delimited JSON-RPC.
+package main
+
+import (
+	"flag"
+	"fmt"
+	"log"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync/atomic"
+	"time"
+
+	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/ui"
+
+	"dsh-mygo/internal/app"
+	"dsh-mygo/internal/channel"
+	"dsh-mygo/internal/host"
+	"dsh-mygo/internal/view"
+)
+
+type stringList []string
+
+func (s *stringList) String() string { return strings.Join(*s, " ") }
+
+func (s *stringList) Set(value string) error {
+	*s = append(*s, value)
+	return nil
+}
+
+func main() {
+	var hostArgs stringList
+	flag.Var(&hostArgs, "host-arg", "argument for -host-command (repeatable)")
+
+	dshDir := flag.String("dsh-dir", os.Getenv("DSH_MYGO_DSH_DIR"), "DeepSeek Harness checkout; runs apps/cli/src/bin.ts through tsx")
+	profile := flag.String("profile", "sdk", "DSH profile")
+	provider := flag.String("provider", "deepseek-official", "model provider")
+	model := flag.String("model", "deepseek-flash", "model id")
+	effort := flag.String("effort", "", "optional reasoning effort")
+	cwdFlag := flag.String("cwd", "", "session working directory (default: current directory)")
+	sessionID := flag.String("session", "", "session id (default: generated)")
+	dshHome := flag.String("dsh-home", "", "optional DSH_HOME override")
+	maxFrame := flag.Int("max-frame", channel.DefaultMaxFrameBytes, "maximum JSON-RPC frame bytes")
+	hostCommand := flag.String("host-command", "", "override the host executable")
+	flag.Parse()
+
+	cwd, err := resolveCWD(*cwdFlag)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if *sessionID == "" {
+		*sessionID = fmt.Sprintf("mygo-%d", time.Now().UnixNano())
+	}
+	launch, err := host.ResolveLaunch(host.LaunchOptions{
+		DshDir:  *dshDir,
+		Profile: *profile,
+		CWD:     cwd,
+		Command: *hostCommand,
+		Args:    hostArgs,
+		DSHHome: *dshHome,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var window atomic.Pointer[mygo.Window]
+	application := app.New(app.Options{
+		Launch:          launch,
+		CWD:             cwd,
+		Provider:        *provider,
+		Model:           *model,
+		ReasoningEffort: *effort,
+		SessionID:       *sessionID,
+		MaxFrame:        *maxFrame,
+		Post: func(fn func()) {
+			if win := window.Load(); win != nil {
+				win.Update(fn)
+			}
+		},
+	})
+	uiModel := application.Model()
+
+	mygo.App.SetName("dsh-mygo")
+	mygo.App.WhenReady(func() {
+		window.Store(mygo.NewWindow(mygo.WindowOptions{
+			Title:     "dsh-mygo",
+			Width:     960,
+			Height:    760,
+			MinWidth:  560,
+			MinHeight: 420,
+			StateKey:  "main",
+			Content: ui.View(func(c *ui.Context) {
+				view.View(c, uiModel)
+			}),
+		}))
+		go application.Start()
+	})
+	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
+		application.Shutdown(5 * time.Second)
+	})
+	if err := mygo.App.Run(); err != nil {
+		log.Fatal(err)
+	}
+	application.Shutdown(2 * time.Second)
+}
+
+func resolveCWD(value string) (string, error) {
+	if value == "" {
+		current, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("resolve working directory: %w", err)
+		}
+		value = current
+	}
+	absolute, err := filepath.Abs(value)
+	if err != nil {
+		return "", fmt.Errorf("resolve working directory: %w", err)
+	}
+	return absolute, nil
+}

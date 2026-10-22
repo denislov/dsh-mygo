@@ -1,0 +1,204 @@
+# UI 壳层（Native UI Shell）
+
+## 职责
+
+UI 壳层是 MyGo 进程里的原生界面：
+
+- 用 `ui.View` 把 app 状态投影为窗口内容。
+- 承载会话列表、聊天、工具卡片、diff、输入区、设置与弹窗。
+- 消费 `ChannelClient` 的投影状态；不直接解析协议帧。
+- 管理窗口、菜单、托盘、通知、快捷键与主题。
+
+它不拥有 Agent、Session、模型或工具状态；这些在 Host。
+
+## 当前实现（P1）
+
+| 文件 | 责任 |
+| --- | --- |
+| `internal/view/view.go` | `Model`、页面布局、transcript 行、composer、状态栏、错误横幅 |
+| `internal/app/app.go` | Host 启动/停止、`initialize`、`session/prompt`、通知分发、`Window.Update` |
+| `internal/projection/` | 提交事件 → `Item`（user / assistant / tool / notice） |
+| `main.go` | flag、窗口、退出时停止 Host |
+
+P1 的单窗口只有 header、transcript 列表、composer：
+
+- transcript 显示提交后的 user 消息、assistant 文本、tool call/result 与 turn 结束通知；不显示 synthetic user context、system/developer 消息、reasoning。
+- Enter 发送，Shift+Enter 换行；发送期间仍可编辑草稿，但发送按钮与 Enter 发送禁用。
+- 状态来自 `session.status`：starting / ready / working / host error。发送失败保留草稿并显示可关闭的错误横幅。
+- 尚未实现：流式占位、Markdown、工具卡片折叠/diff、取消、审批、提问、历史、会话列表、设置、附件。
+
+## 视图模型
+
+```text
+App
+├─ Host          *HostSupervisor
+├─ Channel       *ChannelClient
+├─ Sessions      SessionStore        // 摘要、当前会话、历史窗口
+├─ Projection    *SessionProjection  // 当前会话的 transcript
+├─ Prefs         UIPreferences       // 主题、语言、快捷键、窗口状态
+├─ Router        *ui.Router
+├─ Dialogs       DialogState         // approval、question、rename、confirm
+└─ Composer      ComposerState       // 草稿、附件、引用、焦点
+```
+
+原则：
+
+- `App` 字段是跨帧状态；`Element`、`ui.Context` 不进入字段。
+- 会话真相在 Host；`Projection` 是可重建的缓存。
+- UI 偏好（滚动、折叠、草稿）可以本地持久化，但不进入 session log。
+- 所有 Host 事件的写入都在主线程完成，或先进入队列再由主线程合并。
+
+## 页面
+
+使用 `ui.Router`：
+
+| 路径 | 页面 |
+| --- | --- |
+| `/` | 首页/会话选择/新建 |
+| `/session/{id}` | 会话主界面 |
+| `/settings` | 设置首页 |
+| `/settings/{section}` | 设置子页（模型、外观、快捷键、权限、关于） |
+| `/welcome` | 首次运行/登录 |
+
+路由状态属于 app；深链（`dsh-mygo://session/<id>`）通过 `router.Push` 进入对应页面。
+
+### 会话主界面
+
+```text
+┌───────────────┬──────────────────────────────────────────────┐
+│ Sidebar       │ Header: title / model / status / actions     │
+│ 会话列表      ├──────────────────────────────────────────────┤
+│ 搜索          │ Transcript (ui.List)                         │
+│ 新建          │  turn / assistant / tool / diff / notice     │
+│ 工作区        │                                              │
+│               ├──────────────────────────────────────────────┤
+│               │ Composer: 输入 / 附件 / @引用 / 发送          │
+└───────────────┴──────────────────────────────────────────────┘
+```
+
+右侧可以按需增加面板（plan/todo/子代理/文件），第一版可以只做会话与工具卡片。
+
+## 聊天渲染
+
+### 消息列表
+
+- 用 `ui.List` + `ui.ListState`；只构建可见行。
+- 每个 turn 一个或多个行；稳定 key 用 turn/seq。
+- 流式 assistant 行固定在一个位置；提交后原位替换。
+- 滚动到底部跟随流式；用户向上滚动后停止自动跟随，显示“回到最新”。
+
+### Markdown
+
+- 流式：`markdown.Stream(c, text, &options)`。
+- 完成：`markdown.View(c, text, &options)`。
+- 只在文本变化时更新；不要每个 token 重建整个列表。
+- 代码块用 `ui/editor` 或等宽文本；长代码折叠。
+- 链接点击前校验 scheme；外部链接交给 `mygo.Shell.OpenExternal`。
+
+### 工具卡片
+
+- 默认折叠；标题显示工具名、状态、耗时、结果摘要。
+- 展开后：
+  - 参数：格式化 JSON 或命令。
+  - 结果：文本、Markdown、图片、diff。
+  - 错误：错误码 + 可读原因。
+- 文件编辑：优先 `editor.DiffView`；没有 diff 时退化为代码块。
+- 大输出：截断 + “在编辑器中打开/复制”；不要一次性渲染数 MB。
+
+### 状态
+
+- `session/status = running`：输入区禁用或排队，显示工作指示。
+- `idle`：恢复输入。
+- `resyncing`：显示“正在同步历史”，暂停发送。
+- `failed`：显示错误与重试。
+
+## 输入区
+
+- 多行文本：`ui.TextArea` / `ui.TextAreaBuffer`；大草稿用 `ui.TextBuffer`；支持输入法、选区、撤销。
+- Enter 发送，Shift+Enter 换行；可在设置中交换。
+- 附件：粘贴/拖放/选择文件；图片走 `session/prompt` 的 image 块；路径引用走 `@path`。
+- `@` 引用：文件/目录补全；引用在发送时解析为 Host 可见的路径。
+- `/` 命令：如果第一版不做命令系统，保留扩展位，不要伪造不存在的命令。
+- 发送失败：保留草稿，显示错误；不要丢失用户输入。
+
+## 审批与提问
+
+- `ui.Modal` / `ui.AlertDialog`；一次一个，显示队列位置。
+- 键盘：Tab 在选项间移动，Enter 确认，Esc 取消/拒绝。
+- 审批详情可折叠；默认只显示工具名、原因、命令摘要。
+- 提问支持多问题、单选/多选/自由文本；提交前校验必填。
+- 队列变化时不要抢走用户正在编辑的输入焦点。
+
+## 会话列表
+
+- `session/list` 分页；按更新时间排序。
+- 显示标题、时间、模型、状态、父子关系（子代理）。
+- 搜索：第一版在本地过滤已加载摘要；后续可接 Host 搜索。
+- 操作：新建、恢复、重命名、归档/删除、fork。
+- 空状态：引导新建或选择工作区。
+
+## 设置
+
+第一版只做影响使用的少量设置：
+
+| 设置 | 来源 |
+| --- | --- |
+| Provider / Model / Effort | `model/list`、`model/select` |
+| 权限模式 | `DSH_PERMISSION_MODE` / Host 配置 |
+| 语言 | 本地 + Host locale |
+| 主题 | MyGo 主题（跟随系统） |
+| 快捷键 | 本地 |
+| 关于/版本 | 本地 + `initialize.server` |
+| 更新 | MyGo updater |
+
+其余 DSH 设置通过 `settings/get` / `settings/set` 逐步接入；不要一次性复刻 Web 设置页。所有权与凭据规则见 [设置与凭据](settings-credentials.md)。
+
+## 主题、语言与无障碍
+
+- 主题：`c.Theme()`；跟随系统明暗；自定义强调色需谨慎，优先使用 MyGo 的语义色。
+- 语言：UI 字符串集中管理；Host locale 通过 `initialize.client.locale` 传入；两者可以不同。
+- 无障碍：为按钮、输入、列表行、弹窗提供名称/角色/描述；不要把关键操作只放在图标上。
+- 高对比度/减少动态：遵循系统设置；流式淡入可关闭。
+
+## 快捷键与焦点
+
+- 全局：新建会话、搜索、切换侧栏、设置、退出。
+- 会话：发送、取消、上一条/下一条、回到最新、复制。
+- 弹窗：Escape、Tab、Enter；焦点回到触发控件。
+- 使用 `ui.Handle` 绑定持久身份；用 `FocusBind` 表达“希望聚焦”，不要直接操作元素。
+- 快捷键冲突时以当前焦点/模态为准；不要在后台窗口抢键。
+
+## 性能
+
+- 虚拟列表：只构建可见行。
+- 流式合并：chunk 以帧率上限合并（例如 16–33ms），不要每 token 触发重建。
+- 增量 Markdown：依赖 `markdown.Stream` 的增量解析，不要全量重排。
+- 工具输出/diff 缓存有上限；超出后按需重新请求/重新解析。
+- 避免在视图函数里做 I/O、排序大集合、解析大 JSON。
+- 用 MyGo 的 inspector 观察帧耗时；必要时降低动画/淡入。
+
+## 测试
+
+- `ui.NewTester(view, width, height)`：点击、输入、快捷键、焦点、滚动。
+- 断言文本与结构，不断言像素；视觉验收用真实窗口。
+- 用 fake `ChannelClient` 驱动固定事件序列，测试流式/提交/审批/提问。
+- 测试窗口宽度变化、长标题、空会话、错误态、深色主题。
+- 平台验收：macOS 与 Windows 的字体、输入法、窗口装饰、托盘。
+
+## 失败模式
+
+| 失败 | 处理 |
+| --- | --- |
+| Host 未就绪 | 显示加载页；禁用发送 |
+| Host 断开 | 保留 transcript；显示重连/重启 |
+| 协议错误 | 显示技术详情入口；不假装成功 |
+| 流式缺口 | 丢弃草稿；等待提交事件或重连 |
+| 审批/提问队列变化 | 保持焦点稳定；显示队列 |
+| 更新中 | 禁止新回合；显示进度 |
+
+## 相关文档
+
+- [会话投影](session-projection.md)
+- [交互](interaction.md)
+- [通道协议](channel-protocol.md)
+- [研究：MyGo 原生 UI](../research/mygo-native-ui.md)
