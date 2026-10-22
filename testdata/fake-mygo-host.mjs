@@ -5,15 +5,19 @@ import { MygoServer } from '../resources/host/server.mjs'
 import { markdownPrefix, markdownReply } from './markdown-sample.mjs'
 
 const events = new EventEmitter()
+const stored = new Map()
+events.on('session/event', (session, event) => stored.get(session.id)?.events.push(event))
 if (process.argv.includes('--stderr-secret')) process.stderr.write('fake-private-token\n')
 const ctx = {
   get(name) { return this[name] },
   on(name, handler) { events.on(name, handler); return () => events.off(name, handler) },
   llm: { async resolveCallConfig() {} },
   agents: {
-    async create({ sessionId }) {
+    async create({ sessionId, meta }) {
+      const source = stored.get(sessionId) ?? { header: { id: sessionId, cwd: meta?.cwd ?? process.cwd(), createdAt: Date.now(), version: 1, isSeeded: false }, events: [] }
+      stored.set(sessionId, source)
       const agent = {
-        session: { id: sessionId, seq: 0 }, status: 'idle', turns: 0, revision: 0,
+        session: { id: sessionId, header: source.header, seq: source.events.length }, status: 'idle', turns: source.events.filter((event) => event.type === 'turn/start').length, revision: 0,
         followup(message) {
           const work = { ...Promise.withResolvers(), finished: false, cancelled: false, abort: new AbortController() }
           agent.work = work
@@ -104,6 +108,28 @@ const ctx = {
       return { agent, async dispose() { agent.cancel(); await agent.whenIdle() } }
     },
   },
+}
+if (process.argv.includes('--sessions')) {
+  const id = 'demo-history'
+  const time = Date.now() - 60000
+  stored.set(id, { header: { id, cwd: process.cwd(), createdAt: time, version: 1, isSeeded: false }, events: [
+    { seq: 0, time, type: 'turn/start', data: { turn: 1 } },
+    { seq: 1, time, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Saved prompt' }] } },
+    { seq: 2, time, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Saved conversation' }] } } },
+    { seq: 3, time, type: 'turn/end', data: { reason: { kind: 'completed' } } },
+  ] })
+  ctx.agents.resume = async ({ resumeSessionId }) => {
+    if (!stored.has(resumeSessionId)) throw new Error('Unknown fixture session')
+    return ctx.agents.create({ sessionId: resumeSessionId })
+  }
+  ctx.sessionPersistence = {
+    async list() { return [...stored.values()].map(({ header }) => ({ header })) },
+    async stat(id) { return stored.get(id) },
+    async flush() {},
+    async open(id) {
+      return { async read(offset, length) { return { events: stored.get(id).events.slice(offset, offset + length) } }, async close() {} }
+    },
+  }
 }
 const channel = new LineChannel(process.stdin, process.stdout, { maxFrameBytes: 16 * 1024 * 1024 })
 const server = new MygoServer(ctx, {

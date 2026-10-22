@@ -61,6 +61,20 @@ type Model struct {
 	InterruptedMarkdown markdown.Options
 	CopiedMessageID     string
 	CopiedMessageText   string
+	CanHistory          bool
+	SessionID           string
+	SessionCWD          string
+	Sessions            []SessionSummary
+	SessionsOpen        bool
+	SessionBusy         bool
+	SessionSwitching    bool
+	SessionsError       string
+	SessionList         mgo.ListState
+	OpenSessions        func()
+	RefreshSessions     func()
+	CloseSessions       func()
+	NewSession          func()
+	SwitchSession       func(string)
 }
 
 // NewModel returns a model with a list that follows the newest row and keeps
@@ -96,12 +110,16 @@ func View(c *mgo.Context, model *Model) {
 	approvalModal(c, model)
 	questionModal(c, model)
 	toolInspectorModal(c, model)
+	sessionsModal(c, model)
 }
 
 func header(c *mgo.Context, model *Model) {
 	theme := c.Theme()
 	mgo.Row(c).Padding(14, 20).Gap(12).AlignItems(mgo.Center).Children(func() {
 		mgo.Text(c, "dsh-mygo").FontSize(15).Bold()
+		if model.CanHistory && model.OpenSessions != nil {
+			mgo.Button(c.Key("sessions"), "Sessions").Disabled(!model.CanChooseSession()).OnClick(model.OpenSessions)
+		}
 		if model.ModelLabel != "" {
 			mgo.Text(c, model.ModelLabel).FontSize(12).TextColor(theme.TextMuted)
 		}
@@ -111,6 +129,12 @@ func header(c *mgo.Context, model *Model) {
 		}
 		mgo.Text(c, phaseLabel(model.Phase)).FontSize(12).TextColor(phaseColor(model.Phase, theme))
 	})
+	if model.CanHistory && model.SessionID != "" {
+		mgo.Row(c.Key("active-session")).Padding(0, 20, 8, 20).Gap(12).Children(func() {
+			mgo.Text(c, sessionLabel(SessionSummary{ID: model.SessionID})).FontSize(11).TextColor(theme.TextMuted)
+			mgo.Text(c, model.SessionCWD).FontSize(11).TextColor(theme.TextMuted).SingleLine()
+		})
+	}
 	mgo.Divider(c)
 }
 
@@ -136,7 +160,7 @@ func errorBanner(c *mgo.Context, model *Model) {
 }
 
 func transcript(c *mgo.Context, model *Model) {
-	mgo.List(c, &model.List, len(model.Items), func(row int) {
+	mgo.List(c.Key("transcript-"+model.SessionID), &model.List, len(model.Items), func(row int) {
 		message(c, model, model.Items[row])
 	}).Grow(1).Gap(10).Padding(16, 20).Justify(mgo.End).Children(func() {
 		if len(model.Items) == 0 {
@@ -241,10 +265,10 @@ func toolCard(c *mgo.Context, model *Model, item projection.Item) {
 
 func composer(c *mgo.Context, model *Model) {
 	theme := c.Theme()
-	stopped := model.Phase == PhaseStopped || model.Phase == PhaseFailed
-	canSend := model.Phase == PhaseIdle && model.Send != nil && len(model.Questions) == 0
+	stopped := model.Phase == PhaseStopped || model.Phase == PhaseFailed || model.SessionSwitching
+	canSend := model.Phase == PhaseIdle && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy
 	mgo.Column(c).Padding(12, 20, 16, 20).Gap(8).Children(func() {
-		mgo.TextArea(c.Key("composer"), &model.Draft).Lines(1, 8).
+		mgo.TextArea(c.Key("composer-"+model.SessionID), &model.Draft).Lines(1, 8).
 			Label("Message").Placeholder("Message DeepSeek…").AutoFocus().Disabled(stopped).
 			OnTextKey(func(key mgo.TextKey) bool {
 				if key.Key != mgo.KeyEnter || key.Mods != 0 {
@@ -284,6 +308,9 @@ func composer(c *mgo.Context, model *Model) {
 }
 
 func composerHint(model *Model) string {
+	if model.SessionSwitching {
+		return "Loading session history…"
+	}
 	if model.CancelPending {
 		return "Stopping…"
 	}

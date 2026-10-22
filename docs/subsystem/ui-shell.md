@@ -17,6 +17,8 @@ UI 壳层是 MyGo 进程里的原生界面：
 | --- | --- |
 | `internal/view/view.go` | `Model`、页面布局、transcript 行、composer、状态栏、错误横幅 |
 | `internal/app/app.go` | Host 启动/停止、版本握手、`session/create` / `session/prompt`、有界通知分发、`Window.Update` |
+| `internal/app/sessions.go` / `session_reader.go` | 会话操作、草稿隔离、列表/历史分页校验与后台回放 |
+| `internal/view/sessions.go` | 原生会话选择弹窗、刷新/新建/选择、transcript 控件重置 |
 | `internal/projection/` | 提交事件 → `Item`（user / assistant / tool / notice） |
 | `main.go` | flag、窗口、退出时停止 Host |
 
@@ -35,7 +37,10 @@ P1 的单窗口只有 header、transcript 列表、composer：
 - 协商 `question` 后，原生 Modal 支持整批单选、多选和自由文本，完整展示题目、选项说明和 detail；所有题目回答后一次提交。表单状态按请求/题目稳定绑定，重试保留答案，Escape/点击外部等同 Cancel question；Stop turn 另行停止回合。无 agent 请求明确标注，不显示 Stop turn。审批优先，同一时刻只有一个交互弹窗。
 - 工具卡片使用原生 Collapsible，默认折叠，展开状态绑定稳定工具行 ID，结果更新/列表位置变化不重置。展开显示预览和 `View details`；原生检视器提供 Arguments / Result / Changes、逐 hunk 导航和只读 DiffView，大 hunk 明确回退文本。不读写显示路径，不提供应用/撤销改动操作。
 - 检视器只保留一个 hunk 的 editor 状态；关闭、结果更新和淘汰释放旧缓冲。审批/提问优先，暂时隐藏检视器，避免两个 Modal 叠加；交互结束后可以继续查看。
-- 尚未实现：timed/continued 提问、历史、会话列表、设置、附件。
+- 协商 `session.history` 后，header 提供 Sessions，当前会话 ID 与 cwd 显示在独立信息行。原生选择弹窗显示当前 profile 的有界完整摘要列表、时间、状态与目录，支持 Refresh / New conversation / 选择恢复。第一版使用弹窗而非固定 Sidebar，兼容 560×420 窗口；旧 Host/SDK 不显示入口。
+- 仅 idle 且无审批/提问时允许导航。刷新可 Close/Escape 取消；历史加载期间显示 Loading、禁用发送与编辑，不能重复新建/切换或关闭弹窗。失败保留当前 transcript/草稿，弹窗中显示可重试的安全错误；审批/提问优先，不叠加会话弹窗与工具检视器。
+- 切换成功后才整体替换 transcript，清除工具展开/检视器、复制反馈、旧 ListState 和临时流式状态；transcript 与 composer 的控件身份包含 session id。每个会话草稿仅在本 App 内存中保存，返回时恢复，重启不恢复草稿。新建使用启动配置 cwd/模型；冷恢复使用启动模型与持久 cwd，已拥有会话保持 Host 原路由。
+- 尚未实现：timed/continued 提问、固定侧栏、搜索/重命名/归档/删除/fork、正在运行会话 attach、seq 缺口自动恢复、设置、附件。
 
 ## 视图模型
 
@@ -141,11 +146,14 @@ App
 
 ## 会话列表
 
-- `session/list` 分页；按更新时间排序。
-- 显示标题、时间、模型、状态、父子关系（子代理）。
-- 搜索：第一版在本地过滤已加载摘要；后续可接 Host 搜索。
-- 操作：新建、恢复、重命名、归档/删除、fork。
-- 空状态：引导新建或选择工作区。
+当前：
+
+- Sessions 弹窗读取 `session/list` 的固定快照并加载全部有界摘要，遵守 Host 的创建时间倒序，不自行按 UI 活动时间重排；没有标题时显示短 session id。目录只用于显示，不通过 UI 读取文件或改写持久 cwd。
+- 首次启动仍新建当前会话，不自动选择上次历史。重启后从 Sessions 选择旧会话，分页完成后恢复正文，再允许继续发送。
+- 列表包含当前 profile persistence 可见的根/分叉会话，不按工作目录筛选，不展示 subagent；不同目录明确显示。冷会话 stored 不代表未被其他进程占用，恢复失败可重试，不能绕过单写者约束。
+- 当前支持新建、刷新、恢复与空/错误/加载状态；最多加载 1000 条摘要。Host 数量与资源限制见 [通道协议](channel-protocol.md#当前-host-历史能力)。
+
+固定侧栏、搜索、标题编辑、归档/删除、fork 与更大目录检索留待后续，不提供无后端能力的假按钮。
 
 ## 设置
 

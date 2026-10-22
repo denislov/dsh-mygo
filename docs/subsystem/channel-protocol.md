@@ -13,11 +13,11 @@
 
 - UI/Host 发布版本 `0.1.0`、`protocolVersion: 1`、DSH `0.2.1-rc.2` 精确绑定；不匹配时拒绝进入 ready。
 - 已实现 `initialize`、`session/create`、`session/list`、`session/resume`、`session/history`、`session/prompt`、`session/cancel`、`approval/respond`、`question/respond`、`question/cancel`、`shutdown`；通知为 `session/event`、`session/assistant-stream`、`session/status`、`approval/request`、`approval/closed`、`question/request`、`question/closed`、`host/fatal`。
-- UI 声明 `session.cancel`，Host 仅在双方支持时返回该 capability；未协商时调用取消返回 `protocol/capability-unavailable`。旧 Host 不声明时，UI 不展示 Stop。Host 历史接口已实现，Go UI 尚未声明或使用 `session.history`；下文其余未列为已实现的方法、附件、RPC 请求取消仍是后续契约。
+- UI 声明 `session.cancel`，Host 仅在双方支持时返回该 capability；未协商时调用取消返回 `protocol/capability-unavailable`。旧 Host 不声明时，UI 不展示 Stop。UI 通过 `session.history` 协商 list/resume/history，并提供原生 Sessions 入口；下文其余未列为已实现的方法、附件、RPC 请求取消仍是后续契约。
 - 文本流式通过 `session.assistant-stream` capability 启用；Host 只转发自己拥有的确切 agent 的公开流式帧。旧 Host/SDK 保持仅提交模式，不自动降级协议。Go 只展示 text，reasoning/工具参数不进入临时行。
 - `session/create` 当前要求已有绝对目录 `cwd`、`provider`、`model`，可选 `effort`；Host 验证模型路由后创建并拥有 session id。prompt 只接受自己创建或通过公开 agents.resume 恢复并拥有的会话和 text content，忙碌时拒绝新 prompt。
 - 创建结果中的 `session.nextSeq` 是创建完成时 DSH 的下一事件 offset。初始会话元数据不重放；后续完整提交事件从此 offset 开始转发。`session/event` 同时携带外层 `seq` 和原始 `event.seq`，两者必须相同。
-- Go 忽略重复事件；缺口或无效载荷使连接失败并停止 Host。Go 尚未接入 `session.history`，因此不能自动补齐。
+- Go 忽略重复事件；实时缺口或无效载荷使连接失败并停止 Host。`session.history` 当前用于显式打开/恢复会话，尚不自动补齐实时缺口。
 - 旧 SDK 的 `contentBlocks`、点分隔通知和隐式会话创建只在显式 `-sdk-protocol` 模式下启用，不自动降级。
 - UI 声明 `approval` / `question`，Host 返回双方交集；未协商时对应交互不可用，不能调用回答/取消提问方法。无 agent 提问使用空 `sessionId`，不冒用当前会话身份。当前仅支持阻塞提问，不声明 timed/continued 回复能力。
 
@@ -100,7 +100,9 @@
 - 首页捕获 agent.session.seq 为 nextSeq；整次分页固定读取 `[0,nextSeq)`，后续追加不进入此快照。每页严格检查数量和连续 seq，缺失/损坏返回 session/history-failed，不跳过事件。下一实时事件 offset 应由完整历史页的 nextSeq 确认。
 - list/history 的 limit 默认为 64，合法范围 1–256（null 不是默认值）；history direction 仅支持 forward，默认 forward。单页 JSON 数组预算为配置 maxFrameBytes 的一半；可缩小实际页长，单条超限返回 session/page-too-large，不截断原始日志。响应 envelope 留有空间。
 - 游标是连接内不透明 UUID，绑定方法/会话/快照边界；最多保留 32 个，5 分钟失效，重启全部失效；过期/淘汰/伪造返回 session/invalid-cursor，客户端须重新开始分页。列表快照最多 1000 条且 256 KiB，超出返回 session/catalog-too-large，不静默漏项。
-- 本阶段仅落地 Host 基础及真实重启集成；原生会话列表、切换草稿、历史与实时合并、缺口自动恢复仍未接入。
+- Go 已接入原生列表、新建、冷恢复和草稿隔离。切换只在 idle 无交互时开始；历史读取全部在后台，单次操作超时 60 秒。列表输入总预算 1 MiB/1000 条，历史总预算 32 MiB/20000 事件/1024 页；超限或任何页错误不发布半份历史，保留原会话并提示重试。
+- Go 校验摘要字段、类型、字符串长度与安全整数；历史页需明确 events/hasMore/nextSeq，逐条验证 seq/time/type/data，禁止缺口、边界变化、重复游标、空页停滞与多余末页游标。未知事件可通过序列校验，但由投影忽略。
+- 目标会话加载期间的 durable/status/交互通知有界缓冲（1024 条/8 MiB），临时流式不作为历史或 baseline；成功切换后按原顺序从历史 nextSeq 衔接，重复 durable 事件丢弃。溢出、实时缺口或无法安全处理的并发会话活动停止 Host，不猜测或静默丢失真相；未支持的自动 resync 仍需重启恢复。
 
 ### 模型与设置
 

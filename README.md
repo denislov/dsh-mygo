@@ -6,7 +6,7 @@ DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node Host（`dsh-ba
 - 当前阶段：路线 A（SDK 验证）→ 路线 C（自定义 channel）。
 - 目标平台：macOS、Windows；Linux 视后续需要。
 
-自定义 channel、回合取消、工具审批、用户提问、Markdown 流式与工具折叠/diff 已落地：默认使用 `mygo` profile，校验 UI/Host/DSH 版本，显式创建会话、发送 prompt、显示提交后的 user/assistant/tool 事件与 running/idle 状态。原生助手正文支持 Markdown、只读高亮代码块与代码/源文复制；提供 Stop、审批与问答表单，保留下一条草稿。工具默认折叠，支持有界详情与只读 hunk；流式提交后不重复答案。SDK 链路保留作回归入口。Host 已提供会话列表、冷恢复与有界分页历史，并验证重启后继续对话；原生历史入口与会话切换、timed/continued 提问、设置与打包尚未实现。
+自定义 channel、回合取消、工具审批、用户提问、Markdown 流式与工具折叠/diff 已落地：默认使用 `mygo` profile，校验 UI/Host/DSH 版本，显式创建会话、发送 prompt、显示提交后的 user/assistant/tool 事件与 running/idle 状态。原生助手正文支持 Markdown、只读高亮代码块与代码/源文复制；提供 Stop、审批与问答表单，保留下一条草稿。工具默认折叠，支持有界详情与只读 hunk；流式提交后不重复答案。SDK 链路保留作回归入口。Sessions 原生弹窗支持会话列表、新建、恢复、有界分页历史与会话间草稿隔离，已验证重启后继续对话。timed/continued 提问、自动补齐实时缺口、设置与打包尚未实现。
 
 ## 文档
 
@@ -43,6 +43,8 @@ go run . -host-command node -host-arg testdata/fake-mygo-host.mjs
 
 验证 Markdown 时额外传入 `-host-arg --markdown`：助手先流式显示标题和开放代码围栏，完成后可 `Copy code` / `Copy Markdown`，保留代码缩进与换行。`--markdown-wait` 可测试 Stop 后的部分源文复制。图片不自动加载，链接仅显式点击 HTTP(S) 才打开；用户和工具内容保持原文。截断或中断内容不会被当成完整代码复制。
 
+验证会话列表时额外传入 `-host-arg --sessions`：点击 **Sessions**，选择 `Session demo-history` 回放已有正文；可继续发送，或 **New conversation** 后切回验证草稿隔离。fake 历史仅在当前 Host 内存中保存，不跨进程重启持久化。
+
 原生窗口 + 真实自定义 profile（Node 24+；DSH `0.2.1-rc.2`）：
 
 ```sh
@@ -53,11 +55,14 @@ go run . -dsh-dir D:/Workspace/deepseek-harness -dsh-home D:/Temp/dsh-mygo-dev
 
 初始化脚本只创建新的 `mygo` profile，将本仓库的 `resources/host` 链接为 bundle；已有 profile 不会被覆盖。`go tool mygo dev` 使用的 `DSH_HOME` 中也需要先初始化该 profile；这是开发入口，运行时打包留到后续阶段。
 
+真实历史保存在同一 `DSH_HOME`/profile 的 DSH 存储中。重新运行相同命令后会先创建新会话，再通过 **Sessions** 选择旧会话；冷恢复使用启动模型和历史记录中的工作目录。仅空闲时切换，各会话草稿只在本次 App 内存中保留。旧 Host/SDK 未协商 history 时隐藏入口。当前 Host 默认同时拥有最多 8 个会话，超限会提示失败，不静默删除历史。
+
 无需 API key 的真实 Loader + mock 模型集成（PowerShell）：
 
 ```powershell
 $env:DSH_MYGO_DSH_DIR = 'D:/Workspace/deepseek-harness'
 go test ./internal/app -run TestAgainstMygoRealComposition -v -timeout 2m
+go test ./internal/app -run TestAgainstMygoSessionSwitching -v -timeout 3m
 node --test resources/host/tests/*.test.mjs
 ```
 

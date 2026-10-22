@@ -25,13 +25,13 @@
 
 - synthetic user context（`source.kind != "user"`）、system/developer 消息、reasoning、`assistant/attempt`、请求元数据不进入 transcript。
 - 每个事件的 `seq` 去重；工具结果先到时保留稳定占位，后续仅按确切 callId 补齐，不按工具名/位置猜测。工具行身份始终是 `tool:<callId>`，补齐不覆盖已记录结果与错误状态。
-- 自定义 channel 的 `session/create.session.nextSeq` 提供实时事件起点；App 校验外层 `seq` 与 `event.seq` 一致，重复事件忽略，缺口停止 Host 并报错。Host 已提供 history capability，但 Go 尚未接入，不尝试拼接缺失事件。
+- 自定义 channel 的 `session/create.session.nextSeq` 提供实时事件起点；打开旧会话时以完整 history 的 nextSeq 为起点。App 校验外层 `seq` 与 `event.seq` 一致，重复事件忽略，实时缺口停止 Host 并报错，尚不自动 resync。
 - 旧 SDK 回归模式仍消费 `session.event`；两种 envelope 共用相同提交事件投影，UI 不生成或持久化会话历史。
 - Stop 不直接修改 transcript；DSH 提交的 `turn/end.reason.kind == "aborted"` 投影为取消 notice。若取消发生在回合完成之后，按实际提交结果展示，不补造取消行。取消后的同一 session 继续从原有 `nextSeq` 接收下一回合。
 - `approval/request` / `approval/closed` 是连接内临时交互，由 `internal/interaction` 管理，不进入 transcript。审批结果只通过 Host 提交的工具结果体现；弹窗展示原始关联参数，不使用下述截断后的工具行。idle、失败和退出清理临时队列，不伪造审批历史。
 - `question/request` / `question/closed` 同样由交互层管理，不把本地表单或取消动作写成历史。结构化答案通过真实 `ask_user_question` 工具结果进入 Host 日志；当前仅支持阻塞等待，尚不投影 timed/continued 问题或迟到回复。会话 idle 清理本会话提问，无 agent 请求不随会话 idle 消失。
-- 列表预览按 rune 截断：消息 8000、工具参数/结果 4000；工具详情按下述独立字节预算保留，超限或淘汰必须提示，不冒充完整内容。完整历史仍待实现。
-- 已有助手 Markdown 增量展示及工具折叠/只读 diff；reasoning、工具参数不展示为临时正文。尚无原生历史入口或 usage/context 展示。
+- 列表预览按 rune 截断：消息 8000、工具参数/结果 4000；工具详情按下述独立字节预算保留，超限或淘汰必须提示，不冒充完整内容。打开历史也遵守相同展示上限，不承诺完整原文复制或按需加载被淘汰详情。
+- 已有助手 Markdown 增量展示及工具折叠/只读 diff；reasoning、工具参数不展示为临时正文。已有原生 Sessions 历史入口，尚无 usage/context 展示。
 - 助手保留文本块的前导空白与末尾换行，不用 TrimSpace 改写代码缩进/开放围栏；多文本块仍以两个换行连接。临时和提交投影均显式标记 Truncated，截断上限仍为 8000 rune（省略标记另计），不保留第二份完整历史或推断缺失内容。
 
 ## 真相源
@@ -150,20 +150,24 @@ idle
 
 当前已实现 Host list/resume/history，具体参数、快照边界和资源预算以 [通道协议](channel-protocol.md#当前-host-历史能力) 为准。真实 Loader 集成验证停机后通过 persistence 列表找回会话、分页重放同一日志前缀，并恢复后继续生成第二回合；回放使用现有 Transcript.Apply，UI 不持久化副本。
 
-Go App 尚未协商该能力，原生列表与切换仍待下一阶段。当前 Host 只支持 idle 历史，客户端应在完整回放并确认 nextSeq 前禁止新 prompt；以下历史/实时缓冲与自动 resync 是后续 UI 契约，不是当前行为。
+Go App 已协商该能力，Sessions 弹窗显式打开旧会话或新建。后台先校验 resume/create 的确切身份、idle、模型路由与 nextSeq，再从 seq 0 分页构建新的 Transcript；所有页成功并确认固定边界后，在主线程整体替换旧投影。加载失败不保留或展示部分新历史，旧会话/草稿保持原样。
+
+加载目标会话期间缓冲其 durable/status/交互通知，成功后以历史 nextSeq 为边界有序消费，丢弃重复事件；不回放临时流式帧。正常回放完成前不允许发送新 prompt。buffer/历史总预算和失败策略以通道协议为准。正在运行会话 attach、自动 resync 与流式 baseline 仍不支持。
+
+当前打开流程：
 
 打开旧会话：
 
 1. `session/resume` 恢复 Agent（不重发旧事件）。
 2. `session/history` 分页拉取 `SessionEvent`。
-3. 按 `seq` 排序，投影为 `TurnView` / `ItemView`。
+3. 验证连续 `seq`，按日志顺序调用同一 Transcript.Apply，不排序掩盖缺口。
 4. 打开完成后，接入实时 `session/event`；以最后一个历史 `seq` 为边界，避免重复。
 5. 如果历史拉取期间收到实时事件，先缓冲；历史完成后按 `seq` 合并。
 
 分页：
 
 - `session/history` 使用 `cursor` + `limit` + `direction`；当前 Host 固定从 seq 0 向前分页。
-- UI 只保留窗口内的 turn；向上滚动时再拉上一页。
+- 当前先完成有界全量回放，再用原生虚拟列表仅构建可见行；尚未做向上滚动时增量读取更早历史。投影与原始历史不落本地文件。
 - 历史页与实时事件的投影函数必须相同，避免两套渲染。
 
 ## 工具调用与 diff

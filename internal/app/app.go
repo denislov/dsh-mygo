@@ -80,15 +80,21 @@ type App struct {
 	notificationInput chan hostNotification
 
 	// These fields belong to the main thread.
-	awaitingTurn    bool
-	sawActivity     bool
-	promptID        uint64
-	sessionID       string
-	nextSeq         uint64
-	promptDone      <-chan error
-	cancelIdle      bool
-	batchUpdating   bool
-	transcriptDirty bool
+	awaitingTurn       bool
+	sawActivity        bool
+	promptID           uint64
+	sessionID          string
+	nextSeq            uint64
+	promptDone         <-chan error
+	cancelIdle         bool
+	batchUpdating      bool
+	transcriptDirty    bool
+	sessionOperation   uint64
+	sessionCancel      context.CancelFunc
+	loadingSession     string
+	sessionBuffer      []hostNotification
+	sessionBufferBytes int
+	drafts             map[string]string
 
 	shuttingDown atomic.Bool
 	stopped      chan struct{}
@@ -110,6 +116,11 @@ func New(options Options) *App {
 	app.model.Cancel = app.Cancel
 	app.model.RespondApproval = app.RespondApproval
 	app.model.RespondQuestion = app.RespondQuestion
+	app.model.OpenSessions = app.OpenSessions
+	app.model.CloseSessions = app.CloseSessions
+	app.model.RefreshSessions = app.RefreshSessions
+	app.model.NewSession = app.NewSession
+	app.model.SwitchSession = app.SwitchSession
 	return app
 }
 
@@ -182,6 +193,9 @@ func (a *App) Start() {
 		}
 		a.sessionID = initialized.sessionID
 		a.nextSeq = initialized.nextSeq
+		a.model.SessionID = initialized.sessionID
+		a.model.SessionCWD = a.options.CWD
+		a.model.CanHistory = initialized.canHistory
 		a.model.CanCancel = initialized.canCancel
 		a.model.CanApprove = initialized.canApprove
 		a.model.CanQuestion = initialized.canQuestion
@@ -201,6 +215,7 @@ type initializedSession struct {
 	canApprove  bool
 	canQuestion bool
 	canStream   bool
+	canHistory  bool
 }
 
 func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSession, error) {
@@ -227,7 +242,7 @@ func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSess
 	result, err := client.Call(ctx, "initialize", map[string]any{
 		"protocolVersion": channel.ProtocolVersion,
 		"client":          map[string]string{"name": "dsh-mygo", "version": channel.ReleaseVersion, "platform": runtime.GOOS, "locale": "zh-CN"},
-		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream"},
+		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history"},
 	})
 	if err != nil {
 		return initializedSession{}, err
@@ -251,7 +266,7 @@ func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSess
 			NextSeq *uint64 `json:"nextSeq"`
 		} `json:"session"`
 	}
-	if json.Unmarshal(result, &created) != nil || !validSessionID(created.Session.ID) || created.Session.Status != "idle" || created.Session.NextSeq == nil {
+	if json.Unmarshal(result, &created) != nil || !validSessionID(created.Session.ID) || created.Session.Status != "idle" || created.Session.NextSeq == nil || *created.Session.NextSeq > maxSafeInteger {
 		return initializedSession{}, errors.New("invalid session/create response")
 	}
 	return initializedSession{
@@ -261,6 +276,7 @@ func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSess
 		canApprove:  slices.Contains(initialized.Capabilities, "approval"),
 		canQuestion: slices.Contains(initialized.Capabilities, "question"),
 		canStream:   slices.Contains(initialized.Capabilities, "session.assistant-stream"),
+		canHistory:  slices.Contains(initialized.Capabilities, "session.history"),
 	}, nil
 }
 
@@ -280,7 +296,7 @@ func validSessionID(value string) bool {
 // while the host is busy or not ready.
 func (a *App) Send(text string) {
 	text = strings.TrimSpace(text)
-	if text == "" || a.shuttingDown.Load() || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 {
+	if text == "" || a.shuttingDown.Load() || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 || a.model.SessionBusy {
 		return
 	}
 	client := a.currentClient()
@@ -418,6 +434,9 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 		return
 	}
 	if !a.options.SDKProtocol {
+		if a.bufferSessionNotification(method, params) {
+			return
+		}
 		switch method {
 		case "session/assistant-stream":
 			a.handleStreamNotification(params)
@@ -547,6 +566,7 @@ func (a *App) Shutdown(timeout time.Duration) {
 	a.post(a.clearApprovals)
 	a.post(a.clearQuestions)
 	a.post(a.clearStream)
+	a.post(a.cancelSessionOperation)
 	a.mu.Lock()
 	client := a.client
 	supervisor := a.supervisor
@@ -592,6 +612,8 @@ func (a *App) setFailure(summary string, err error) {
 		return
 	}
 	a.model.Phase = view.PhaseFailed
+	a.cancelSessionOperation()
+	a.model.SessionsOpen = false
 	a.model.CancelPending = false
 	a.clearApprovals()
 	a.clearQuestions()

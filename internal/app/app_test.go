@@ -201,6 +201,7 @@ func TestMygoInitializeCreatesSessionAfterValidHandshake(t *testing.T) {
 		{"wrong release", `{"protocolVersion":1,"server":{"name":"host","version":"9","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`, `{}`, 1, false},
 		{"invalid session id", `{"protocolVersion":1,"server":{"name":"host","version":"0.1.0","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`, `{"session":{"id":"../unsafe","status":"idle","nextSeq":0}}`, 2, false},
 		{"missing baseline", `{"protocolVersion":1,"server":{"name":"host","version":"0.1.0","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`, `{"session":{"id":"s1","status":"idle"}}`, 2, false},
+		{"unsafe baseline", `{"protocolVersion":1,"server":{"name":"host","version":"0.1.0","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`, `{"session":{"id":"s1","status":"idle","nextSeq":9007199254740992}}`, 2, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{results: map[string]json.RawMessage{"initialize": json.RawMessage(test.handshake), "session/create": json.RawMessage(test.session)}}
@@ -219,7 +220,7 @@ func TestMygoInitializeCreatesSessionAfterValidHandshake(t *testing.T) {
 			if test.valid {
 				params := client.params[0].(map[string]any)
 				capabilities := params["capabilities"].([]string)
-				if len(capabilities) != 4 || capabilities[0] != "session.cancel" || capabilities[1] != "approval" || capabilities[2] != "question" || capabilities[3] != "session.assistant-stream" {
+				if len(capabilities) != 5 || capabilities[0] != "session.cancel" || capabilities[1] != "approval" || capabilities[2] != "question" || capabilities[3] != "session.assistant-stream" || capabilities[4] != "session.history" {
 					t.Fatal("unimplemented capabilities advertised")
 				}
 			}
