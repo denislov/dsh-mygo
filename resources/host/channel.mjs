@@ -12,6 +12,7 @@ export const Config = Schema.object({
   maxFrameBytes: Schema.natural().min(1024).max(16 * 1024 * 1024).default(16 * 1024 * 1024),
   maxQueuedBytes: Schema.natural().min(1024).max(64 * 1024 * 1024).default(32 * 1024 * 1024),
   maxSessions: Schema.natural().min(1).max(64).default(8),
+  cancelTimeoutMs: Schema.natural().min(1).max(60000).default(5000),
 })
 
 export function apply(ctx, config) {
@@ -25,6 +26,7 @@ export function apply(ctx, config) {
     notify: (method, params) => channel.notify(method, params),
     createUserMessage, reasoningEffort: ReasoningEffortId, dshVersion,
     maxSessions: config.maxSessions,
+    cancelTimeoutMs: config.cancelTimeoutMs,
     ensureProvider: async (provider) => {
       if (ctx.llm.listProviders().some((entry) => entry.id === provider)) return
       if (provider !== 'deepseek-official') throw new Error('Model provider is unavailable')

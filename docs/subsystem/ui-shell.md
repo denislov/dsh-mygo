@@ -25,7 +25,8 @@ P1 的单窗口只有 header、transcript 列表、composer：
 - transcript 显示提交后的 user 消息、assistant 文本、tool call/result 与 turn 结束通知；不显示 synthetic user context、system/developer 消息、reasoning。
 - Enter 发送，Shift+Enter 换行；发送期间仍可编辑草稿，但发送按钮与 Enter 发送禁用。
 - 状态来自自定义 channel 的 `session/status`（显式 SDK 模式为 `session.status`）：starting / ready / working / host error。发送失败保留草稿并显示可关闭的错误横幅。自定义 channel 的错误详情不展示原始 stderr。
-- 尚未实现：流式占位、Markdown、工具卡片折叠/diff、取消、审批、提问、历史、会话列表、设置、附件。
+- 协商 `session.cancel` 后，working 时的 Send 替换为 Stop；点击后显示禁用的 `Stopping…`，直到取消请求返回且 Host 确认 idle。提前收到 idle 也不会放行新消息；取消失败显示错误并允许重试。取消不清除下一条草稿。Stop 和 Send 使用不同的稳定 key，反复消失/返回时不复用错误控件状态。SDK/旧 Host 不启用 Stop。
+- 尚未实现：流式占位、Markdown、工具卡片折叠/diff、审批、提问、历史、会话列表、设置、附件。
 
 ## 视图模型
 

@@ -31,16 +31,19 @@ const (
 // Model is the window's state. The app mutates it on the main thread and
 // keeps the transcript and draft outside the view.
 type Model struct {
-	Items       []projection.Item
-	Draft       string
-	Phase       Phase
-	ModelLabel  string
-	Detail      string
-	Error       string
-	ErrorDetail string
-	Send        func(text string)
-	Dismiss     func()
-	List        mgo.ListState
+	Items         []projection.Item
+	Draft         string
+	Phase         Phase
+	ModelLabel    string
+	Detail        string
+	Error         string
+	ErrorDetail   string
+	Send          func(text string)
+	Dismiss       func()
+	Cancel        func()
+	CanCancel     bool
+	CancelPending bool
+	List          mgo.ListState
 }
 
 // NewModel returns a model with a list that follows the newest row and keeps
@@ -207,12 +210,22 @@ func composer(c *mgo.Context, model *Model) {
 		mgo.Row(c).Gap(8).AlignItems(mgo.Center).Children(func() {
 			mgo.Text(c, composerHint(model)).FontSize(11).TextColor(theme.TextMuted)
 			mgo.Spacer(c)
-			send := mgo.PrimaryButton(c, "Send").
-				Disabled(!canSend || strings.TrimSpace(model.Draft) == "")
-			if send.Clicked() {
-				text := strings.TrimSpace(model.Draft)
-				if text != "" && canSend {
-					model.Send(text)
+			if model.Phase == PhaseRunning && model.CanCancel && model.Cancel != nil {
+				label := "Stop"
+				if model.CancelPending {
+					label = "Stopping…"
+				}
+				if mgo.Button(c.Key("stop"), label).Disabled(model.CancelPending).Clicked() && !model.CancelPending {
+					model.Cancel()
+				}
+			} else {
+				send := mgo.PrimaryButton(c.Key("send"), "Send").
+					Disabled(!canSend || strings.TrimSpace(model.Draft) == "")
+				if send.Clicked() {
+					text := strings.TrimSpace(model.Draft)
+					if text != "" && canSend {
+						model.Send(text)
+					}
 				}
 			}
 		})
@@ -220,6 +233,9 @@ func composer(c *mgo.Context, model *Model) {
 }
 
 func composerHint(model *Model) string {
+	if model.CancelPending {
+		return "Stopping…"
+	}
 	switch model.Phase {
 	case PhaseStarting:
 		return "Starting the host…"

@@ -18,7 +18,7 @@ function text(value, field, limit = 256) {
 }
 
 export class MygoServer {
-  constructor(ctx, { notify, createUserMessage, reasoningEffort, ensureProvider, dshVersion, maxSessions = 8 }) {
+  constructor(ctx, { notify, createUserMessage, reasoningEffort, ensureProvider, dshVersion, maxSessions = 8, cancelTimeoutMs = 5000 }) {
     this.ctx = ctx
     this.notify = notify
     this.createUserMessage = createUserMessage
@@ -26,6 +26,8 @@ export class MygoServer {
     this.ensureProvider = ensureProvider
     this.dshVersion = dshVersion
     this.maxSessions = maxSessions
+    this.cancelTimeoutMs = cancelTimeoutMs
+    this.capabilities = []
     this.sessions = new Map()
     this.initialized = false
     this.stopping = false
@@ -56,6 +58,7 @@ export class MygoServer {
     switch (method) {
       case 'session/create': return this.create(params)
       case 'session/prompt': return this.prompt(params)
+      case 'session/cancel': return this.cancel(params)
       default: throw fault('protocol/method-not-found', 'Unknown channel method', -32601)
     }
   }
@@ -71,9 +74,10 @@ export class MygoServer {
     if (!Array.isArray(params.capabilities) || params.capabilities.length > 64) throw fault('protocol/invalid-params', 'Invalid capabilities', -32602)
     for (const capability of params.capabilities) text(capability, 'capability')
     this.initialized = true
+    this.capabilities = params.capabilities.includes('session.cancel') ? ['session.cancel'] : []
     return {
       server: { name: 'dsh-mygo-host', version: releaseVersion, dshVersion: this.dshVersion },
-      protocolVersion, capabilities: [],
+      protocolVersion, capabilities: this.capabilities,
     }
   }
 
@@ -130,6 +134,39 @@ export class MygoServer {
   shutdown() {
     this.shutdownTask ??= this.dispose()
     return this.shutdownTask
+  }
+
+  cancel(params) {
+    if (!this.capabilities.includes('session.cancel')) throw fault('protocol/capability-unavailable', 'Session cancellation was not negotiated')
+    const sessionId = text(params.sessionId, 'sessionId', 128)
+    if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) throw fault('protocol/invalid-params', 'Invalid sessionId', -32602)
+    const record = this.sessions.get(sessionId)
+    if (!record?.handle) throw fault('session/not-found', 'Session is not owned by this host')
+    if (record.cancelTask) return record.cancelTask
+    if (!record.busy && record.handle.agent.status === 'idle') return { cancelled: false, status: 'idle' }
+    record.cancelTask = this.cancelAgent(record, sessionId).finally(() => { record.cancelTask = undefined })
+    return record.cancelTask
+  }
+
+  async cancelAgent(record, sessionId) {
+    let timeout
+    try {
+      record.handle.agent.cancel({ kind: 'user' })
+      await Promise.race([
+        record.handle.agent.whenIdle(),
+        new Promise((_resolve, reject) => {
+          timeout = setTimeout(() => reject(fault('session/cancel-timeout', 'Cancellation is still pending; wait for the host to become idle or retry')), this.cancelTimeoutMs)
+        }),
+      ])
+      record.busy = false
+      this.notify('session/status', { sessionId, status: 'idle' })
+      return { cancelled: true, status: 'idle' }
+    } catch (error) {
+      if (error.kind === 'session/cancel-timeout') throw error
+      throw fault('session/cancel-failed', 'Could not stop the turn')
+    } finally {
+      clearTimeout(timeout)
+    }
   }
 
   async dispose() {

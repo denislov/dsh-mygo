@@ -6,7 +6,7 @@ DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node Host（`dsh-ba
 - 当前阶段：路线 A（SDK 验证）→ 路线 C（自定义 channel）。
 - 目标平台：macOS、Windows；Linux 视后续需要。
 
-自定义 channel 阶段 1 已落地：默认使用 `mygo` profile，校验 UI/Host/DSH 版本，显式创建会话、发送 prompt、显示提交后的 user/assistant/tool 事件与 running/idle 状态。SDK 链路保留作回归入口。逐字流式、审批、提问、历史、设置、取消与打包尚未实现。
+自定义 channel 阶段 1 与回合取消已落地：默认使用 `mygo` profile，校验 UI/Host/DSH 版本，显式创建会话、发送 prompt、显示提交后的 user/assistant/tool 事件与 running/idle 状态，并在协商 `session.cancel` 后提供 Stop 按钮。取消保留会话与下一条草稿，可继续发送。SDK 链路保留作回归入口。逐字流式、审批、提问、历史、设置与打包尚未实现。
 
 ## 文档
 
@@ -30,6 +30,8 @@ go tool mygo build
 ```sh
 go run . -host-command node -host-arg testdata/fake-mygo-host.mjs
 ```
+
+验证 Stop 按钮时额外传入 `-host-arg --wait-for-cancel`：第一回合会等待取消，下一回合恢复普通 Echo 回复。
 
 原生窗口 + 真实自定义 profile（Node 24+；DSH `0.2.1-rc.2`）：
 

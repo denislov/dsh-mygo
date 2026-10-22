@@ -9,11 +9,11 @@
 
 协议只描述消息、顺序与错误，不描述 UI 布局，也不复制 DSH 的业务方法。
 
-## 当前实现（自定义 channel 阶段 1）
+## 当前实现（自定义 channel 阶段 1 + 回合取消）
 
 - UI/Host 发布版本 `0.1.0`、`protocolVersion: 1`、DSH `0.2.1-rc.2` 精确绑定；不匹配时拒绝进入 ready。
-- 已实现 `initialize`、`session/create`、`session/prompt`、`shutdown`；通知为 `session/event`、`session/status`、`host/fatal`。
-- 双方 `capabilities` 均为 `[]`；下文其余方法、流式、附件、请求取消和 history 恢复是后续契约，当前不启用。
+- 已实现 `initialize`、`session/create`、`session/prompt`、`session/cancel`、`shutdown`；通知为 `session/event`、`session/status`、`host/fatal`。
+- UI 声明 `session.cancel`，Host 仅在双方支持时返回该 capability；未协商时调用取消返回 `protocol/capability-unavailable`。旧 Host 不声明时，UI 不展示 Stop。下文其余方法、流式、附件、RPC 请求取消和 history 恢复仍是后续契约。
 - `session/create` 当前要求已有绝对目录 `cwd`、`provider`、`model`，可选 `effort`；Host 验证模型路由后创建并拥有 session id。只接受自己创建的会话和 text content，忙碌时拒绝新 prompt。
 - 创建结果中的 `session.nextSeq` 是创建完成时 DSH 的下一事件 offset。初始会话元数据不重放；后续完整提交事件从此 offset 开始转发。`session/event` 同时携带外层 `seq` 和原始 `event.seq`，两者必须相同。
 - Go 忽略重复事件；缺口或无效载荷使连接失败并停止 Host。当前没有 `session.history` capability，因此不能自动补齐。
@@ -80,7 +80,7 @@
 | `session/fork` | `{ sessionId, messageId? }` | `{ session: SessionSummary }` |
 | `session/history` | `{ sessionId, cursor?, limit?, direction? }` | `{ events: SessionEvent[], nextCursor?, hasMore }` |
 | `session/prompt` | `{ sessionId, content: ContentBlock[] }` | `{ messageId }` |
-| `session/cancel` | `{ sessionId }` | `{}` |
+| `session/cancel` | `{ sessionId }`（需 capability `session.cancel`） | `{ cancelled: boolean, status: "idle" }` |
 | `session/queue` | `{ sessionId, action: "list"|"edit"|"remove"|"steer", ... }` | `{ queue: QueuedInput[] }` |
 | `session/wait` | `{ sessionId }` | `{}`（回合结束后返回） |
 | `session/working-directory/get` | `{ sessionId }` | `{ cwd }` |
@@ -162,6 +162,14 @@ type AssistantStreamFrame =
 - 禁止把不连续的事件拼成“当前状态”。
 
 ## 取消与超时
+
+- 回合取消已实现：Host 只接受自己拥有的 session，调用公开 `Agent.cancel({ kind: "user" })`，默认清空待处理输入，然后等待 `Agent.whenIdle()`。会话不会销毁，工具/模型的 abort signal 由 DSH 传播。
+- 空闲取消返回 `{ cancelled: false, status: "idle" }`，不预先取消未来回合；活跃回合终止后返回 `{ cancelled: true, status: "idle" }`。取消期间的并发请求共用同一任务；后续重复取消等同空闲取消。
+- Host 的 `cancelTimeoutMs` 默认 5000（可通过 channel config 配置）；未能确认 idle 时返回 `session/cancel-timeout`，不伪造成功，也不改变日志。Go 请求超时为 10 秒；失败后仍保持 working 并允许重试，最终 idle 由 Host 通知确认。
+- Go 在 prompt 被 Host 接受后才发出取消，避免立即点击 Stop 时取消越过 prompt。取消期间保留下一条草稿并禁用重复点击；必须等取消请求返回且 Host 确认 idle 后才重新允许发送。提前收到 idle 只记录状态，不解除发送屏障，避免迟到的取消请求误停新回合。旧回合的迟到取消响应不能改变新回合。
+- 取消提示来自 Host 提交的 `turn/end`（`aborted`），UI 不自行生成历史。若回合恰好已经完成，则保留实际完成结果。
+
+以下是尚未实现的 RPC 请求级取消契约，独立于已实现的回合取消：
 
 - 每个请求有 `id`；取消用 `$/cancel` 通知：`{ "id": <requestId> }`。
 - `session/cancel` 取消当前回合，不取消“列出会话”这类请求。

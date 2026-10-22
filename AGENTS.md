@@ -7,7 +7,8 @@ dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node H
 - P0 已落地：`internal/host`、`internal/channel`、`cmd/spike`。
 - P1 已落地：`internal/projection`、`internal/view`、`internal/app`、根 `main.go`；原生窗口可启动 Host、发送 prompt、投影提交事件、显示运行状态与错误。
 - 自定义 channel 阶段 1 已落地：`resources/host` bundle、`mygo` profile 初始化、版本握手、显式创建会话和真实 Loader + mock 模型测试。默认协议为自定义 channel；SDK 回归须显式 `-sdk-protocol -profile sdk`。
-- 未落地（P2）：逐字流式、工具卡片折叠/diff、审批、提问、历史、会话列表、设置、取消、打包。
+- 回合取消已落地：`session.cancel` capability、`session/cancel`、原生 Stop 按钮、草稿保留，以及真实 agent loop 的 abort → idle → 同会话再次发送测试。
+- 未落地（P2）：逐字流式、工具卡片折叠/diff、审批、提问、历史、会话列表、设置、RPC 请求级取消、打包。
 
 ## 文档路由
 

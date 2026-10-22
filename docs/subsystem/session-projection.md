@@ -27,6 +27,7 @@
 - 每个事件的 `seq` 去重；工具结果先到时单独成行，不猜测配对。
 - 自定义 channel 的 `session/create.session.nextSeq` 提供实时事件起点；App 校验外层 `seq` 与 `event.seq` 一致，重复事件忽略，缺口停止 Host 并报错。history capability 落地前不尝试拼接缺失事件。
 - 旧 SDK 回归模式仍消费 `session.event`；两种 envelope 共用相同提交事件投影，UI 不生成或持久化会话历史。
+- Stop 不直接修改 transcript；DSH 提交的 `turn/end.reason.kind == "aborted"` 投影为取消 notice。若取消发生在回合完成之后，按实际提交结果展示，不补造取消行。取消后的同一 session 继续从原有 `nextSeq` 接收下一回合。
 - 文本按 rune 截断：消息 8000、工具内容 4000；完整历史与展开查看留给 P2。
 - 无逐字流式、无 history、无 usage/context 展示、无 diff。
 

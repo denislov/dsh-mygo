@@ -1,10 +1,12 @@
 package app
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -341,6 +343,167 @@ func TestAgainstMygoRealModel(t *testing.T) {
 		t.Fatalf("real model host shutdown: %v", err)
 	}
 	t.Log("deepseek-official/deepseek-flash replied with exactly pong; host exited successfully")
+}
+
+func TestAgainstMygoCancel(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	fakeHost, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fake-mygo-host.mjs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, immediate := range []bool{false, true} {
+		t.Run(fmt.Sprintf("immediate-%v", immediate), func(t *testing.T) {
+			updates := make(chan func(), 128)
+			application := New(Options{
+				Launch: host.Config{Command: node, Args: []string{fakeHost, "--wait-for-cancel"}},
+				CWD:    t.TempDir(), Provider: "test", Model: "echo", Post: func(fn func()) { updates <- fn },
+			})
+			defer application.Shutdown(2 * time.Second)
+			go application.Start()
+			waitFor(t, application, updates, 10*time.Second, func() bool { return application.Model().Phase == view.PhaseIdle })
+			if !application.Model().CanCancel {
+				t.Fatal("cancel capability was not enabled")
+			}
+			sessionID := application.sessionID
+			application.Send("long turn")
+			if !immediate {
+				waitFor(t, application, updates, 10*time.Second, func() bool { return len(application.Model().Items) > 0 })
+			}
+			application.Model().Draft = "next draft"
+			application.Cancel()
+			application.Cancel()
+			waitFor(t, application, updates, 10*time.Second, func() bool { return application.Model().Phase == view.PhaseIdle })
+			if application.Model().Draft != "next draft" || application.Model().CancelPending {
+				t.Fatal("cancel did not preserve the draft or clear its pending state")
+			}
+			cancelled := false
+			for _, item := range application.Model().Items {
+				if item.Kind == projection.KindNotice && item.State == "aborted" {
+					cancelled = true
+				}
+			}
+			if !cancelled {
+				t.Fatal("committed cancellation notice is missing")
+			}
+			application.Send("next turn")
+			waitFor(t, application, updates, 10*time.Second, func() bool {
+				return application.Model().Phase == view.PhaseIdle && hasAssistantText(application.Model().Items, "Echo: next turn")
+			})
+			if application.sessionID != sessionID {
+				t.Fatal("cancel replaced the session")
+			}
+		})
+	}
+}
+
+func TestMygoCancelDisabledForOlderHost(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	fakeHost, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fake-mygo-host.mjs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	updates := make(chan func(), 128)
+	application := New(Options{
+		Launch: host.Config{Command: node, Args: []string{fakeHost, "--no-cancel"}},
+		CWD:    t.TempDir(), Provider: "test", Model: "echo", Post: func(fn func()) { updates <- fn },
+	})
+	defer application.Shutdown(2 * time.Second)
+	go application.Start()
+	waitFor(t, application, updates, 10*time.Second, func() bool { return application.Model().Phase == view.PhaseIdle })
+	if application.Model().CanCancel {
+		t.Fatal("older host enabled cancellation")
+	}
+}
+
+func TestAgainstMygoRealCancellation(t *testing.T) {
+	launch, _ := realMygoLaunch(t, true)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	signals := make(chan string, 2)
+	go func() {
+		connection, err := listener.Accept()
+		if err != nil {
+			signals <- "connection-failed"
+			return
+		}
+		defer connection.Close()
+		_ = connection.SetReadDeadline(time.Now().Add(60 * time.Second))
+		reader := bufio.NewReader(connection)
+		for range 2 {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				signals <- "read-failed"
+				return
+			}
+			signals <- strings.TrimSpace(line)
+		}
+	}()
+	launch.Env = append(launch.Env, "DSH_MYGO_MOCK_CONTROL="+listener.Addr().String())
+	updates := make(chan func(), 512)
+	application := New(Options{
+		Launch: launch, CWD: t.TempDir(), Provider: "mygo-mock", Model: "wait-for-cancel",
+		Post: func(fn func()) { updates <- fn },
+	})
+	defer application.Shutdown(10 * time.Second)
+	go application.Start()
+	waitFor(t, application, updates, 90*time.Second, func() bool { return application.Model().Phase == view.PhaseIdle })
+	sessionID := application.sessionID
+	application.Send("Wait until cancelled")
+	for _, expected := range []string{"started", "aborted"} {
+		deadline := time.NewTimer(30 * time.Second)
+		waiting := true
+		for waiting {
+			select {
+			case update := <-updates:
+				update()
+			case signal := <-signals:
+				if signal != expected {
+					t.Fatalf("mock model signal = %q; expected %q", signal, expected)
+				}
+				waiting = false
+			case <-deadline.C:
+				t.Fatalf("model did not signal %s", expected)
+			}
+		}
+		deadline.Stop()
+		if expected == "started" {
+			application.Model().Draft = "next draft"
+			application.Cancel()
+		}
+	}
+	waitFor(t, application, updates, 10*time.Second, func() bool { return application.Model().Phase == view.PhaseIdle })
+	if application.Model().Draft != "next draft" || application.Model().CancelPending {
+		t.Fatal("cancel changed the draft or remained pending")
+	}
+	cancelled := false
+	for _, item := range application.Model().Items {
+		if item.Kind == projection.KindNotice && item.State == "aborted" {
+			cancelled = true
+		}
+	}
+	if !cancelled {
+		t.Fatal("real session log did not commit a cancellation")
+	}
+	application.Send("Reply with exactly: pong")
+	waitFor(t, application, updates, 30*time.Second, func() bool {
+		return application.Model().Phase == view.PhaseIdle && hasAssistantText(application.Model().Items, "pong")
+	})
+	if application.sessionID != sessionID {
+		t.Fatal("cancellation replaced the session")
+	}
+	application.Shutdown(10 * time.Second)
+	if err := application.supervisor.WaitError(); err != nil {
+		t.Fatalf("cancelled host shutdown: %v", err)
+	}
 }
 
 func hasAssistantText(items []projection.Item, text string) bool {

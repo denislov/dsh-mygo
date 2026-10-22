@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,6 +26,7 @@ import (
 const (
 	initializeTimeout   = 60 * time.Second
 	promptTimeout       = 60 * time.Second
+	cancelTimeout       = 10 * time.Second
 	stopTimeout         = 5 * time.Second
 	maxErrorRunes       = 3000
 	maxPendingUIUpdates = 32
@@ -78,6 +80,8 @@ type App struct {
 	promptID     uint64
 	sessionID    string
 	nextSeq      uint64
+	promptDone   <-chan error
+	cancelIdle   bool
 
 	shuttingDown atomic.Bool
 	stopped      chan struct{}
@@ -96,6 +100,7 @@ func New(options Options) *App {
 	}
 	app.model.Send = app.Send
 	app.model.Dismiss = app.DismissError
+	app.model.Cancel = app.Cancel
 	return app
 }
 
@@ -169,6 +174,7 @@ func (a *App) Start() {
 		}
 		a.sessionID = initialized.sessionID
 		a.nextSeq = initialized.nextSeq
+		a.model.CanCancel = initialized.canCancel
 		a.model.Detail = initialized.detail
 		if a.model.Phase == view.PhaseStarting {
 			a.model.Phase = view.PhaseIdle
@@ -180,6 +186,7 @@ type initializedSession struct {
 	sessionID string
 	nextSeq   uint64
 	detail    string
+	canCancel bool
 }
 
 func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSession, error) {
@@ -206,7 +213,7 @@ func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSess
 	result, err := client.Call(ctx, "initialize", map[string]any{
 		"protocolVersion": channel.ProtocolVersion,
 		"client":          map[string]string{"name": "dsh-mygo", "version": channel.ReleaseVersion, "platform": runtime.GOOS, "locale": "zh-CN"},
-		"capabilities":    []string{},
+		"capabilities":    []string{"session.cancel"},
 	})
 	if err != nil {
 		return initializedSession{}, err
@@ -235,7 +242,8 @@ func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSess
 	}
 	return initializedSession{
 		sessionID: created.Session.ID, nextSeq: *created.Session.NextSeq,
-		detail: initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
+		detail:    initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
+		canCancel: slices.Contains(initialized.Capabilities, "session.cancel"),
 	}, nil
 }
 
@@ -266,13 +274,18 @@ func (a *App) Send(text string) {
 	a.model.Error = ""
 	a.model.ErrorDetail = ""
 	a.model.Phase = view.PhaseRunning
+	a.model.CancelPending = false
+	a.cancelIdle = false
 	a.awaitingTurn = true
 	a.sawActivity = false
 	a.promptID++
-	go a.prompt(client, text, a.promptID, a.sessionID)
+	delivery := make(chan error, 1)
+	a.promptDone = delivery
+	go a.prompt(client, text, a.promptID, a.sessionID, delivery)
 }
 
-func (a *App) prompt(client rpcClient, text string, promptID uint64, sessionID string) {
+func (a *App) prompt(client rpcClient, text string, promptID uint64, sessionID string, delivery chan error) {
+	defer close(delivery)
 	ctx, cancel := context.WithTimeout(context.Background(), promptTimeout)
 	defer cancel()
 	contentField := "content"
@@ -292,11 +305,86 @@ func (a *App) prompt(client rpcClient, text string, promptID uint64, sessionID s
 		a.awaitingTurn = false
 		a.sawActivity = false
 		a.model.Phase = view.PhaseIdle
+		a.model.CancelPending = false
 		a.model.Error = "Could not deliver the prompt"
 		a.model.ErrorDetail = clipDetail(err.Error()+"\n\nThe prompt may not have reached the host. Check before retrying.", maxErrorRunes)
 		if a.model.Draft == "" {
 			a.model.Draft = text
 		}
+	})
+	delivery <- err
+}
+
+func (a *App) Cancel() {
+	if a.shuttingDown.Load() || a.options.SDKProtocol || !a.model.CanCancel || a.model.Phase != view.PhaseRunning || a.model.CancelPending {
+		return
+	}
+	client := a.currentClient()
+	if client == nil {
+		return
+	}
+	a.model.CancelPending = true
+	a.cancelIdle = false
+	a.model.Error = ""
+	a.model.ErrorDetail = ""
+	go a.cancelTurn(client, a.promptID, a.sessionID, a.promptDone)
+}
+
+func (a *App) cancelTurn(client rpcClient, promptID uint64, sessionID string, delivery <-chan error) {
+	ctx, cancel := context.WithTimeout(context.Background(), cancelTimeout)
+	defer cancel()
+	var result json.RawMessage
+	var err error
+	if delivery != nil {
+		select {
+		case deliveryError := <-delivery:
+			if deliveryError != nil {
+				return
+			}
+		case <-ctx.Done():
+			err = ctx.Err()
+		case <-a.stopped:
+			return
+		}
+	}
+	if err == nil {
+		result, err = client.Call(ctx, "session/cancel", map[string]any{"sessionId": sessionID})
+	}
+	a.post(func() {
+		if a.shuttingDown.Load() || a.promptID != promptID || a.model.Phase != view.PhaseRunning || !a.model.CancelPending {
+			return
+		}
+		a.model.CancelPending = false
+		if a.cancelIdle {
+			a.awaitingTurn = false
+			a.sawActivity = false
+			a.model.Phase = view.PhaseIdle
+			return
+		}
+		var stopped struct {
+			Cancelled *bool  `json:"cancelled"`
+			Status    string `json:"status"`
+		}
+		if err == nil && (json.Unmarshal(result, &stopped) != nil || stopped.Cancelled == nil || stopped.Status != "idle") {
+			err = errors.New("invalid session/cancel response")
+		}
+		if err != nil {
+			var rpcError *channel.RPCError
+			if errors.As(err, &rpcError) {
+				var detail struct {
+					Kind string `json:"kind"`
+				}
+				if json.Unmarshal(rpcError.Data, &detail) == nil && detail.Kind == "session/cancel-timeout" {
+					a.awaitingTurn = false
+				}
+			}
+			a.model.Error = "Could not stop the turn"
+			a.model.ErrorDetail = clipDetail(err.Error(), maxErrorRunes)
+			return
+		}
+		a.awaitingTurn = false
+		a.sawActivity = false
+		a.model.Phase = view.PhaseIdle
 	})
 }
 
@@ -394,6 +482,7 @@ func (a *App) applyStatus(status string) {
 			return
 		}
 		a.model.Phase = view.PhaseRunning
+		a.cancelIdle = false
 	case "idle":
 		if a.model.Phase == view.PhaseStarting || a.model.Phase == view.PhaseFailed {
 			return
@@ -407,7 +496,12 @@ func (a *App) applyStatus(status string) {
 			a.awaitingTurn = false
 			a.sawActivity = false
 		}
+		if a.model.CancelPending {
+			a.cancelIdle = true
+			return
+		}
 		a.model.Phase = view.PhaseIdle
+		a.model.CancelPending = false
 	}
 }
 
@@ -463,6 +557,7 @@ func (a *App) setFailure(summary string, err error) {
 		return
 	}
 	a.model.Phase = view.PhaseFailed
+	a.model.CancelPending = false
 	a.model.Error = summary
 	detail := ""
 	if err != nil {

@@ -16,6 +16,8 @@
 
 profile 由 `dsh-base` + `@dsh-mygo/host` 组成。channel 依赖 launcher 的 `appReady`，只在真实 Loader 启动成功后接管 stdio；握手再次等待 Loader 稳定，并检查 `profileContext.startedBundles`。当前能力与版本以 [通道协议](channel-protocol.md) 为准。
 
+回合取消通过 `session.cancel` capability 启用；channel 的 `cancelTimeoutMs` 默认 5000，控制等待 Agent idle 的上限，不通过杀进程实现取消。
+
 审批和提问目前由 fail-closed answerer 明确拒绝；交互队列、回答方法和 UI 在阶段 2 实现。后文私有 Host、发布安装和包管理描述后续设计。
 
 ## 包形态

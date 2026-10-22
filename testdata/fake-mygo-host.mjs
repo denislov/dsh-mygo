@@ -12,24 +12,44 @@ const ctx = {
   agents: {
     async create({ sessionId }) {
       const agent = {
-        session: { id: sessionId, seq: 0 }, status: 'idle',
+        session: { id: sessionId, seq: 0 }, status: 'idle', turns: 0,
         followup(message) {
+          const work = { ...Promise.withResolvers(), finished: false, cancelled: false }
+          agent.work = work
+          const turn = ++agent.turns
           setImmediate(() => {
             agent.status = 'running'
             events.emit('agent/status', { agent, status: 'running' })
             const event = (type, data) => events.emit('session/event', agent.session, { type, data, seq: agent.session.seq++, time: Date.now() })
             event('turn/start', { turn: 1 })
             event('user/message', message)
-            event('tool/call', { callId: 'fake-1', name: 'read_file', arguments: '{"path":"README.md"}' })
-            event('tool/result', { message: { toolCallId: 'fake-1', content: [{ type: 'text', text: '# dsh-mygo' }] } })
-            event('assistant/message', { message: { content: [{ type: 'text', text: `Echo: ${message.content.map((block) => block.text).join('\n')}` }] } })
-            event('turn/end', { reason: { kind: 'completed' } })
-            agent.status = 'idle'
-            events.emit('agent/status', { agent, status: 'idle' })
+            work.finish = (aborted) => {
+              if (work.finished) return
+              work.finished = true
+              if (!aborted) {
+                const callId = `fake-${turn}`
+                event('tool/call', { callId, name: 'read_file', arguments: '{"path":"README.md"}' })
+                event('tool/result', { message: { toolCallId: callId, content: [{ type: 'text', text: '# dsh-mygo' }] } })
+                event('assistant/message', { message: { content: [{ type: 'text', text: `Echo: ${message.content.map((block) => block.text).join('\n')}` }] } })
+              }
+              event('turn/end', { reason: aborted ? { kind: 'aborted', reason: { kind: 'user' } } : { kind: 'completed' } })
+              agent.status = 'idle'
+              agent.work = undefined
+              events.emit('agent/status', { agent, status: 'idle' })
+              work.resolve()
+            }
+            if (work.cancelled) work.finish(true)
+            else if (!process.argv.includes('--wait-for-cancel') || turn > 1) work.finish(false)
           })
         },
+        cancel() {
+          if (!agent.work) return
+          agent.work.cancelled = true
+          agent.work.finish?.(true)
+        },
+        whenIdle() { return agent.work?.promise ?? Promise.resolve() },
       }
-      return { agent, async dispose() {} }
+      return { agent, async dispose() { agent.cancel(); await agent.whenIdle() } }
     },
   },
 }
@@ -42,6 +62,7 @@ const server = new MygoServer(ctx, {
 channel.start(async (method, params) => {
   const result = await server.handle(method, params)
   if (method === 'initialize' && process.argv.includes('--bad-version')) result.protocolVersion = 2
+  if (method === 'initialize' && process.argv.includes('--no-cancel')) { result.capabilities = []; server.capabilities = [] }
   if (method === 'session/create' && process.argv.includes('--bad-session')) result.session.id = '../unsafe'
   if (method === 'shutdown') setImmediate(async () => { await channel.flush(); process.exit(0) })
   return result

@@ -13,16 +13,20 @@ import (
 )
 
 type fakeClient struct {
-	mu      sync.Mutex
-	calls   []string
-	params  []any
-	result  json.RawMessage
-	results map[string]json.RawMessage
-	err     error
-	closed  bool
+	mu         sync.Mutex
+	calls      []string
+	params     []any
+	result     json.RawMessage
+	results    map[string]json.RawMessage
+	err        error
+	closed     bool
+	beforeCall func(method string)
 }
 
 func (f *fakeClient) Call(_ context.Context, method string, params any) (json.RawMessage, error) {
+	if f.beforeCall != nil {
+		f.beforeCall(method)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, method)
@@ -214,7 +218,8 @@ func TestMygoInitializeCreatesSessionAfterValidHandshake(t *testing.T) {
 			}
 			if test.valid {
 				params := client.params[0].(map[string]any)
-				if len(params["capabilities"].([]string)) != 0 {
+				capabilities := params["capabilities"].([]string)
+				if len(capabilities) != 1 || capabilities[0] != "session.cancel" {
 					t.Fatal("unimplemented capabilities advertised")
 				}
 			}
@@ -233,5 +238,206 @@ func TestMygoEventsUseBaselineAndRejectGaps(t *testing.T) {
 	application.handleNotification("session/event", json.RawMessage(`{"sessionId":"s1","seq":9,"event":{"seq":9,"type":"turn/end","data":{}}}`))
 	if application.Model().Phase != view.PhaseFailed {
 		t.Fatal("event gap was silently accepted")
+	}
+}
+
+func TestCancelWaitsForHostPreservesDraftAndRejectsDuplicate(t *testing.T) {
+	client := &fakeClient{result: json.RawMessage(`{"cancelled":true,"status":"idle"}`)}
+	application := newTestApp(client)
+	application.options.SDKProtocol = false
+	application.model.CanCancel = true
+	application.model.Phase = view.PhaseRunning
+	application.model.Draft = "next prompt"
+	application.awaitingTurn = true
+	updates := make(chan func(), 8)
+	application.options.Post = func(fn func()) { updates <- fn }
+	application.Cancel()
+	application.Cancel()
+	if !application.model.CancelPending || application.model.Phase != view.PhaseRunning {
+		t.Fatal("cancel prematurely ended the turn")
+	}
+	select {
+	case update := <-updates:
+		update()
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancel did not respond")
+	}
+	if len(client.called()) != 1 || client.called()[0] != "session/cancel" {
+		t.Fatalf("calls = %v", client.called())
+	}
+	if application.model.Phase != view.PhaseIdle || application.model.CancelPending || application.model.Draft != "next prompt" {
+		t.Fatalf("model = %+v", application.model)
+	}
+	application.Send(application.model.Draft)
+	if application.model.Phase != view.PhaseRunning {
+		t.Fatal("could not start another turn")
+	}
+}
+
+func TestCancelUnavailableAndSDKDoNotCallHost(t *testing.T) {
+	for _, sdk := range []bool{false, true} {
+		client := &fakeClient{}
+		application := newTestApp(client)
+		application.options.SDKProtocol = sdk
+		application.model.Phase = view.PhaseRunning
+		application.model.CanCancel = sdk
+		application.Cancel()
+		if application.model.CancelPending || len(client.called()) != 0 {
+			t.Fatal("unavailable cancellation sent")
+		}
+	}
+}
+
+func TestCancelFailureAndStaleResponseDoNotEndANewerTurn(t *testing.T) {
+	client := &fakeClient{err: errors.New("cancel failed")}
+	application := newTestApp(client)
+	application.options.SDKProtocol = false
+	application.model.CanCancel = true
+	application.model.Phase = view.PhaseRunning
+	updates := make(chan func(), 8)
+	application.options.Post = func(fn func()) { updates <- fn }
+	application.Cancel()
+	select {
+	case update := <-updates:
+		update()
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancel did not respond")
+	}
+	if application.model.Phase != view.PhaseRunning || application.model.CancelPending || application.model.Error == "" {
+		t.Fatal("cancel failure was hidden or ended the turn")
+	}
+	application.Cancel()
+	var stale func()
+	select {
+	case stale = <-updates:
+	case <-time.After(2 * time.Second):
+		t.Fatal("retry did not respond")
+	}
+	application.applyStatus("idle")
+	stale()
+	application.Send("another turn")
+	stale()
+	if application.model.Phase != view.PhaseRunning || application.model.Error != "" || application.model.CancelPending {
+		t.Fatal("old cancellation changed a newer turn")
+	}
+}
+
+func TestCancelBlocksANewTurnEvenAfterHostBecomesIdle(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	client := &fakeClient{result: json.RawMessage(`{"cancelled":false,"status":"idle"}`), beforeCall: func(method string) {
+		if method == "session/cancel" {
+			close(started)
+			<-release
+		}
+	}}
+	application := newTestApp(client)
+	application.options.SDKProtocol = false
+	application.model.CanCancel = true
+	application.model.Phase = view.PhaseRunning
+	application.awaitingTurn = true
+	application.sawActivity = true
+	updates := make(chan func(), 8)
+	application.options.Post = func(fn func()) { updates <- fn }
+	application.Cancel()
+	<-started
+	application.applyStatus("idle")
+	application.Send("must wait for cancel")
+	blocked := application.model.Phase == view.PhaseRunning && application.model.CancelPending
+	close(release)
+	if !blocked {
+		t.Fatal("a new turn can overtake an outstanding cancel")
+	}
+	select {
+	case update := <-updates:
+		update()
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancel did not respond")
+	}
+	if application.model.Phase != view.PhaseIdle || application.model.CancelPending {
+		t.Fatal("idle was not restored after cancel settled")
+	}
+	application.Send("next turn")
+	if application.model.Phase != view.PhaseRunning {
+		t.Fatal("next turn remained blocked")
+	}
+}
+
+func TestCancelAfterSendWaitsForPromptAcceptance(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	client := &fakeClient{results: map[string]json.RawMessage{
+		"session/prompt": json.RawMessage(`{"messageId":"m1"}`),
+		"session/cancel": json.RawMessage(`{"cancelled":true,"status":"idle"}`),
+	}, beforeCall: func(method string) {
+		if method == "session/prompt" {
+			close(started)
+			<-release
+		}
+	}}
+	application := newTestApp(client)
+	application.options.SDKProtocol = false
+	application.model.CanCancel = true
+	updates := make(chan func(), 8)
+	application.options.Post = func(fn func()) { updates <- fn }
+	application.Send("hello")
+	<-started
+	application.model.Draft = "next"
+	application.Cancel()
+	close(release)
+	waitFor(t, application, updates, 2*time.Second, func() bool { return application.model.Phase == view.PhaseIdle })
+	calls := client.called()
+	if len(calls) != 2 || calls[0] != "session/prompt" || calls[1] != "session/cancel" {
+		t.Fatalf("request order = %v", calls)
+	}
+	if application.model.Draft != "next" {
+		t.Fatal("cancel discarded the next draft")
+	}
+}
+
+func TestCancelInvalidResponsesCannotConfirmIdle(t *testing.T) {
+	for _, result := range []string{`{}`, `null`, `{"cancelled":true,"status":"running"}`, `{"cancelled":"yes","status":"idle"}`} {
+		client := &fakeClient{result: json.RawMessage(result)}
+		application := newTestApp(client)
+		application.options.SDKProtocol = false
+		application.model.CanCancel = true
+		application.model.Phase = view.PhaseRunning
+		updates := make(chan func(), 1)
+		application.options.Post = func(fn func()) { updates <- fn }
+		application.Cancel()
+		select {
+		case update := <-updates:
+			update()
+		case <-time.After(2 * time.Second):
+			t.Fatal("cancel did not respond")
+		}
+		if application.model.Phase != view.PhaseRunning || application.model.Error == "" {
+			t.Fatal("invalid response confirmed idle")
+		}
+	}
+}
+
+func TestCancelTimeoutStillAcceptsLaterHostIdle(t *testing.T) {
+	client := &fakeClient{err: &channel.RPCError{Code: -32000, Message: "Cancellation is still pending", Data: json.RawMessage(`{"kind":"session/cancel-timeout"}`)}}
+	application := newTestApp(client)
+	application.options.SDKProtocol = false
+	application.model.CanCancel = true
+	application.model.Phase = view.PhaseRunning
+	application.awaitingTurn = true
+	updates := make(chan func(), 1)
+	application.options.Post = func(fn func()) { updates <- fn }
+	application.Cancel()
+	select {
+	case update := <-updates:
+		update()
+	case <-time.After(2 * time.Second):
+		t.Fatal("cancel did not respond")
+	}
+	if application.model.Phase != view.PhaseRunning || application.model.CancelPending {
+		t.Fatal("timeout confirmed idle or blocked retry")
+	}
+	application.applyStatus("idle")
+	if application.model.Phase != view.PhaseIdle {
+		t.Fatal("late idle was ignored after cancellation timeout")
 	}
 }

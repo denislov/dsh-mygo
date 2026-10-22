@@ -75,7 +75,9 @@ node --test resources/host/tests/protocol.test.mjs
 go test ./internal/channel ./internal/app
 ```
 
-审批、取消、流式等尚未实现的协议随功能落地增加对应 fixture。完整目标断言：
+回合取消已由 Node/Go 测试覆盖：能力协商、外来 session、空闲取消、并发合并、Host 超时、错误隔离、立即取消的请求顺序、旧响应隔离和草稿保留。`ui.NewTester` 覆盖 Stop → Stopping → Send → Stop 的生命周期与无 capability 时隐藏按钮。
+
+审批、RPC 请求取消、流式等尚未实现的协议随功能落地增加对应 fixture。完整目标断言：
 
 断言：
 
@@ -88,7 +90,7 @@ go test ./internal/channel ./internal/app
 
 ## Fake Host
 
-- `testdata/fake-mygo-host.mjs` 复用正式 `MygoServer` 和 `LineChannel`，替换 DSH 服务；支持显式创建 session、两个连续回合、工具投影、错误版本与无效 session 响应。默认窗口 smoke 使用此入口。
+- `testdata/fake-mygo-host.mjs` 复用正式 `MygoServer` 和 `LineChannel`，替换 DSH 服务；支持显式创建 session、两个连续回合、工具投影、错误版本与无效 session 响应。`--wait-for-cancel` 让第一回合保持运行以验证 Stop，后续回合正常回复；`--no-cancel` 模拟旧 Host。默认窗口 smoke 使用此入口。
 - `testdata/fake-sdk-host.mjs` 是最小 SDK 协议 host：initialize、prompt、一个提交回合（user、tool call/result、assistant）、wait、shutdown；prompt 文本会回显为 `Echo: <text>`。
 - HostSupervisor 的 helper process 另覆盖退出和超时；默认 fake host 不模拟所有失败模式。
 - 用于 `HostSupervisor` 状态机测试、`internal/app` 全链路测试与手动 smoke；不验证真实模型行为。
@@ -153,8 +155,11 @@ node -e 'process.loadEnvFile(".env"); process.env.DSH_MYGO_DSH_DIR = "D:/Workspa
 
 阶段 1 已落地 `TestAgainstMygoRealComposition`：设置 `DSH_MYGO_DSH_DIR` 即可运行，不需要 API key。测试创建临时 `DSH_HOME`、初始化真实 `mygo` profile，再用 `--patch` 加入 `testdata/mygo-mock-llm.mjs`。通过真实 CLI/Loader、session log 和 agent loop 完成一轮 `pong`，严格校验协议帧、连续 seq 和退出码。Host 自身校验 `profileContext.startedBundles` 包含两个 bundle。测试不修改 DSH checkout，也不手工 `ctx.plugin(...)` 拼装应用。
 
+`TestAgainstMygoRealCancellation` 进一步验证真实 agent loop 的取消：mock adapter 用随机 localhost 端口仅向测试进程发送 `started` / `aborted` 信号；测试等待真实模型 stream 开始后调用 Stop，断言 abort signal、提交的取消 notice、草稿保留，并在同一 session 再完成 `pong`。该控制端口只存在于 fixture，不是产品 Host transport，也不需要 API key。
+
 ```sh
 go test ./internal/app -run TestAgainstMygoRealComposition -v -timeout 2m
+go test ./internal/app -run TestAgainstMygoRealCancellation -v -timeout 2m
 ```
 
 bundle 必须有一个 real-composition 测试：

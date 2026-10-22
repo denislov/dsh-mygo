@@ -20,6 +20,8 @@ function runtime() {
         const agent = {
           session: { id: options.sessionId }, status: 'idle',
           followup(message) { this.message = message },
+          cancel(cause) { this.cancelCause = cause; this.cancelCount = (this.cancelCount ?? 0) + 1 },
+          async whenIdle() { this.status = 'idle' },
         }
         const handle = { agent, async dispose() { handle.disposed = true } }
         handles.push(handle)
@@ -86,6 +88,75 @@ test('validation rejects unsupported content and hides runtime exception text', 
   }
   ctx.agents.create = async () => { throw new Error('private-api-key') }
   await assert.rejects(server.handle('session/create', { cwd: process.cwd(), provider: 'test', model: 'echo' }), (error) => !error.message.includes('private-api-key'))
+  await server.shutdown()
+})
+
+test('cancel requires negotiation, validates ownership and does not arm idle sessions', async () => {
+  const { server, handles } = runtime()
+  await server.handle('initialize', handshake)
+  const { session } = await server.handle('session/create', { cwd: process.cwd(), provider: 'test', model: 'echo' })
+  await assert.rejects(server.handle('session/cancel', { sessionId: session.id }), { kind: 'protocol/capability-unavailable' })
+  await server.shutdown()
+
+  const negotiated = runtime()
+  const result = await negotiated.server.handle('initialize', { ...handshake, capabilities: ['session.cancel', 'approval'] })
+  assert.deepEqual(result.capabilities, ['session.cancel'])
+  const created = await negotiated.server.handle('session/create', { cwd: process.cwd(), provider: 'test', model: 'echo' })
+  await assert.rejects(negotiated.server.handle('session/cancel', { sessionId: '../unsafe' }), { code: -32602 })
+  await assert.rejects(negotiated.server.handle('session/cancel', { sessionId: 'foreign' }), { kind: 'session/not-found' })
+  assert.deepEqual(await negotiated.server.handle('session/cancel', { sessionId: created.session.id }), { cancelled: false, status: 'idle' })
+  assert.equal(negotiated.handles[0].agent.cancelCount, undefined)
+  assert.equal(handles[0].disposed, true)
+  await negotiated.server.shutdown()
+})
+
+test('cancel waits for quiescence, coalesces concurrent requests and permits the next prompt', async () => {
+  const { server, handles, notifications } = runtime()
+  await server.handle('initialize', { ...handshake, capabilities: ['session.cancel'] })
+  const { session } = await server.handle('session/create', { cwd: process.cwd(), provider: 'test', model: 'echo' })
+  const params = { sessionId: session.id }
+  await server.handle('session/prompt', { ...params, content: [{ type: 'text', text: 'long turn' }] })
+  const agent = handles[0].agent
+  agent.status = 'running'
+  let finish
+  agent.whenIdle = () => new Promise((resolve) => { finish = () => { agent.status = 'idle'; resolve() } })
+  const cancelled = server.handle('session/cancel', params)
+  const duplicate = server.handle('session/cancel', params)
+  assert.equal(agent.cancelCount, 1)
+  assert.deepEqual(agent.cancelCause, { kind: 'user' })
+  await assert.rejects(server.handle('session/prompt', { ...params, content: [{ type: 'text', text: 'too soon' }] }), { kind: 'session/busy' })
+  finish()
+  assert.deepEqual(await cancelled, { cancelled: true, status: 'idle' })
+  assert.deepEqual(await duplicate, { cancelled: true, status: 'idle' })
+  assert.equal(notifications.at(-1).method, 'session/status')
+  assert.equal(notifications.at(-1).params.status, 'idle')
+  await server.handle('session/prompt', { ...params, content: [{ type: 'text', text: 'next turn' }] })
+  assert.equal(agent.message.content[0].text, 'next turn')
+  await server.shutdown()
+})
+
+test('cancel failures keep the session busy and redact runtime errors', async () => {
+  const { server, handles } = runtime()
+  await server.handle('initialize', { ...handshake, capabilities: ['session.cancel'] })
+  const { session } = await server.handle('session/create', { cwd: process.cwd(), provider: 'test', model: 'echo' })
+  await server.handle('session/prompt', { sessionId: session.id, content: [{ type: 'text', text: 'long turn' }] })
+  handles[0].agent.cancel = () => { throw new Error('private-token') }
+  await assert.rejects(server.handle('session/cancel', { sessionId: session.id }), (error) => error.kind === 'session/cancel-failed' && !error.message.includes('private-token'))
+  await assert.rejects(server.handle('session/prompt', { sessionId: session.id, content: [{ type: 'text', text: 'too soon' }] }), { kind: 'session/busy' })
+  await server.shutdown()
+})
+
+test('cancel timeout is bounded and does not report an idle session', async (context) => {
+  const { server, handles } = runtime()
+  await server.handle('initialize', { ...handshake, capabilities: ['session.cancel'] })
+  const { session } = await server.handle('session/create', { cwd: process.cwd(), provider: 'test', model: 'echo' })
+  await server.handle('session/prompt', { sessionId: session.id, content: [{ type: 'text', text: 'long turn' }] })
+  handles[0].agent.whenIdle = () => new Promise(() => {})
+  context.mock.timers.enable({ apis: ['setTimeout'] })
+  const timedOut = assert.rejects(server.handle('session/cancel', { sessionId: session.id }), { kind: 'session/cancel-timeout' })
+  context.mock.timers.tick(5000)
+  await timedOut
+  await assert.rejects(server.handle('session/prompt', { sessionId: session.id, content: [{ type: 'text', text: 'too soon' }] }), { kind: 'session/busy' })
   await server.shutdown()
 })
 

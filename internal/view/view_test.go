@@ -155,3 +155,50 @@ func TestErrorBannerCanBeDismissed(t *testing.T) {
 		t.Fatalf("phase label missing: %v", tt.Texts())
 	}
 }
+
+func TestStopButtonPreservesDraftAndDisablesWhilePending(t *testing.T) {
+	model := NewModel()
+	model.Phase = PhaseRunning
+	model.CanCancel = true
+	model.Draft = "next prompt"
+	stops := 0
+	model.Cancel = func() { stops++; model.CancelPending = true }
+	tt := tester(model)
+	if err := tt.Click("Stop"); err != nil {
+		t.Fatal(err)
+	}
+	if stops != 1 || model.Draft != "next prompt" {
+		t.Fatalf("stops = %d, draft = %q", stops, model.Draft)
+	}
+	if !tt.HasText("Stopping…") {
+		t.Fatal("pending cancellation is not shown")
+	}
+	_ = tt.Click("Stopping…")
+	if stops != 1 {
+		t.Fatal("duplicate stop was dispatched")
+	}
+	model.Phase = PhaseIdle
+	model.CancelPending = false
+	tt.Frame()
+	if tt.HasText("Stop") || !tt.HasText("Send") {
+		t.Fatal("idle composer did not restore Send")
+	}
+	model.Phase = PhaseRunning
+	tt.Frame()
+	if err := tt.Click("Stop"); err != nil {
+		t.Fatal(err)
+	}
+	if stops != 2 {
+		t.Fatal("returning Stop button lost its action")
+	}
+}
+
+func TestStopIsHiddenWithoutCapability(t *testing.T) {
+	model := NewModel()
+	model.Phase = PhaseRunning
+	model.Cancel = func() { t.Fatal("unnegotiated cancellation dispatched") }
+	tt := tester(model)
+	if tt.HasText("Stop") {
+		t.Fatal("Stop shown without capability")
+	}
+}
