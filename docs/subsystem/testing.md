@@ -86,12 +86,14 @@ Go channel 与 Node transport 共用非法帧 fixture。`resources/host/tests/pr
 
 ```sh
 node scripts/test-real-host.mjs D:/Workspace/deepseek-harness
+node scripts/build-runtime.mjs
+node scripts/test-real-host.mjs --runtime
 node --test resources/host/tests/*.test.mjs
 ```
 
-脚本把 `DSH_MYGO_DSH_DIR` 固定到指定 checkout，并跑 `TestAgainstMygo|TestMygoReal` 组。
+脚本把 `DSH_MYGO_DSH_DIR` 固定到指定 checkout，或把 `DSH_MYGO_RESOURCES_DIR` 指向 `resources/` 以跑 bundled runtime；两者都跑 `TestAgainstMygo|TestMygoReal` 组。两个环境变量都不设置时，真实组合组自动 skip；报告结果时要区分"跑了"与"跳过"。
 
-不设置 `DSH_MYGO_DSH_DIR` 时，真实组合组自动 skip；报告结果时要区分"跑了"与"跳过"。
+测试用 `host.EnsureProfile` 在临时 `DSH_HOME` 里创建 mygo profile，和发布首启走同一条 Go 路径。
 
 覆盖范围：
 
@@ -101,6 +103,7 @@ node --test resources/host/tests/*.test.mjs
 - `TestAgainstMygoRealStreaming`：mock adapter 暂停生成，验证流式先可见、提交替换、取消与同会话继续。
 - `TestMygoRealHistoryAfterRestart`：两个进程共享同一 `DSH_HOME`，验证列表、恢复、分页回放与继续发送。
 - `TestAgainstMygoSessionSwitching`、`TestAgainstMygoModelSettings`、`TestAgainstMygoConfiguration`、`TestAgainstMygoToolDiffs`：真实会话切换、模型请求、配置持久化与 write/edit diff。
+- `node scripts/test-real-host.mjs --runtime`：同一组测试改用 `resources/runtime` 的 Node、DSH 闭包与私有入口；用于打包前后检查运行时闭包。
 
 需要真实模型与 key 的 `TestAgainstMygoRealModel` 默认跳过；运行前确认会产生 API 调用费用。
 
@@ -139,7 +142,7 @@ DSH 的会话与设置跨平台共享；测试不要写入用户真实 `$DSH_HOM
 | Go | `go build ./...`、`go test ./...`、`go tool mygo vet .` |
 | UI | 同上（`ui.NewTester`） |
 | 协议 | `node --test resources/host/tests/*.test.mjs`、`go test ./internal/channel` |
-| 真实 Host | 可选自托管 job：设置 `DSH_MYGO_DSH_DIR` 后跑真实组合组 |
+| 真实 Host | 可选自托管 job：设置 `DSH_MYGO_DSH_DIR` 或 `DSH_MYGO_RESOURCES_DIR` 后跑真实组合组 |
 | 打包 | 平台 runner 上构建、签名、安装 smoke（发布阶段） |
 
 ## 测试范围取舍

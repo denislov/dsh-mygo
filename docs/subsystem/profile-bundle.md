@@ -116,10 +116,12 @@ base 已经包含这些行；bundle 不应重复插入，除非需要覆盖配�
 
 ### 发布入口：私有 `mygo-host`
 
-- 直接 `import { runProfile } from '@deepseek-ai/dsh/profile-boot'`。
-- 自己提供 `environment`、`profile`、`resolvedProfile`、`patchFiles`、`args`。
-- 像 `apps/desktop-host` 一样，在 `runProfile` 返回后安装 channel、审批、提问与 ready 通知。
-- 发布版使用该入口；开发期使用上一种。
+入口位于 `resources/runtime/mygo-host.mjs`：
+
+- 直接 `import { runProfile } from '@deepseek-ai/dsh/profile-boot'`，用 `loadLayeredEnv('dsh')` 提供 `environment`。
+- 接收 profile 名与 `--patch` 覆盖；其余参数交给 `runProfile` 的 `args`。
+- channel、审批、提问与 ready 由 profile 的 `@dsh-mygo/host` bundle 在 `runProfile` 内安装；入口不写 stdout。
+- 发布版使用该入口；开发期可以使用 `dsh --profile mygo` 或同一入口。
 
 两种方案都必须在 `runProfile` 之后：
 
@@ -160,6 +162,8 @@ export function apply(ctx: Context, config: Config) {
 
 ### 开发初始化
 
+应用启动前会自动创建缺失的 mygo profile（见下）。需要把本仓库 bundle 以 junction 链接进 profile 时，仍可手动运行：
+
 ```sh
 node resources/host/setup-profile.mjs --dsh-home D:/Temp/dsh-mygo-dev
 ```
@@ -169,6 +173,14 @@ node resources/host/setup-profile.mjs --dsh-home D:/Temp/dsh-mygo-dev
 1. 在指定绝对 `DSH_HOME` 下创建新的 `profiles/mygo`；目标已存在时拒绝，不覆盖用户文件。
 2. 将本仓库 bundle 链接到 profile 的 `node_modules/@dsh-mygo/host`；Windows 使用 junction，不修改 DSH checkout。
 3. 写入 `dsh.profile.bundles: ["@deepseek-ai/dsh-base", "@dsh-mygo/host"]` 和空用户 patch；不运行包安装器。
+
+### 发布首启
+
+`host.EnsureProfile` 在启动 Host 前检查 `$DSH_HOME/profiles/mygo`：
+
+1. profile 已存在时不做任何修改。
+2. 不存在时在 staging 目录创建 profile：把 `resources/host` 复制到 `node_modules/@dsh-mygo/host`，写入 `dsh.profile.bundles: ["@deepseek-ai/dsh-base", "@dsh-mygo/host"]` 与空 `cordis.patch.yml`，再原子改名到目标目录。
+3. 创建失败时窗口进入 `Host error`，不启动 Host。
 
 该 profile 通过 DSH 的正式 CLI 和 Loader 启动，并复用安装侧公开 peer 包。发布时由安装器携带完整 bundle 与 runtime，不依赖开发机的仓库链接。
 

@@ -180,28 +180,48 @@ func TestMygoRejectsInvalidHost(t *testing.T) {
 func realMygoLaunch(t *testing.T, mockModel bool) (host.Config, string) {
 	t.Helper()
 	dshDir := os.Getenv("DSH_MYGO_DSH_DIR")
-	if dshDir == "" {
-		t.Skip("DSH_MYGO_DSH_DIR is not set")
+	resourcesDir := os.Getenv("DSH_MYGO_RESOURCES_DIR")
+	if dshDir == "" && resourcesDir == "" {
+		t.Skip("DSH_MYGO_DSH_DIR and DSH_MYGO_RESOURCES_DIR are not set")
 	}
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node is not installed")
+	if dshDir != "" {
+		if _, err := exec.LookPath("node"); err != nil {
+			t.Skip("node is not installed")
+		}
 	}
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatal(err)
 	}
 	dshHome := t.TempDir()
-	setup := exec.Command(node, filepath.Join(root, "resources", "host", "setup-profile.mjs"), "--dsh-home", dshHome)
-	if output, err := setup.CombinedOutput(); err != nil {
-		t.Fatalf("setup profile: %v\n%s", err, output)
+	if err := host.EnsureProfile(dshHome, filepath.Join(root, "resources", "host"), "mygo"); err != nil {
+		t.Fatalf("seed profile: %v", err)
 	}
-	launch, err := host.ResolveLaunch(host.LaunchOptions{DshDir: dshDir, Profile: "mygo", CWD: root, DSHHome: dshHome})
+	launch, err := host.ResolveLaunch(host.LaunchOptions{
+		DshDir:       dshDir,
+		Profile:      "mygo",
+		CWD:          root,
+		DSHHome:      dshHome,
+		ResourcesDir: resourcesDir,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if mockModel {
-		fixture := filepath.Join(root, "testdata", "mygo-mock-llm.mjs")
+		// Install the fixture under the profile so the loader resolves its
+		// bare imports through the installation scope, as it does for a real
+		// plugin. A fixture under testdata/ is outside every interception layer.
+		fixtureDir := filepath.Join(dshHome, "profiles", "mygo", "node_modules", "mygo-mock-llm")
+		if err := os.MkdirAll(fixtureDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		copyFixture(t, filepath.Join(root, "testdata", "mygo-mock-llm.mjs"), filepath.Join(fixtureDir, "index.mjs"))
+		copyFixture(t, filepath.Join(root, "testdata", "markdown-sample.mjs"), filepath.Join(fixtureDir, "markdown-sample.mjs"))
+		manifest := []byte("{\n  \"name\": \"mygo-mock-llm\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"main\": \"index.mjs\"\n}\n")
+		if err := os.WriteFile(filepath.Join(fixtureDir, "package.json"), manifest, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		fixture := filepath.Join(fixtureDir, "index.mjs")
 		patch, err := json.Marshal([]any{map[string]any{"insert": []any{map[string]any{"id": "mygo-mock-llm", "name": filepath.ToSlash(fixture)}}}})
 		if err != nil {
 			t.Fatal(err)
@@ -213,6 +233,17 @@ func realMygoLaunch(t *testing.T, mockModel bool) (host.Config, string) {
 		launch.Args = append(launch.Args, "--patch", patchPath)
 	}
 	return launch, root
+}
+
+func copyFixture(t *testing.T, source, target string) {
+	t.Helper()
+	data, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestAgainstMygoRealComposition(t *testing.T) {

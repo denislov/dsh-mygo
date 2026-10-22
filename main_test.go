@@ -2,8 +2,29 @@ package main
 
 import (
 	"flag"
+	"path/filepath"
 	"testing"
 )
+
+func TestResolveDSHHome(t *testing.T) {
+	dir := t.TempDir()
+	got, err := resolveDSHHome(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want, _ := filepath.Abs(dir); got != want {
+		t.Fatalf("explicit home = %q, want %q", got, want)
+	}
+
+	t.Setenv("DSH_HOME", dir)
+	got, err = resolveDSHHome("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want, _ := filepath.Abs(dir); got != want {
+		t.Fatalf("environment home = %q, want %q", got, want)
+	}
+}
 
 func TestExplicitRouteFlagsOverrideHostDefaults(t *testing.T) {
 	for _, scenario := range []struct {

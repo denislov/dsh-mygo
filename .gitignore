@@ -1,4 +1,8 @@
 /build/
 /.env
 /.mygo/
+/.tmp/
+/resources/runtime/node/
+/resources/runtime/node_modules/
+/resources/runtime/manifest.json
 mygo_windows_*.syso

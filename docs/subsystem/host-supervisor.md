@@ -33,11 +33,15 @@ Host 入口在启动前完成版本校验、`mygo` profile 选择与会话创建
 
 ### 入口解析顺序
 
-1. `resources/host/` 下的私有 `mygo-host` 入口（发布版）。
-2. `resources/runtime/` 下的 `dsh` CLI（开发/兼容模式）。
+1. `resources/runtime/mygo-host.mjs`：私有入口，直接调用 `runProfile`，使用 `resources/runtime/node/` 下的 Node。
+2. `resources/runtime/node_modules/@deepseek-ai/dsh/lib/bin.js`：bundled `dsh` CLI（私有入口缺失时的兼容回退）。
 3. `PATH` 上的 `dsh`（仅开发期，且必须校验版本）。
 
-开发期还可以用 `-host-command` 覆盖入口，或用 `-dsh-dir` 直接运行 DSH source checkout。找不到入口时，UI 显示可操作的错误，而不是静默降级。
+`-host-command` 与 `-dsh-dir` 分别覆盖前两项。bundled 入口存在但 Node 缺失时返回错误，不静默回退到 PATH。UI 显示可操作的错误。
+
+### 首启 profile
+
+启动前确保 `$DSH_HOME/profiles/mygo` 存在。不存在时从 `resources/host` 复制出 `node_modules/@dsh-mygo/host`，写入 profile manifest 与空 `cordis.patch.yml`；已存在不覆盖。创建失败时窗口进入 `Host error`，不启动 Host。
 
 ### 环境
 
@@ -49,7 +53,7 @@ Host 继承启动环境，并显式设置：
 | `DSH_PERMISSION_MODE` | `workspace-write` / `danger-full-access` 等；由 UI 的权限选择写入 |
 | `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` | 模型凭据；也可由 DSH 的 `.env` 层解析 |
 | `LANG` / `LC_ALL` | Host 侧 locale；UI 自己也有 locale |
-| `PATH` | 让 Host 能找到 shell、git、pnpm 等工具 |
+| `PATH` | 让 Host 能找到 shell、git、pnpm 等工具；bundled 入口把 `resources/runtime/node/` 放在最前 |
 
 规则：
 

@@ -15,30 +15,31 @@
 dsh-mygo.app / dsh-mygo/            # MyGo 产物
 ├─ dsh-mygo(.exe)                   # Go 二进制
 └─ resources/                       # mygo.App.Path(mygo.PathResources)
-   ├─ host/                         # 私有 mygo-host 入口（发布版）
+   ├─ host/                         # @dsh-mygo/host bundle，也是 profile seed 源
    ├─ runtime/
-   │  ├─ node/                      # 独立 Node（Host 与 pnpm）
-   │  ├─ dsh/                       # @deepseek-ai/dsh 及生产依赖
-   │  ├─ primary-runtime/           # 可选：Python/Office/pnpm
-   │  └─ manifest.json              # 版本、平台、文件摘要
-   ├─ profile/                      # profile seed（package.json + patch）
-   └─ icons/                        # 托盘、窗口、安装器素材
+   │  ├─ mygo-host.mjs              # 私有入口：调用 runProfile
+   │  ├─ package.json               # 精确 pin @deepseek-ai/dsh
+   │  ├─ package-lock.json
+   │  ├─ node/                      # 独立 Node（生成，不提交）
+   │  ├─ node_modules/              # DSH 生产依赖闭包（生成，不提交）
+   │  ├─ manifest.json              # 应用/DSH/Node/协议版本（生成）
+   │  └─ primary-runtime/           # 可选：Python/Office/pnpm
+   └─ icon.png                      # 窗口与安装器素材
 ```
 
-`resources/` 的布局由构建脚本生成；运行时只通过 `mygo.App.Path(mygo.PathResources)` 读取，不依赖工作目录。`resources/runtime`、profile seed 与私有 `mygo-host` 是发布包的一部分。
+`resources/` 的布局由构建脚本生成；运行时只通过 `mygo.App.Path(mygo.PathResources)` 读取，不依赖工作目录。`resources/host`、`resources/runtime/mygo-host.mjs`、Node 与 DSH 依赖闭包是发布包的一部分。`runtime/node/`、`runtime/node_modules/` 与 `runtime/manifest.json` 由构建生成，不进入版本库。
 
 ## 构建
 
 0. `mygo.json` 的 `identifier` 是正式 app id；发布后不要更改，否则更新与系统集成会分裂。
 
-1. 构建 DSH Host 运行时：
-   - `pnpm install --prod` 产出 `dsh` 与依赖。
-   - 复制 `@deepseek-ai/dsh`、`@dsh-mygo/host` 与生产依赖。
-   - 准备独立 Node；版本与 DSH 的 engines 对齐。
-   - 可选：准备 pnpm、Python/Office runtime；不需要就不要携带。
-2. 写入 `runtime/manifest.json`：应用版本、DSH 版本、Node 版本、平台、架构、文件摘要。
-3. 准备 profile seed：`package.json` + `dsh.profile.bundles` + 空的 `cordis.patch.yml`。
-4. `go tool mygo build`：编译 Go 二进制、复制 `resources/`，生成 Windows 安装器；macOS 随后生成 `.app`/`.dmg`。
+1. `node scripts/build-runtime.mjs`：
+   - 下载 `versions.json` 固定的 Node，并用 `SHASUMS256.txt` 校验 SHA256。
+   - 在 `resources/runtime` 执行 `npm ci --omit=dev`，安装精确 pin 的 `@deepseek-ai/dsh`。
+   - 写入 `runtime/manifest.json`：应用版本、DSH 版本、Node 版本、平台、架构。
+2. `mygo.json` 的 `buildCommand` 在 `go tool mygo build` 前自动运行上述脚本。
+3. `go tool mygo build`：编译 Go 二进制、复制 `resources/`，生成 Windows 安装器；macOS 随后生成 `.app`/`.dmg`。
+4. profile seed 不预生成目录：首启由 Host 启动前从 `resources/host` 复制到 `$DSH_HOME/profiles/mygo`。
 5. 签名/公证（见下）。
 6. 生成更新清单与 delta（如启用更新）。
 
@@ -50,7 +51,8 @@ dsh-mygo.app / dsh-mygo/            # MyGo 产物
 | --- | --- | --- |
 | 应用标识/名称/版本 | `versions.json`（镜像到 `mygo.json`） | 发布单元的主版本；发布后 identifier 不再更改 |
 | DSH 版本 | `versions.json`（镜像到 host `engines.dsh` 与 peer 依赖） | 与 bundle 的 peer 依赖对齐 |
-| bundle 版本 | `@your-scope/dsh-mygo-app` | 与 app 同版本或显式兼容 |
+| Node 运行时 | `versions.json` 的 `nodeRuntime`（写入 `runtime/manifest.json`） | 下载时校验 SHA256 |
+| bundle 版本 | `@dsh-mygo/host` | 与 app 同版本或显式兼容 |
 | 协议版本 | `versions.json` / host `dshMygo.protocolVersion` | UI 与 Host 的额外保险 |
 | profile 格式 | DSH profile manifest | 由 DSH 负责迁移 |
 
@@ -61,7 +63,7 @@ UI、Host、bundle 作为一个发布单元验证；不允许只升级其中一�
 ## 首启
 
 1. 解析 `DSH_HOME`（默认 `~/.dsh`）。
-2. 若 `profiles/mygo` 不存在，用 seed 创建；不覆盖已有文件。
+2. 若 `profiles/mygo` 不存在，Host 启动前由 `host.EnsureProfile` 从 `resources/host` 复制创建；不覆盖已有 profile。失败时窗口显示 `Host error`，见 [宿主监督](host-supervisor.md#首启-profile)。
 3. 校验 profile 的 `dsh.profile.bundles` 包含 base 与 mygo bundle；缺失时提示修复命令。
 4. 校验 bundle 版本与 app 版本；不匹配时拒绝启动并给出修复建议。
 5. 启动 Host；首启不运行 pnpm。

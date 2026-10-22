@@ -17,6 +17,7 @@ type canonicalFile struct {
 	ProtocolVersion int    `json:"protocolVersion"`
 	DSH             string `json:"dsh"`
 	Node            string `json:"node"`
+	NodeRuntime     string `json:"nodeRuntime"`
 }
 
 type mygoFile struct {
@@ -58,8 +59,11 @@ func TestReleaseIdentityIsSingleSourced(t *testing.T) {
 	mygo := readJSON[mygoFile](t, filepath.Join(root, "mygo.json"))
 	host := readJSON[hostFile](t, filepath.Join(root, "resources", "host", "package.json"))
 
-	if want.Name == "" || want.Identifier == "" || want.Version == "" || want.DSH == "" || want.Node == "" || want.ProtocolVersion <= 0 {
+	if want.Name == "" || want.Identifier == "" || want.Version == "" || want.DSH == "" || want.Node == "" || want.NodeRuntime == "" || want.ProtocolVersion <= 0 {
 		t.Fatalf("versions.json is incomplete: %+v", want)
+	}
+	if strings.HasPrefix(want.Node, ">=") && !strings.HasPrefix(want.NodeRuntime, strings.TrimPrefix(want.Node, ">=")+".") {
+		t.Errorf("nodeRuntime %q does not satisfy node requirement %q", want.NodeRuntime, want.Node)
 	}
 	if strings.HasPrefix(want.Identifier, "com.example.") {
 		t.Fatalf("versions.json still uses a placeholder identifier %q", want.Identifier)

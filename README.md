@@ -25,7 +25,8 @@ DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node Host（`dsh-ba
 ```sh
 go tool mygo dev
 go test ./...
-go tool mygo build
+go tool mygo build          # buildCommand 先构建 resources/runtime
+node scripts/build-runtime.mjs
 ```
 
 原生窗口 + fake host（无需 DSH 或 API key）：
@@ -66,18 +67,26 @@ go run . -host-command node -host-arg testdata/fake-mygo-host.mjs -host-arg --se
 
 ```sh
 # DSH checkout 先安装依赖并构建；DEEPSEEK_API_KEY 只从环境读取
-node resources/host/setup-profile.mjs --dsh-home D:/Temp/dsh-mygo-dev
 go run . -dsh-dir D:/Workspace/deepseek-harness -dsh-home D:/Temp/dsh-mygo-dev
 ```
 
-初始化脚本只创建新的 `mygo` profile，将本仓库的 `resources/host` 链接为 bundle；已有 profile 不会被覆盖。`go tool mygo dev` 使用的 `DSH_HOME` 中也需要先初始化该 profile；这是开发入口，运行时打包留到后续阶段。
+首启自动从 `resources/host` 创建 `mygo` profile；已有 profile 不会被覆盖。需要把 bundle 以 junction 链接进 profile 时，仍可运行 `node resources/host/setup-profile.mjs --dsh-home <目录>`。
+
+不依赖 DSH checkout、直接验证 bundled runtime：
+
+```sh
+node scripts/build-runtime.mjs
+go run . -dsh-home D:/Temp/dsh-mygo-runtime
+```
 
 真实历史保存在同一 `DSH_HOME`/profile 的 DSH 存储中。重新运行相同命令后会先创建新会话，再通过 **Sessions** 选择旧会话；冷恢复按上述默认/显式 flags 规则选择模型，使用历史记录中的工作目录。仅空闲时切换，各会话草稿只在本次 App 内存中保留。旧 Host/SDK 未协商 history 时隐藏入口。当前 Host 默认同时拥有最多 8 个会话，超限会提示失败，不静默删除历史。
 
 无需 API key 的真实 Loader + mock 模型集成（PowerShell）：
 
-```powershell
-$env:DSH_MYGO_DSH_DIR = 'D:/Workspace/deepseek-harness'
+```sh
+node scripts/test-real-host.mjs D:/Workspace/deepseek-harness
+node scripts/build-runtime.mjs
+node scripts/test-real-host.mjs --runtime
 go test ./internal/app -run TestAgainstMygoRealComposition -v -timeout 2m
 go test ./internal/app -run TestAgainstMygoSessionSwitching -v -timeout 3m
 go test ./internal/app -run TestAgainstMygoModelSettings -v -timeout 3m

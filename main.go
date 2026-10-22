@@ -58,19 +58,32 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	resourcesDir, err := mygo.App.Path(mygo.PathResources)
+	if err != nil {
+		log.Fatal(fmt.Errorf("resolve resources: %w", err))
+	}
+	dshHomePath, err := resolveDSHHome(*dshHome)
+	if err != nil {
+		log.Fatal(err)
+	}
 	if *sdkProtocol && *sessionID == "" {
 		*sessionID = fmt.Sprintf("mygo-%d", time.Now().UnixNano())
 	}
 	launch, err := host.ResolveLaunch(host.LaunchOptions{
-		DshDir:  *dshDir,
-		Profile: *profile,
-		CWD:     cwd,
-		Command: *hostCommand,
-		Args:    hostArgs,
-		DSHHome: *dshHome,
+		DshDir:       *dshDir,
+		Profile:      *profile,
+		CWD:          cwd,
+		Command:      *hostCommand,
+		Args:         hostArgs,
+		ResourcesDir: resourcesDir,
+		DSHHome:      dshHomePath,
 	})
 	if err != nil {
 		log.Fatal(err)
+	}
+	var preflightErr error
+	if !*sdkProtocol && *hostCommand == "" && *profile == "mygo" {
+		preflightErr = host.EnsureProfile(dshHomePath, filepath.Join(resourcesDir, "host"), *profile)
 	}
 
 	var window atomic.Pointer[mygo.Window]
@@ -84,6 +97,7 @@ func main() {
 		SessionID:       *sessionID,
 		SDKProtocol:     *sdkProtocol,
 		MaxFrame:        *maxFrame,
+		PreflightErr:    preflightErr,
 		Post: func(fn func()) {
 			if win := window.Load(); win != nil {
 				win.Update(fn)
@@ -114,6 +128,24 @@ func main() {
 		log.Fatal(err)
 	}
 	application.Shutdown(2 * time.Second)
+}
+
+func resolveDSHHome(value string) (string, error) {
+	if value == "" {
+		value = os.Getenv("DSH_HOME")
+	}
+	if value == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve DSH_HOME: %w", err)
+		}
+		value = filepath.Join(home, ".dsh")
+	}
+	absolute, err := filepath.Abs(value)
+	if err != nil {
+		return "", fmt.Errorf("resolve DSH_HOME: %w", err)
+	}
+	return absolute, nil
 }
 
 func resolveCWD(value string) (string, error) {

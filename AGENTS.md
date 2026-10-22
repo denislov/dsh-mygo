@@ -66,7 +66,8 @@ internal/projection/ 提交的 session.event → transcript 行
 internal/view/       MyGo 原生界面（Model、List、Composer、状态）
 internal/app/        Host + channel + projection + window.Update 装配
 testdata/            fake-sdk-host.mjs 等测试数据
-resources/host/      自定义 Host bundle、profile 初始化、Node 协议测试
+resources/host/      自定义 Host bundle、profile seed 源、Node 协议测试
+resources/runtime/   私有 mygo-host 入口、Node/DSH 运行时清单与构建产物
 resources/           随应用分发的资源
 docs/                研究、架构、子系统文档
 AGENTS.md            本文件
@@ -83,15 +84,16 @@ internal/
   view/              页面、组件、状态（不叫 ui，避免与 MyGo ui 包重名）
   app/               App 状态与装配
   platform/          菜单、托盘、深链、单实例
-resources/            Node、DSH runtime、profile seed
+resources/            Node、DSH runtime、私有 mygo-host、host bundle
 docs/
 ```
 
 ## 命令
 
 ```sh
-go tool mygo dev                    # 开发运行（默认 dsh --profile mygo；先初始化 profile）
-go tool mygo build                  # 打包
+go tool mygo dev                    # 开发运行（默认 dsh --profile mygo；首启自动创建 profile）
+go tool mygo build                  # 打包（buildCommand 先构建 resources/runtime）
+node scripts/build-runtime.mjs      # 单独构建 bundled runtime（Node + DSH 闭包）
 go test ./...                       # 单元测试
 go test -race ./...                 # 并发改动
 CGO_ENABLED=0 go test ./...         # 纯 Go 构建
@@ -100,13 +102,13 @@ go tool mygo vet .                  # UI 存储值与 goroutine 捕获
 # 原生窗口 + fake host（不需要 DSH 或 API key）
 go run . -host-command node -host-arg testdata/fake-mygo-host.mjs
 
-# 原生窗口 + 真实 DSH source checkout（key 只从环境读取）
-node resources/host/setup-profile.mjs --dsh-home <临时目录的绝对路径>
+# 原生窗口 + 真实 DSH source checkout（key 只从环境读取；首启自动创建 profile）
 go run . -dsh-dir D:/Workspace/deepseek-harness -dsh-home <临时目录>
 
 node --test resources/host/tests/*.test.mjs
-# 无需 key 的真实组合测试（固定 DSH checkout）
+# 无需 key 的真实组合测试（source checkout 或 bundled runtime）
 node scripts/test-real-host.mjs D:/Workspace/deepseek-harness
+node scripts/test-real-host.mjs --runtime
 go test ./internal/app -run TestAgainstMygoRealComposition -v -timeout 2m
 ```
 

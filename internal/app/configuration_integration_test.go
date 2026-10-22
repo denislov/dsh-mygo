@@ -24,7 +24,10 @@ func TestAgainstMygoConfiguration(t *testing.T) {
 				launch, _ = realMygoLaunch(t, true)
 				provider = "mygo-mock"
 				launch.Dir = cwd
-				launch.Args[1] = "file:///" + filepath.ToSlash(filepath.Join(os.Getenv("DSH_MYGO_DSH_DIR"), "node_modules", "tsx", "dist", "esm", "index.mjs"))
+				if dshDir := os.Getenv("DSH_MYGO_DSH_DIR"); dshDir != "" {
+					launch.Args[1] = "file:///" + filepath.ToSlash(filepath.Join(dshDir, "node_modules", "tsx", "dist", "esm", "index.mjs"))
+					launch.Env = append(launch.Env, "TSX_TSCONFIG_PATH="+filepath.Join(dshDir, "tsconfig.json"))
+				}
 				patch := filepath.Join(t.TempDir(), "isolated-credential.patch.yml")
 				if err := os.WriteFile(patch, []byte(`[{"id":"llm-deepseek","config":{"apiKeyEnv":"MYGO_TEST_ONLY_KEY"}}]`), 0o600); err != nil {
 					t.Fatal(err)
@@ -36,7 +39,7 @@ func TestAgainstMygoConfiguration(t *testing.T) {
 						filtered = append(filtered, entry)
 					}
 				}
-				launch.Env = append(filtered, "TSX_TSCONFIG_PATH="+filepath.Join(os.Getenv("DSH_MYGO_DSH_DIR"), "tsconfig.json"))
+				launch.Env = filtered
 			} else {
 				node, err := exec.LookPath("node")
 				if err != nil {
