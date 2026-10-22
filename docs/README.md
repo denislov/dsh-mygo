@@ -6,6 +6,7 @@ dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：MyGo 负责窗口与 UI
 
 | 目标 | 顺序 |
 | --- | --- |
+| 查当前进度与下一步 | [开发进度与路线图](roadmap.md) |
 | 第一次了解项目 | 本页 → [架构](architecture.md) → [研究：DSH 组合](research/dsh-composition.md) |
 | 开始写代码 | [架构](architecture.md) → [UI 壳层](subsystem/ui-shell.md) → [通道协议](subsystem/channel-protocol.md) → [宿主监督](subsystem/host-supervisor.md) |
 | 改 Host 侧 | [profile 与 bundle](subsystem/profile-bundle.md) → [通道协议](subsystem/channel-protocol.md) → [交互](subsystem/interaction.md) |

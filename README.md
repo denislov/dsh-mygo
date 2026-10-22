@@ -13,6 +13,7 @@ DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node Host（`dsh-ba
 | 文档 | 内容 |
 | --- | --- |
 | [docs/architecture.md](docs/architecture.md) | 进程、组合、协议、状态、生命周期 |
+| [docs/roadmap.md](docs/roadmap.md) | 当前进度、缺口、里程碑与验收 |
 | [docs/subsystem/](docs/subsystem/) | Host 监督、通道、投影、交互、UI、打包、测试 |
 | [docs/research/](docs/research/) | 立项调研与取舍 |
 | [AGENTS.md](AGENTS.md) | 文档路由、硬规则、命令 |
