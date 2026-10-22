@@ -52,8 +52,10 @@ type Options struct {
 	// MaxFrame bounds one JSON-RPC frame; zero uses the channel default.
 	MaxFrame int
 	// PreflightErr is a startup prerequisite failure, such as a profile that
-	// could not be created. Start reports it in the window without spawning.
-	PreflightErr error
+	// could not be created or an unresolved host entry. Start reports it in the
+	// window without spawning; PreflightSummary overrides the banner summary.
+	PreflightErr     error
+	PreflightSummary string
 	// Post runs fn on the window's main thread. A nil Post runs it inline,
 	// which tests use.
 	Post func(fn func())
@@ -146,7 +148,11 @@ func (a *App) Model() *view.Model { return a.model }
 // goroutine.
 func (a *App) Start() {
 	if a.options.PreflightErr != nil {
-		a.fail("Could not prepare the DeepSeek Harness profile", a.options.PreflightErr)
+		summary := a.options.PreflightSummary
+		if summary == "" {
+			summary = "Could not start the DeepSeek Harness host"
+		}
+		a.fail(summary, a.options.PreflightErr)
 		return
 	}
 	supervisor, err := host.Start(context.Background(), a.options.Launch)

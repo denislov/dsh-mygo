@@ -69,7 +69,7 @@ func main() {
 	if *sdkProtocol && *sessionID == "" {
 		*sessionID = fmt.Sprintf("mygo-%d", time.Now().UnixNano())
 	}
-	launch, err := host.ResolveLaunch(host.LaunchOptions{
+	launch, launchErr := host.ResolveLaunch(host.LaunchOptions{
 		DshDir:       *dshDir,
 		Profile:      *profile,
 		CWD:          cwd,
@@ -78,26 +78,26 @@ func main() {
 		ResourcesDir: resourcesDir,
 		DSHHome:      dshHomePath,
 	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	var preflightErr error
-	if !*sdkProtocol && *hostCommand == "" && *profile == "mygo" {
+	preflightErr := launchErr
+	preflightSummary := "Could not start the DeepSeek Harness host"
+	if launchErr == nil && !*sdkProtocol && *hostCommand == "" && *profile == "mygo" {
 		preflightErr = host.EnsureProfile(dshHomePath, filepath.Join(resourcesDir, "host"), *profile)
+		preflightSummary = "Could not prepare the DeepSeek Harness profile"
 	}
 
 	var window atomic.Pointer[mygo.Window]
 	application := app.New(app.Options{
-		Launch:          launch,
-		CWD:             cwd,
-		Provider:        *provider,
-		Model:           *model,
-		ReasoningEffort: *effort,
-		UseHostDefaults: useHostDefaults,
-		SessionID:       *sessionID,
-		SDKProtocol:     *sdkProtocol,
-		MaxFrame:        *maxFrame,
-		PreflightErr:    preflightErr,
+		Launch:           launch,
+		CWD:              cwd,
+		Provider:         *provider,
+		Model:            *model,
+		ReasoningEffort:  *effort,
+		UseHostDefaults:  useHostDefaults,
+		SessionID:        *sessionID,
+		SDKProtocol:      *sdkProtocol,
+		MaxFrame:         *maxFrame,
+		PreflightErr:     preflightErr,
+		PreflightSummary: preflightSummary,
 		Post: func(fn func()) {
 			if win := window.Load(); win != nil {
 				win.Update(fn)
