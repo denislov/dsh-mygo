@@ -2,21 +2,12 @@
 
 dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node Host（`dsh-base` + 自有 bundle）。不使用 `dsh-web-app`，不嵌入浏览器。
 
-当前阶段：**路线 A（SDK 验证）→ 路线 C（自定义 channel）**。UI 选择 **MyGo native UI**。
+当前阶段：**自定义 channel 可用（默认 `mygo` profile），SDK 通道只作显式回归**。首发平台 Windows（x64），发布包自带 Node + DSH runtime；macOS 随后。进度、缺口与里程碑只维护在 [docs/roadmap.md](docs/roadmap.md)，本文件不重复状态清单。
 
-- P0 已落地：`internal/host`、`internal/channel`、`cmd/spike`。
-- P1 已落地：`internal/projection`、`internal/view`、`internal/app`、根 `main.go`；原生窗口可启动 Host、发送 prompt、投影提交事件、显示运行状态与错误。
-- 自定义 channel 阶段 1 已落地：`resources/host` bundle、`mygo` profile 初始化、版本握手、显式创建会话和真实 Loader + mock 模型测试。默认协议为自定义 channel；SDK 回归须显式 `-sdk-protocol -profile sdk`。
-- 回合取消已落地：`session.cancel` capability、`session/cancel`、原生 Stop 按钮、草稿保留，以及真实 agent loop 的 abort → idle → 同会话再次发送测试。
-- 工具审批已落地：`approval` capability、Host answerer、有界队列、原生 Allow once / Deny / Stop turn，以及真实 approval 服务的允许/拒绝/取消执行验证。
-- 用户提问已落地：`question` capability、阻塞式 `ask_user_question` 工具行、Host answerer、原生多问题表单（单选/多选/自由文本）、明确取消与真实工具闭环；无 agent 请求单独标注。
-- 文本流式已落地：`session.assistant-stream` capability、公开帧转发、有界临时 text 投影、提交替换与顺序批处理；真实 agent loop 验证提交前可见、完成/取消/退出与同会话继续发送。
-- 工具折叠/diff 已落地：默认折叠、稳定身份、有界参数/结果详情、FileDiff 元数据校验、只读原生 hunk 检视与大 hunk 文本回退；真实 write/edit 提交验证。
-- Markdown/复制已落地：MyGo 原生 Stream/View、只读高亮代码、代码/保留源文复制、空白保留、截断/中断保护与 HTTP(S) 点击限制；不加载外部图片或执行代码/HTML。
-- 会话历史已落地：`session.history` capability、公开 persistence/agents.resume、有界分页与原生 Sessions 弹窗、新建/恢复和内存草稿隔离；真实 App 重启回放后可继续发送，不持久化 UI 历史副本。
-- 会话模型设置已落地：model.selection capability、白名单 provider/model/effort 目录、公开 installModelSelection、持久选择事件与原生 Settings；仅下回合生效，不更改启动默认或凭据，真实请求验证模型切换与 effort 清除。
-- 配置闭环已落地：settings.configuration capability、公开 settings/agentDefaultModel/credentials 服务、revision 保护的持久默认模型、DeepSeek 绑定凭据的安全状态/只写/清除；默认启动读取 Host 配置，显式路由 flags 覆盖。真实隔离 Host 重启和 Windows 原生操作验证，不触碰项目 .env。
-- 未落地（P2）：timed/continued 提问、实时缺口自动 resync、固定侧栏与会话搜索/管理、任意命名空间设置/多 provider 凭据与账户登录、RPC 请求级取消、打包。
+- 默认协议：`initialize` 协商版本与能力，随后 `session/create|list|resume|history|prompt|cancel`；通知为 `session/event`、`session/assistant-stream`、`session/status` 与交互请求。审批、提问、模型、配置各自通过 capability 协商。
+- UI 能力：原生 Markdown 流式与代码/源文复制、工具折叠与只读 diff、Sessions 弹窗、Settings（会话模型、持久默认模型、DeepSeek 凭据）。
+- 发布形态：MyGo 二进制 + `resources/`（私有 `mygo-host`、Node、DSH runtime、profile seed）；落地顺序见路线图。
+- 写代码前先确认范围：当前不做 timed/continued 提问、实时缺口自动 resync、固定侧栏与会话管理、通用命名空间设置、多 provider 凭据、账户登录、RPC 请求级取消、打包。这些只在路线图与任务里出现，不写进设计文档当现状。
 
 ## 文档路由
 
@@ -26,6 +17,8 @@ dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node H
 | --- | --- |
 | 文档索引与阅读路线 | [docs/README.md](docs/README.md) |
 | 当前进度、缺口与下一步路线 | [docs/roadmap.md](docs/roadmap.md) |
+| 经验教训（开发过程） | [LESSONS.md](LESSONS.md) |
+| 固化后的编码/文档规范 | [docs/code-standards.md](docs/code-standards.md) |
 | 子系统索引 | [docs/subsystem/README.md](docs/subsystem/README.md) |
 | 整体结构、进程边界、数据流 | [docs/architecture.md](docs/architecture.md) |
 | profile / bundle / DSH 组合 | [docs/subsystem/profile-bundle.md](docs/subsystem/profile-bundle.md)、[research/dsh-composition.md](docs/research/dsh-composition.md) |
@@ -125,23 +118,27 @@ pnpm run test
 
 ## 文档约定
 
+- **设计文档只写当前事实。** `docs/architecture.md` 与 `docs/subsystem/` 用现在时描述代码当前行为，不写“已落地/已实现/尚未实现/阶段 N 完成”等变更历史；变更历史由 git log 承担。
+- **代码事实变化时直接改写文档。** 能力、协议、UI 改动后，修改受影响的子系统文档现有段落，不新增“变更记录”。
+- **一个事实一个主页。** 架构文档管跨系统结构，子系统文档管契约；状态、缺口与里程碑只在 [docs/roadmap.md](docs/roadmap.md)；经验教训只在 [LESSONS.md](LESSONS.md)；重复 3 次的教训固化到 [docs/code-standards.md](docs/code-standards.md)。
+- **提交信息记录影响面。** 每个任务完成后列出受影响的子系统、契约变化与实际跑过的检查。
+- **任务开始前通读 `docs/`。** 先读全部设计文档与路线图，确认目标不偏离整体设计。
 - `docs/research/` 回答“为什么”；不要在里面写当前实现契约。
-- `docs/architecture.md` 是跨系统主页；一个事实只写一次，其他文档链接。
-- `docs/subsystem/` 一子系统一文档：职责、接口、失败、测试。
-- 未定事项放“未决问题”；不要写成既成事实。
-- 改行为时同步改对应文档；改协议时同时改 [channel-protocol.md](docs/subsystem/channel-protocol.md) 与 [session-projection.md](docs/subsystem/session-projection.md)。
+- 未定事项只放路线图的“未决问题”，不要写成既成事实。
+- 改协议时同时改 [channel-protocol.md](docs/subsystem/channel-protocol.md) 与 [session-projection.md](docs/subsystem/session-projection.md)。
 - 新增文档后，在本文件的“文档路由”里加一行。
 
 ## 验证
 
 - 改投影：跑 `go test ./internal/projection` 与 `go test ./internal/app`（fake host 全链路）。
 - 改协议：跑 conformance fixture + 真实 Host 集成。
-- 改 UI：`ui.NewTester` + 真实窗口检查（macOS/Windows）；真实窗口可用 fake host 手动 smoke。
+- 改 UI：`ui.NewTester` + Windows 真实窗口检查；macOS 随后。
 - 改 Host/打包：启动 smoke、stdout 纯净、退出回收。
+- 改文档：核对链接可达、描述与代码一致（方法表、常量、UI 文案），并确认没有变更历史口吻。
 - 提交前报告实际跑过的命令，不报告未跑的检查。
 
 ## 提交
 
 - 每完成一个可验证的任务做一个提交；不要把多个无关任务混进同一个提交。
-- 提交信息写明阶段或模块，并在正文列出实际跑过的检查。
+- 提交信息写明阶段或模块，正文列出受影响的子系统、契约变化与实际跑过的检查。
 - 任务未完成或检查未通过时不提交；需要中间检查点时先说明。

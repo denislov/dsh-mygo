@@ -3,10 +3,10 @@
 DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node Host（`dsh-base` + 自有 bundle）。
 
 - 不使用 `dsh-web-app`，不嵌入浏览器。
-- 当前阶段：路线 A（SDK 验证）→ 路线 C（自定义 channel）。
-- 目标平台：macOS、Windows；Linux 视后续需要。
+- 默认协议：自定义 channel（`mygo` profile）；SDK 通道只作显式回归。
+- 首发平台：Windows x64；macOS 随后，Linux 视需要。
 
-自定义 channel、回合取消、工具审批、用户提问、Markdown 流式与工具折叠/diff 已落地：默认使用 `mygo` profile，校验 UI/Host/DSH 版本，显式创建会话、发送 prompt、显示提交后的 user/assistant/tool 事件与 running/idle 状态。原生助手正文支持 Markdown、只读高亮代码块与代码/源文复制；提供 Stop、审批与问答表单，保留下一条草稿。工具默认折叠，支持有界详情与只读 hunk；流式提交后不重复答案。SDK 链路保留作回归入口。Sessions 支持会话列表、新建、恢复、分页历史与草稿隔离；Settings 支持当前会话 provider/model/effort、持久默认模型和 DeepSeek 凭据安全配置。timed/continued 提问、自动补齐实时缺口、通用设置/多 provider 凭据与打包尚未实现。
+默认入口使用 `mygo` profile 的自定义 channel：校验 UI/Host/DSH 版本，显式创建会话，发送 prompt，显示 user/assistant/tool 事件与 running/idle 状态。原生助手正文支持 Markdown、只读高亮代码块与代码/源文复制；提供 Stop、审批与问答表单，保留下一条草稿。工具默认折叠，支持有界详情与只读 hunk；流式提交后不重复答案。Sessions 提供会话列表、新建、恢复、分页历史与草稿隔离；Settings 提供当前会话 provider/model/effort、持久默认模型和 DeepSeek 凭据配置。首发平台为 Windows（x64），发布包自带 Node + DSH runtime；macOS 随后。当前缺口、里程碑与验收见 [docs/roadmap.md](docs/roadmap.md)。
 
 ## 文档
 
@@ -14,6 +14,8 @@ DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node Host（`dsh-ba
 | --- | --- |
 | [docs/architecture.md](docs/architecture.md) | 进程、组合、协议、状态、生命周期 |
 | [docs/roadmap.md](docs/roadmap.md) | 当前进度、缺口、里程碑与验收 |
+| [LESSONS.md](LESSONS.md) | 开发过程中的经验教训 |
+| [docs/code-standards.md](docs/code-standards.md) | 重复 3 次后固化的编码/文档规范 |
 | [docs/subsystem/](docs/subsystem/) | Host 监督、通道、投影、交互、UI、打包、测试 |
 | [docs/research/](docs/research/) | 立项调研与取舍 |
 | [AGENTS.md](AGENTS.md) | 文档路由、硬规则、命令 |

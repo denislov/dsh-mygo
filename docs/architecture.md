@@ -8,7 +8,7 @@ dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：
 - 复用 DSH 的 agent runtime、工具、会话、设置、凭据与人机交互能力。
 - 不加载 `@deepseek-ai/dsh-web-app`，不依赖 Electron、`dsh-app://`、`WebContentsView`、`<webview>` 或 session partition。
 - 保持 UI 与 Host 的清晰边界：Go 进程拥有窗口与交互，Node 进程拥有 Agent 与持久化。
-- 首发平台 macOS（arm64/x64）与 Windows（x64）；Linux 视后续需要。
+- 首发平台 Windows（x64）；macOS 随后，Linux 视需要。
 
 ## 2. 非目标
 
@@ -24,10 +24,10 @@ dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：
 ┌──────────────────────────────────────────────────────────────┐
 │ MyGo 应用（Go 进程）                                          │
 │                                                              │
-│  ui.View / Router / List / Markdown / Editor / Diff          │
-│  Window / Menu / Tray / Dialog / Notification / Updater      │
+│  ui.View / List / Markdown / Editor / Diff / Modal          │
+│  Window / Dialog                                            │
 │  App 状态：会话摘要、transcript 投影、UI 选择、输入草稿      │
-│  HostSupervisor：spawn / stdio / 生命周期 / 崩溃恢复         │
+│  HostSupervisor：spawn / stdio / 生命周期 / 失败处理         │
 │  ChannelClient：JSON-RPC 请求、通知、取消、版本协商          │
 └───────────────────────────────┬──────────────────────────────┘
                                 │ stdio: newline-delimited JSON-RPC
@@ -56,12 +56,10 @@ dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：
 | 职责 | 说明 |
 | --- | --- |
 | 窗口与 UI | 原生 UI，主线程构建视图；所有界面状态在这里投影 |
-| 用户输入 | 键盘、输入法、粘贴、拖放、附件、`@` 引用 |
-| Host 监督 | 启动、就绪、停止、崩溃恢复、日志尾 |
+| 用户输入 | 键盘、输入法、粘贴；TextArea 与弹窗焦点 |
+| Host 监督 | 启动、就绪、停止、退出回收、stderr 尾 |
 | 通道客户端 | JSON-RPC 编解码、请求关联、取消、事件排序 |
-| 本地配置 | 窗口位置、主题、快捷键、最近会话等设备级偏好 |
-| 系统集成 | 菜单、托盘、通知、深链、单实例、文件对话框 |
-| 更新 | MyGo updater；更新前后协调 Host 生命周期 |
+| 本地状态 | 当前会话草稿、弹窗、展开/折叠与列表滚动（进程内） |
 
 ### 4.2 Node Host
 
@@ -99,16 +97,15 @@ Profile 是组合根。当前设计：
 
 ### 5.1 启动
 
-1. Go 进程启动，加载设备级设置与最近会话。
-2. 解析 `$DSH_HOME`，确认 `profiles/mygo` 存在；首启则初始化。
-3. 启动 Host 子进程（开发期 `dsh --profile mygo`；发布版可用私有 `mygo-host`）。
+1. Go 进程启动，读取 `-cwd`/`-dsh-dir`/`-dsh-home` 等参数并解析 Host 入口。
+2. 使用 `$DSH_HOME` 下已初始化的 `profiles/mygo`；开发期由 `setup-profile.mjs` 创建。
+3. 启动 Host 子进程（开发期 `dsh --profile mygo`）。
 4. Host 完成 Cordis boot，channel server 就绪。
 5. Go 发送 `initialize`，协商协议版本与能力。
-6. Go 拉取 `session/list` 与必要的 `session/history`，渲染首页。
-7. 用户选择会话或新建；`session/resume` / `session/create`。
-8. 用户输入 → `session/prompt`；Host 回 `session/assistant-stream`、`session/event` 与 `session/status`。
+6. Go 发送 `session/create` 建立当前会话；用户可从 Sessions 弹窗 `session/resume` 旧会话。
+7. 用户输入 → `session/prompt`；Host 回 `session/assistant-stream`、`session/event` 与 `session/status`。
 
-P1 用 `dsh --profile sdk` 走这条流程的前半段：没有自定义 channel、没有 `session/assistant-stream`，只消费提交后的 `session/event`。第 2–8 步中的 `session/list`、`session/resume` 等自定义方法属于 P2。
+默认使用 `mygo` profile 的自定义 channel。`-sdk-protocol -profile sdk` 是旧 SDK 回归入口：它只消费提交后的 `session/event`，不提供流式、审批、提问、历史与设置。自定义协议的方法、通知与能力边界见 [通道协议](subsystem/channel-protocol.md)。
 
 ### 5.2 一个回合
 
@@ -129,12 +126,12 @@ UI 输入
 ### 5.3 关闭
 
 - 用户退出：Go 发送 `shutdown`；Host 停止新工作、等待当前回合收尾、flush 持久化、退出。
-- Host 先退出：Go 显示恢复对话框，提供重启、查看日志、退出。
+- Host 先退出：Go 保留当前投影，显示 `Host error` 与错误横幅；不自动重启。
 - Go 崩溃：Host 通过 stdin EOF 退出，不留孤儿进程。
 
 ## 6. 传输与协议
 
-第一版：**stdio + newline-delimited JSON-RPC 2.0**。
+传输：**stdio + newline-delimited JSON-RPC 2.0**。
 
 - 一行一个 JSON 对象；UTF-8；不接受二进制帧。
 - 请求：`{jsonrpc, id, method, params}`；响应：`{jsonrpc, id, result|error}`；通知：`{jsonrpc, method, params}`。
@@ -151,7 +148,7 @@ UI 输入
 - 生命周期与进程绑定：父进程退出，管道关闭，Host 收到 EOF。
 - 不需要端口、认证、防火墙与端口冲突处理。
 - 适合单窗口桌面应用。
-- 未来需要多窗口/远程调试时，可以在同一协议上增加 loopback WebSocket transport；协议本身不绑定 stdio。
+- 多窗口或远程调试需要时，可在同一协议上增加 loopback WebSocket transport；协议本身不绑定 stdio。
 
 ## 7. 会话与投影
 
@@ -180,9 +177,9 @@ Go 的 `SessionProjection` 从 `session/assistant-stream` 与 `session/event` �
 
 ## 8. 人机交互
 
-- **审批**：Host 的 `ctx.approval` 发起请求；`dsh-mygo-app` 注册 answerer；通过 `approval/request` 发给 Go；Go 弹窗；`approval/respond` 返回 allow/deny。
+- **审批**：Host 的 `ctx.approval` 发起请求；`@dsh-mygo/host` 注册 answerer；通过 `approval/request` 发给 Go；Go 弹窗；`approval/respond` 返回 allow/deny。
 - **用户提问**：模型 `ask_user_question` → `ctx.userQuestions` → answerer → `question/request` → Go 表单 → `question/respond`。
-- **权限模式**：沿用 base 的 `dsh-permission-presets` 与 `DSH_PERMISSION_MODE`；UI 只展示与切换，不自行放宽。
+- **权限模式**：沿用 base 的 `dsh-permission-presets` 与 `DSH_PERMISSION_MODE`；UI 不提供切换入口，也不自行放宽。
 - **Secret**：凭据只写不读；日志、错误、崩溃报告不得包含 token、API key、cookie。
 
 细节见 [交互](subsystem/interaction.md)。
@@ -191,14 +188,13 @@ Go 的 `SessionProjection` 从 `session/assistant-stream` 与 `session/event` �
 
 | 场景 | 行为 |
 | --- | --- |
-| Host 启动失败 | UI 显示错误摘要 + 重试/退出；stderr 尾部写入日志 |
+| Host 启动失败 | UI 显示错误摘要；stderr 尾部留在内存 |
 | 协议帧非法 | 关闭连接；Host 退出；UI 报错，不尝试猜测 |
 | 请求超时 | 返回结构化超时；UI 标记对应操作失败 |
-| 会话忙 | `session/prompt` 返回忙或排队，按协议语义处理 |
+| 会话忙 | `session/prompt` 返回忙，按协议语义处理 |
 | 用户取消 | `session/cancel`；只取消当前回合，不关闭会话 |
-| Host 崩溃 | UI 保留当前投影，显示恢复对话框；提供重启 |
-| Go 崩溃 | Host 因 stdin EOF 退出；下次启动恢复会话 |
-| 更新中 | 先停止 Host 或等待回合结束；更新单元包含 UI + Host + profile 版本 |
+| Host 崩溃 | UI 保留当前投影，显示 `Host error`；需重启应用 |
+| Go 崩溃 | Host 因 stdin EOF 退出；下次启动从 Sessions 恢复会话 |
 
 细节见 [宿主监督](subsystem/host-supervisor.md)。
 
@@ -207,19 +203,15 @@ Go 的 `SessionProjection` 从 `session/assistant-stream` 与 `session/event` �
 - Host 是本地可信进程，但用户安装的第三方插件与 Web 版一样以用户权限运行；不承诺额外沙箱。
 - 协议边界是进程边界：所有入站 JSON 都要校验字段、大小与类型。
 - 不在 stdout/stderr/日志/崩溃报告中写入 secret。
-- 附件按类型与大小准入；不执行附件内容。
-- 深链、文件拖放、剪贴板都视为不可信输入。
+- 粘贴与剪贴板内容视为不可信输入；不执行其中的代码或 HTML。
+- 附件接入时按类型与大小准入，不执行附件内容。
 - 权限策略由 base 的 sandbox/approval 配置决定；UI 不能绕过。
 
 ## 11. 打包与更新
 
-- MyGo 应用包含 Go 二进制与 `resources/`。
-- `resources/` 携带 Node Host、DSH runtime、profile seed、第三方 runtime（按需）。
-- 首启创建/校验 profile；离线可用；第三方插件安装走 profile 的 pnpm。
-- UI、Host、profile 版本作为一个发布单元验证；不独立升级。
-- MyGo updater 负责签名、delta、更新窗口；更新前协调 Host 收尾。
+发布包由 MyGo 二进制与 `resources/` 组成：`resources/` 携带私有 `mygo-host`、Node、DSH runtime、自有 bundle 与 profile seed；首发 Windows x64，macOS 随后。UI、Host、profile 版本作为一个发布单元验证，不独立升级。
 
-细节见 [打包与更新](subsystem/packaging-updates.md)。
+打包、签名、首启校验与更新的实现契约见 [打包与更新](subsystem/packaging-updates.md)。
 
 ## 12. 测试
 
@@ -231,38 +223,13 @@ Go 的 `SessionProjection` 从 `session/assistant-stream` 与 `session/event` �
 | Host 集成 | 真实 `dsh --profile mygo`；真实 session log；approval/question 流程 |
 | DSH 组合 | real-composition：通过 Loader 启动 profile，验证行、插件、stdout |
 | E2E | 有 API key 时跑真实模型；无 key 时用 fake provider |
-| 打包 | 安装包 smoke、签名校验、更新安装 |
+| 打包（发布阶段） | 安装包 smoke、签名校验、更新安装 |
 
 细节见 [测试](subsystem/testing.md)。
 
-## 13. 阶段计划
+## 13. 阶段与路线
 
-### 阶段 A：验证（SDK）
-
-- profile：`sdk` 模板（`dsh-base` + `@deepseek-ai/dsh-sdk-app`）。
-- Go：启动 Host、`initialize`、`session/prompt`、消费 `session.event`。
-- UI：单窗口显示提交后的 assistant 文本与工具状态（路线 A 不验证逐字流式）。
-- 成功标准：登录/模型配置后能完成一个真实回合；取消与退出可用。
-- 不做：live 流式、审批、提问、历史、设置。
-
-**当前进度**：P1 原生窗口和 SDK 闭环已完成；自定义 channel、回合取消、工具审批、阻塞式用户提问、原生 Markdown 流式/复制与工具折叠/diff 已完成。默认入口使用 `mygo` profile，工具详情与只读 hunk 来自 Host 提交，不重读文件或推算历史；Markdown 不加载外部图片或执行代码，流式仍只是临时投影，提交日志为唯一真相。SDK 作为显式回归模式保留。Host 通过公开 persistence/agents.resume 提供列表、冷恢复和分页历史，Sessions 已接入新建/列表/恢复与内存草稿隔离；Settings 通过公开 llm 目录和 installModelSelection 实现当前会话模型/effort 选择，另通过公开 settings/agentDefaultModel/credentials 提供持久默认模型与 DeepSeek 绑定凭据配置，详见 [设置与凭据](subsystem/settings-credentials.md)。实时缺口自动 resync 尚未实现。当前能力边界见 [通道协议](subsystem/channel-protocol.md)；timed/continued 提问、任意命名空间设置/多 provider 凭据仍在后续阶段。
-
-下一步顺序、缺口清单与验收标准见 [开发进度与路线图](roadmap.md)。
-
-### 阶段 B：自定义 profile
-
-- 新建 `@dsh-mygo/host` bundle 与 `mygo` profile（最小闭环已完成）。
-- 实现 startup provider、stdio channel、session create/resume/prompt/cancel。
-- 转发 `agent/assistant-stream` 为 `session/assistant-stream`，实现逐字渲染。
-- 注册 approval/question answerer。
-- 成功标准：不依赖 SDK server 完成同一回合；流式、审批与提问可用。
-
-### 阶段 C：产品化
-
-- `session/history`、fork/rename/archive、模型/effort、设置、附件。
-- 完整的原生 UI：会话列表、聊天、工具卡片、diff、设置、更新。
-- 打包、签名、更新、CLI、深链。
-- 成功标准：安装版可离线启动、升级、恢复；macOS/Windows 验收。
+阶段划分、当前缺口、里程碑与验收标准只维护在 [开发进度与路线图](roadmap.md)。本文件只描述系统结构与契约。
 
 ## 14. 关键决策
 
@@ -275,11 +242,14 @@ Go 的 `SessionProjection` 从 `session/assistant-stream` 与 `session/event` �
 | 传输 | stdio | 生命周期简单、无端口/认证 |
 | 会话真相 | DSH session log | 模型可见 ⟺ 已记录；UI 不造第二份真相 |
 | 打包 | MyGo build + resources | 统一签名/更新；Host 作为资源分发 |
+| 首发平台 | Windows x64 | 覆盖主要桌面用户，安装器与签名链路最短；macOS 随后 |
+| 分发 | 自带 Node + DSH runtime + 私有 `mygo-host` | 离线首启，不依赖用户预装环境 |
 
 ## 15. 文档路由
 
 | 主题 | 文档 |
 | --- | --- |
+| 进度、缺口与路线 | [roadmap.md](roadmap.md) |
 | 研究结论 | [research/](research/README.md) |
 | Host 监督 | [subsystem/host-supervisor.md](subsystem/host-supervisor.md) |
 | 通道协议 | [subsystem/channel-protocol.md](subsystem/channel-protocol.md) |

@@ -2,12 +2,12 @@
 
 ## 职责
 
-当前已实现 `approval` / `question` capability、Host answerer、有界队列与原生审批/问答面板。未协商审批时返回 `unavailable`，未协商提问时返回 `UserQuestionError/NO_PROVIDER`，不会悬挂等待。
-
 `interaction` 子系统把 DSH 的两类人机交互桥接到原生 UI：
 
 - **审批**：工具执行前要求用户允许/拒绝。
 - **用户提问**：模型通过 `ask_user_question` 向用户提问。
+
+`approval` / `question` capability、Host answerer、有界队列与原生审批/问答面板构成这条链路。未协商审批时返回 `unavailable`，未协商提问时返回 `UserQuestionError/NO_PROVIDER`，不会悬挂等待。
 
 没有这两条链路，需要人工决策的工具调用会停在 Host 里，UI 看起来像“卡住”。这是非 Web surface 必须补齐的适配层。
 
@@ -43,7 +43,7 @@ DSH 的 outcome 是封闭集合：`allowed-once`、`rejected`、`cancelled`、`u
 - 同一 `callId` 的重复审批是异常：标记为 `external`，不要用一个回答去翻转另一个请求。
 - 被取消的会话/工具调用要清掉对应队列项；迟到的 `approval/respond` 返回 `stale-request`，不改变已决结果。
 - Host 默认最多等待 32 个审批，`maxPendingApprovals` 可配置为 1–64，超限返回 `unavailable`。Go 最多保留 64 个待处理请求，并拒绝已关闭身份复用。
-- 当前 UI 只显示当前会话审批，合法的外来会话通知忽略；多会话/后台审批 UI 尚未实现。
+- UI 只显示当前会话的审批；合法的外来会话通知被忽略。多会话/后台审批不呈现。
 
 ### UI
 
@@ -60,9 +60,9 @@ DSH 的 outcome 是封闭集合：`allowed-once`、`rejected`、`cancelled`、`u
 
 模型调用 `ask_user_question` → `ctx.userQuestions.ask(request)` → 注册的 provider/answerer。
 
-当前精确绑定的 DSH 使用 `user-questions/request` waterfall，不探测或抢占旧版 provider seat。Host 只回答自己创建的确切 agent；外来 agent 调用 `next()` 委托。无 agent 的 Host 请求也支持，通知使用 `sessionId: ""`，原生面板明确标注未关联会话。
+精确绑定的 DSH 使用 `user-questions/request` waterfall，不探测或抢占旧版 provider seat。Host 只回答自己创建的确切 agent；外来 agent 调用 `next()` 委托。无 agent 的 Host 请求也支持，通知使用 `sessionId: ""`，原生面板明确标注未关联会话。
 
-`dsh-base` 只提供 `userQuestions` 服务，不注册模型工具；自有 bundle 通过稳定行 `tool-ask-user` 注册 `@deepseek-ai/dsh-tool-ask-user`，配置 `mode: legacy`（阻塞等待，不是旧版 provider API）。带 foreground claim 的 `wait.timed` 请求明确返回 `NO_PROVIDER`；自动超时、continued/迟到回复未实现，不冒充支持。
+`dsh-base` 只提供 `userQuestions` 服务，不注册模型工具；自有 bundle 通过稳定行 `tool-ask-user` 注册 `@deepseek-ai/dsh-tool-ask-user`，配置 `mode: legacy`（阻塞等待，不是旧版 provider API）。带 foreground claim 的 `wait.timed` 请求明确返回 `NO_PROVIDER`；自动超时、continued 与迟到回复不在支持范围内。
 
 ### 请求内容
 
@@ -84,10 +84,10 @@ Host `maxPendingQuestions` 默认 32，范围 1–64；Go 最多 64 个待处理
 
 ## 权限模式
 
-- 沿用 base 的 `@deepseek-ai/dsh-permission-presets` 与 `DSH_PERMISSION_MODE`。
+- 权限模式由 `@deepseek-ai/dsh-permission-presets` 与 `DSH_PERMISSION_MODE` 决定。
 - 常用值：`workspace-write`、`danger-full-access`。
 - `danger-full-access` 时 approval policy 为 `never`；其余默认 `ask`。
-- UI 只展示/切换模式，不自行把 `ask` 降级为 `never`。
+- 当前 UI 不提供模式切换入口，也不在本地改环境变量或把 `ask` 降级为 `never`。
 - sandbox 策略由 DSH 配置决定；UI 不提供绕过入口。
 
 ## 协议映射

@@ -2,7 +2,7 @@
 
 | 文档 | 负责 | 关键契约 |
 | --- | --- | --- |
-| [host-supervisor.md](host-supervisor.md) | Node Host 的启动、stdio、停止、崩溃恢复 | 进程边界与生命周期 |
+| [host-supervisor.md](host-supervisor.md) | Node Host 的启动、stdio、停止与失败处理 | 进程边界与生命周期 |
 | [channel-protocol.md](channel-protocol.md) | Go UI 与 Host 的 JSON-RPC 协议 | 方法、通知、顺序、错误、版本 |
 | [profile-bundle.md](profile-bundle.md) | DSH profile 与 `dsh-mygo-app` bundle | 组合、startup、兼容性 |
 | [session-projection.md](session-projection.md) | session 事件与流式片段 → UI 状态 | 真相源、流式合并、历史 |
@@ -22,4 +22,5 @@
 
 - [架构](../architecture.md)
 - [研究](../research/README.md)
+- [进度与路线](../roadmap.md)
 - [AGENTS.md](../../AGENTS.md)

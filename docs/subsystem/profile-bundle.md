@@ -10,17 +10,17 @@
 - 实现 channel server 与 session 投影所需的 Host 侧服务。
 - 不包含 Web 传输、浏览器客户端或 Electron 适配。
 
-## 当前实现（自定义 channel 阶段 1）
+## 组成
 
-实现位于 `resources/host/`：`index.mjs` 提供 startup，`channel.mjs` 装配 DSH 公开服务，`server.mjs` 实现会话方法，`transport.mjs` 负责有界 stdio 帧。当前是无需 JS 构建步骤的本地 ESM bundle，尚未发布到 npm；Node/runtime 分发未落地。
+实现位于 `resources/host/`：`index.mjs` 提供 startup，`channel.mjs` 装配 DSH 公开服务，`server.mjs` 实现会话方法，`transport.mjs` 负责有界 stdio 帧。bundle 是无需 JS 构建步骤的本地 ESM，由 profile 的 `node_modules` 引入，不发布 npm；发布分发（Node/DSH runtime、私有入口）见 [打包与更新](packaging-updates.md)。
 
-profile 由 `dsh-base` + `@dsh-mygo/host` 组成。channel 依赖 launcher 的 `appReady`，只在真实 Loader 启动成功后接管 stdio；握手再次等待 Loader 稳定，并检查 `profileContext.startedBundles`。当前能力与版本以 [通道协议](channel-protocol.md) 为准。
+profile 由 `dsh-base` + `@dsh-mygo/host` 组成。channel 依赖 launcher 的 `appReady`，只在真实 Loader 启动成功后接管 stdio；握手再次等待 Loader 稳定，并检查 `profileContext.startedBundles`。能力与版本以 [通道协议](channel-protocol.md) 为准。
 
 回合取消通过 `session.cancel` capability 启用；channel 的 `cancelTimeoutMs` 默认 5000，控制等待 Agent idle 的上限，不通过杀进程实现取消。
 
 文本流式通过 `session.assistant-stream` capability 启用；自有 channel 监听公开 `agent/assistant-stream`，仅转发拥有的确切 agent，不修改 DSH core，也不移除持久提交中内嵌的 stream。
 
-Host 历史通过 `session.history` capability 启用，使用公开 sessionPersistence 与 agents.resume，不扫描私有存储或修改 DSH core。根会话目录、冷恢复路由、分页边界和预算以 [通道协议](channel-protocol.md#当前-host-历史能力) 为准；原生 Sessions 弹窗已接入列表/新建/恢复。
+Host 历史通过 `session.history` capability 启用，使用公开 sessionPersistence 与 agents.resume，不扫描私有存储或修改 DSH core。根会话目录、冷恢复路由、分页边界和预算以 [通道协议](channel-protocol.md#host-历史能力) 为准；原生 Sessions 弹窗提供列表/新建/恢复。
 
 模型设置通过 model.selection capability 启用；channel 从同版本 @deepseek-ai/dsh-agent 引入公开 installModelSelection，在 create/resume 的 Agent setup 中安装作用域内选择引用。校验后向 Host 日志提交 model/selection，再由该公开适配器在下一次 prompt/request 组装时应用；不修改 Agent 内部字段、全局默认模型或 profile patch。目录及 secret 边界以 [设置与凭据](settings-credentials.md) 为准。
 
@@ -28,7 +28,7 @@ Host 历史通过 `session.history` capability 启用，使用公开 sessionPers
 
 审批通过 `approval` capability 启用，等待原生 UI 允许一次或拒绝；`maxPendingApprovals` 默认 32，范围 1–64，超限返回 unavailable。提问通过 `question` capability 启用，`maxPendingQuestions` 默认 32，范围 1–64；未协商或超限返回 NO_PROVIDER，不悬挂。
 
-base 只提供提问服务；自有 patch 增加稳定行 `tool-ask-user`，绑定 `@deepseek-ai/dsh-tool-ask-user` 同版本并显式配置 `mode: legacy`，注册阻塞式 `ask_user_question`。当前不支持 timed foreground claim、continued/迟到回复，不通过隐式改配置冒充支持。后文私有 Host、发布安装和包管理描述后续设计。
+base 只提供提问服务；自有 patch 增加稳定行 `tool-ask-user`，绑定 `@deepseek-ai/dsh-tool-ask-user` 同版本并显式配置 `mode: legacy`，注册阻塞式 `ask_user_question`。阻塞模式不支持 timed foreground claim、continued 与迟到回复，不通过隐式改配置冒充支持。
 
 ## 包形态
 
@@ -108,18 +108,18 @@ base 已经包含这些行；bundle 不应重复插入，除非需要覆盖配�
 
 ## 启动入口
 
-### 当前入口：`dsh --profile mygo`
+### 开发入口：`dsh --profile mygo`
 
 - 复用 CLI 的 profile 解析、`profileContext`、插件管理、`--patch`。
 - 需要 startup provider 处理参数与 help，避免 `dsh --profile mygo` 打印帮助后退出。
 - stdout 必须只属于 channel。
 
-### 后续入口：私有 `mygo-host`
+### 发布入口：私有 `mygo-host`
 
 - 直接 `import { runProfile } from '@deepseek-ai/dsh/profile-boot'`。
 - 自己提供 `environment`、`profile`、`resolvedProfile`、`patchFiles`、`args`。
 - 像 `apps/desktop-host` 一样，在 `runProfile` 返回后安装 channel、审批、提问与 ready 通知。
-- 发布版推荐；开发期仍可用方案一。
+- 发布版使用该入口；开发期使用上一种。
 
 两种方案都必须在 `runProfile` 之后：
 
@@ -172,11 +172,15 @@ node resources/host/setup-profile.mjs --dsh-home D:/Temp/dsh-mygo-dev
 
 该 profile 通过 DSH 的正式 CLI 和 Loader 启动，并复用安装侧公开 peer 包。发布时改为安装/携带完整 bundle 和 runtime，不能依赖开发机的仓库链接。
 
-### 首启校验
+### 首启校验（发布构建）
+
+发布构建在首启时校验：
 
 - manifest 存在且 `dsh.profile.bundles` 包含 base 与 mygo bundle。
 - bundle 版本与 UI 版本匹配（同一发布单元）。
-- 兼容性检查失败时，UI 显示修复命令；不自动改写用户的 profile。
+- 兼容性检查失败时显示修复命令，不自动改写用户 profile。
+
+开发初始化脚本只创建并链接 profile，不做这些校验。
 
 ### 包管理器
 

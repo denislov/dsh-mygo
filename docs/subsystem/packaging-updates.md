@@ -25,20 +25,20 @@ dsh-mygo.app / dsh-mygo/            # MyGo 产物
    └─ icons/                        # 托盘、窗口、安装器素材
 ```
 
-`resources/` 的布局由构建脚本生成；运行时只通过 `mygo.App.Path(mygo.PathResources)` 读取，不依赖工作目录。
+`resources/` 的布局由构建脚本生成；运行时只通过 `mygo.App.Path(mygo.PathResources)` 读取，不依赖工作目录。当前 `go tool mygo build` 只产出 Go 二进制与安装器；`resources/runtime`、profile seed 与私有 `mygo-host` 由发布构建补充，见 [路线图](../roadmap.md)。
 
 ## 构建
 
-0. 把 `mygo.json` 的 `identifier` 从脚手架默认值改为正式 app id；发布后不要更改，否则更新与系统集成会分裂。
+0. `mygo.json` 的 `identifier` 是正式 app id；发布后不要更改，否则更新与系统集成会分裂。
 
 1. 构建 DSH Host 运行时：
    - `pnpm install --prod` 产出 `dsh` 与依赖。
-   - 复制 `@deepseek-ai/dsh`、`@your-scope/dsh-mygo-app` 与生产依赖。
+   - 复制 `@deepseek-ai/dsh`、`@dsh-mygo/host` 与生产依赖。
    - 准备独立 Node；版本与 DSH 的 engines 对齐。
    - 可选：准备 pnpm、Python/Office runtime；不需要就不要携带。
 2. 写入 `runtime/manifest.json`：应用版本、DSH 版本、Node 版本、平台、架构、文件摘要。
 3. 准备 profile seed：`package.json` + `dsh.profile.bundles` + 空的 `cordis.patch.yml`。
-4. `go tool mygo build`：编译 Go 二进制、复制 `resources/`、生成 `.app`/`.dmg` 或 Windows 安装器。
+4. `go tool mygo build`：编译 Go 二进制、复制 `resources/`，生成 Windows 安装器；macOS 随后生成 `.app`/`.dmg`。
 5. 签名/公证（见下）。
 6. 生成更新清单与 delta（如启用更新）。
 
@@ -63,7 +63,7 @@ UI、Host、bundle 作为一个发布单元验证；不允许只升级其中一�
 3. 校验 profile 的 `dsh.profile.bundles` 包含 base 与 mygo bundle；缺失时提示修复命令。
 4. 校验 bundle 版本与 app 版本；不匹配时拒绝启动并给出修复建议。
 5. 启动 Host；首启不运行 pnpm。
-6. 第三方插件由用户通过 `dsh plugin --profile mygo add` 或未来的 UI 安装；安装时使用 bundled pnpm 与 profile 锁。
+6. 第三方插件由用户通过 `dsh plugin --profile mygo add` 安装；安装时使用 bundled pnpm 与 profile 锁。UI 内安装入口不在当前范围。
 
 ## 打包内容
 
@@ -88,7 +88,14 @@ UI、Host、bundle 作为一个发布单元验证；不允许只升级其中一�
 
 ## 签名与公证
 
-### macOS
+### Windows（首发）
+
+- 代码签名证书（EV 或 OV）；对 Go 二进制、Node、DLL、安装器签名。
+- 时间戳；签名后再封装安装器。
+- SmartScreen 信誉需要时间；不要承诺首次安装无提示。
+- 安装器 per-user、无需管理员；卸载保留 `$DSH_HOME`。
+
+### macOS（随后）
 
 - Developer ID Application 证书；hardened runtime。
 - 对 app bundle 内所有可执行文件/框架签名；Node、原生 `.node`、helper 都要签。
@@ -96,14 +103,7 @@ UI、Host、bundle 作为一个发布单元验证；不允许只升级其中一�
 - entitlements：JIT（Node/V8）、麦克风（如启用语音）、网络客户端。
 - 更新包同样签名/公证。
 
-### Windows
-
-- 代码签名证书（EV 或 OV）；对 Go 二进制、Node、DLL、安装器签名。
-- 时间戳；签名后再封装安装器。
-- SmartScreen 信誉需要时间；不要承诺首次安装无提示。
-- 安装器建议 per-user、无需管理员；卸载保留 `$DSH_HOME`。
-
-### Linux（如支持）
+### Linux（不首发）
 
 - Debian 包/安装脚本；WebKitGTK 等系统依赖不适用（原生 UI 不需要）。
 - 若使用系统 Node，需声明依赖；建议仍携带独立 Node。
@@ -150,6 +150,8 @@ UI、Host、bundle 作为一个发布单元验证；不允许只升级其中一�
 
 ## 日志与崩溃
 
+发布构建写入：
+
 | 内容 | 位置 |
 | --- | --- |
 | Go 日志 | `PathLogs` |
@@ -157,12 +159,12 @@ UI、Host、bundle 作为一个发布单元验证；不允许只升级其中一�
 | 崩溃报告 | `PathLogs/crash-<UTC>-<source>.log` |
 | 更新日志 | `PathLogs/update-*.log` |
 
-报告包含版本、平台、Host 退出码/信号、最后错误、当前会话 id；不包含 secret。
+报告包含版本、平台、Host 退出码/信号、最后错误、当前会话 id；不包含 secret。当前运行期只有 stderr 内存缓冲，文件日志与崩溃报告随打包阶段落地。
 
 ## 测试
 
-- 构建 smoke：安装包启动、Host ready、完成一个回合。
-- 签名校验：macOS `codesign --verify`、公证；Windows `signtool verify`。
+- 构建 smoke：安装包启动、Host ready、完成一个回合（Windows 优先）。
+- 签名校验：Windows `signtool verify`；macOS `codesign --verify` 与公证。
 - 更新 smoke：旧版本 → 新版本，保留会话/设置；delta 路径。
 - 断网/磁盘满/权限错误。
 - 任务运行中更新被拒绝/确认后中断。
@@ -170,14 +172,15 @@ UI、Host、bundle 作为一个发布单元验证；不允许只升级其中一�
 
 ## 未决问题
 
-- 是否携带完整 `primary-runtime`（Python/Office）在第一版。
-- 更新源与现有 DSH Desktop 的发布基础设施是否复用。
-- Linux 是否作为首发平台。
-- 私有 `mygo-host` 与 `dsh --profile mygo` 的最终选择（发布版倾向私有入口）。
+- 更新源（GitHub Releases / 自有源）与是否首版支持 delta。
+- 是否携带完整 `primary-runtime`（Python/Office）。
+- Windows 安装器格式（NSIS / MSI）与 per-user 策略的最终选择。
+- macOS 发布窗口与公证凭证归属。
 
 ## 相关文档
 
 - [宿主监督](host-supervisor.md)
 - [profile 与 bundle](profile-bundle.md)
+- [进度与路线](../roadmap.md)
 - [架构](../architecture.md)
 - [研究：MyGo 原生 UI](../research/mygo-native-ui.md)

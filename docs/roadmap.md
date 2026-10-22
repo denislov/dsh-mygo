@@ -1,6 +1,6 @@
 # 开发进度与路线图
 
-> 基线：`aa57b94`（2026-10-23 00:53）。本页是"当前进度 + 下一步"的唯一主页：只写状态、缺口、顺序与验收；实现契约仍以 [架构](architecture.md) 与 [子系统文档](subsystem/README.md) 为准。更新进度时改这里，不把同一份状态复制到其他文档。
+> 代码基线：`aa57b94`（2026-10-23 00:53）；决策更新于 2026-10-23。本页是"当前进度 + 下一步"的唯一主页：只写状态、缺口、顺序与验收；实现契约仍以 [架构](architecture.md) 与 [子系统文档](subsystem/README.md) 为准。更新进度时改这里，不把同一份状态复制到其他文档。
 
 ## 1. 结论
 
@@ -8,14 +8,14 @@
 
 一句话：**能开发、能演示、能在开发机上真实跑；还不能交给普通用户安装使用。**
 
-判断依据：协议与 UI 主链路已经闭环，但打包分发、会话管理 UI、健壮性收尾、macOS 验收和发布工程都还没有开始。
+判断依据：协议与 UI 主链路已经闭环，但打包分发、会话管理 UI、健壮性收尾与 Windows 发布工程尚未开始；macOS 作为后续发布单元。
 
 ## 2. 事实快照
 
 | 项 | 值 |
 | --- | --- |
 | 提交 | 12 个，2026-10-22 15:00 → 2026-10-23 00:53（约 10 小时） |
-| 规模 | 114 个跟踪文件；Go 生产 4.8k 行 / Go 测试 4.7k 行；Node Host 1.0k 行 / 测试 1.3k 行；文档 18 篇约 2.3k 行 |
+| 规模 | 114 个跟踪文件；Go 生产 4.8k 行 / Go 测试 4.7k 行；Node Host 1.0k 行 / 测试 1.3k 行；`docs/` 19 篇约 2.1k 行 |
 | 版本 | app/host `0.1.0`、`protocolVersion 1`、DSH `0.2.1-rc.2`（精确绑定）、MyGo `v0.6.2`、Node >= 24 |
 | 测试 | 约 150 个 Go Test 入口 + 46 个 Node test；覆盖率 app 84%、view 89%、interaction 87%、projection 83%、channel 72%、host 70%、main 8.5% |
 | 构建产物 | `build/windows-amd64/` 停留在 2026-10-22 14:05（初始化阶段），不含 `resources/host`、Node 与 DSH runtime |
@@ -97,28 +97,28 @@ DSH_MYGO_DSH_DIR=D:/Workspace/deepseek-harness \
 
 目标：让当前状态可复现、可发布追溯，再动大功能。
 
-- CI：Windows + macOS + Linux 上跑 `go build/test`、`go tool mygo vet .`、`node --test`；真实 Host job 作为可选/自托管任务。
+- 仓库与 CI：建立 `denislov/dsh-mygo` 远端，接 Windows 为主的 CI（`go build/test`、`go tool mygo vet .`、`node --test`）；macOS runner 随后加入；真实 Host job 作为可选/自托管任务。
 - 版本与标识单点：正式 `identifier`、版本来源、DSH pin、`protocolVersion` 记录在一处。
 - 构建 smoke：`go tool mygo build` + fake host 启动检查，重建陈旧产物。
 - 真实链路脚本化：固定 `DSH_MYGO_DSH_DIR` 的测试入口与 skip 清单。
 
-验收：干净 clone 一条命令全绿；CI 三平台可见；构建产物带版本信息；`build/` 与源码同步。
+验收：干净 clone 一条命令全绿；CI 在远端可见；构建产物带版本信息；`build/` 与源码同步。
 
 ### M1 可安装（1–2 周，发布阻塞）
 
 目标：不依赖开发机环境，装完即用。
 
 - 运行时打包：`resources/runtime/{node,dsh,@dsh-mygo/host,manifest.json}`；私有 `mygo-host`（`runProfile`）入口；profile seed + 首启创建/修复；`mygo.App.Path(PathResources)` 解析；离线可用。
-- 安装与签名：Windows per-user 安装器 + Authenticode；macOS `.app`/`.dmg` + Developer ID + 公证；`identifier` 正式化；UI/Host/bundle 版本一致校验。
+- 安装与签名：Windows per-user 安装器 + Authenticode；`identifier` 正式化；UI/Host/bundle 版本一致校验。macOS 的 `.app`/`.dmg` + Developer ID + 公证放到 macOS 发布单元。
 - 生命周期收口：Windows Job Object；Host 崩溃恢复对话框（重启/日志/退出）；`PathLogs` 日志与崩溃报告落盘；版本不匹配提示补齐。
-- 验收：干净机器安装 → 离线首启 → 完成一个 mock 回合；`kill` Host 可恢复；升级/卸载保留 `$DSH_HOME`；macOS 真机通过。
+- 验收：干净 Windows 机器安装 → 离线首启 → 完成一个 mock 回合；`kill` Host 可恢复；升级/卸载保留 `$DSH_HOME`。
 
 ### M2 日常可用（1–2 周）
 
 目标：像桌面客户端，而不是演示程序。
 
 - 固定侧栏：会话常驻列表、搜索、新建；窄窗口降级为弹窗。
-- 会话管理：Host 侧 `rename/archive/delete/fork` + 事件 + UI；标题、`updatedAt`、按最近活动排序；目录内检索。
+- 会话管理：Host 侧 `rename/archive` + 事件 + UI；标题、`updatedAt`、按最近活动排序；delete/fork 后置。
 - 权限模式 UI：展示与切换（走 Host，不本地改环境变量），`danger-full-access` 明确确认。
 - UI 偏好持久化：主题/语言/快捷键/最近会话/草稿，原子写；i18n 决策落地。
 - 附件与引用：图片（类型白名单、base64 限额）、`@path`、拖放；`/` 命令先留扩展。
@@ -146,13 +146,13 @@ DSH_MYGO_DSH_DIR=D:/Workspace/deepseek-harness \
 - Updater：清单/签名/delta/回滚；与 Host 空闲协调、任务中断提示。
 - 单实例、深链（`dsh-mygo://session/<id>`）、托盘、菜单、通知。
 - 发布流水线与签名验证；安装/升级/卸载 smoke；DSH 升级 runbook 与兼容矩阵。
-- 首发平台验收矩阵（macOS arm64/x64、Windows x64）；崩溃上报隐私评审。
+- Windows x64 验收矩阵；macOS arm64/x64 作为后续发布单元；崩溃上报隐私评审。
 
 验收：0.1 完成定义全部满足，升级失败可回滚。
 
 ## 6. 建议的下一批任务（PR 粒度）
 
-1. **M0-1 工程基线**（0.5–1 天）：CI 骨架、正式 `identifier`、版本单点、重建 `build/`。
+1. **M0-1 工程基线**（0.5–1 天）：GitHub 远端 + Windows CI 骨架、正式 `identifier`、版本单点、重建 `build/`。
 2. **M1-1 运行时打包最小闭环**（2–3 天）：`resources/runtime` + `manifest.json` + `PathResources` + 私有入口；先 fail-fast，不做签名。
 3. **M1-2 崩溃恢复**（2–3 天）：Supervisor Restart、恢复对话框、`PathLogs` 落盘；`seq` 缺口先降级为 `resyncing` 占位。
 4. **M2-1 会话管理后端**（2–3 天）：`session/rename` + `session/archive` + 列表 `title/updatedAt`；随后接侧栏第一版。
@@ -166,31 +166,41 @@ DSH_MYGO_DSH_DIR=D:/Workspace/deepseek-harness \
 | 打包复杂度（Node runtime 体积、原生模块 ABI、签名、公证、更新源） | M1/M4 延期，首发不可控 | 先做 Windows 最小可分发包，再补 macOS 与更新；证书/更新源提前确认 |
 | `app.go` / `view.Model` 集中式状态 | 设置、会话、交互交叉越权，回归难定位 | 继续用状态机测试守边界；M2 前拆 controller/子模型 |
 | 资源上限（16 MiB 帧、32 MiB 历史、4 MiB 工具详情、8 会话） | 长会话/大仓库不可用 | M3 增量加载与更细预算；用真实大会话做基准 |
-| macOS 零验证 | 首发平台风险 | 尽早接 macOS CI 与真机验收清单 |
-| 无 CI / remote / tag | 回归不可见、发布不可追溯 | M0 处理；先确定仓库托管 |
+| macOS 零验证 | 不影响 Windows 首发，但 macOS 发布单元有风险 | macOS 发布前接 CI 与真机验收清单 |
+| 无 CI / remote / tag | 回归不可见、发布不可追溯 | M0 建立远端与 CI |
 | 单窗口 + 后台交互不可见 | 多会话体验受限 | M3 支持后台审批/提问呈现 |
 | 审批参数、路径可能含敏感信息 | 日志/崩溃报告泄露面 | 维持"只记身份与工具名"的日志规则；崩溃报告落地时专项评审 |
 
-## 8. 需要拍板的决策
+## 8. 决策记录
 
-1. **首发平台与顺序**：Windows 先行，还是 macOS/Windows 同步（决定 CI 与证书投入）。
-2. **分发形态**：自带 Node + DSH runtime + 私有 `mygo-host`（推荐，可离线首启），还是依赖用户环境（体积小但体验差）。
-3. **更新基础设施**：GitHub Releases / 自有源；首版是否做 delta。
-4. **会话管理范围**：首版只做侧栏 + 重命名 + 归档，还是同时做 delete/fork。
-5. **0.1 范围**：账户登录、多 provider、timed 提问是否进入首个安装版。
-6. **遗留代码策略**：SDK 回归链路保留到何时，`cmd/spike` 是否移除。
-7. **仓库托管**：是否建立 remote 与 CI（当前只有本地 main）。
+已定：
+
+| 决策 | 选择 | 日期 |
+| --- | --- | --- |
+| 首发平台 | Windows x64；macOS 随后 | 2026-10-23 |
+| 分发形态 | 自带 Node + DSH runtime + 私有 `mygo-host` | 2026-10-23 |
+| 会话管理 | 0.1 只做固定侧栏 + 重命名 + 归档；delete/fork 后置 | 2026-10-23 |
+| 仓库 | GitHub `denislov/dsh-mygo` | 2026-10-23 |
+
+待定：
+
+1. 更新基础设施：GitHub Releases / 自有源；首版是否做 delta。
+2. 0.1 范围：账户登录、多 provider、timed 提问是否进入首个安装版。
+3. 遗留代码策略：SDK 回归链路保留到何时，`cmd/spike` 是否移除。
+4. macOS 发布窗口与公证凭证。
 
 ## 9. 0.1 完成定义
 
-- 干净机器安装后离线启动，不要求预装 Node/DSH。
+- 干净 Windows 机器安装后离线启动，不要求预装 Node/DSH。
 - 完成一次真实回合；Host 崩溃可恢复；日志可导出。
 - 会话、模型、凭据闭环在安装版可复现。
-- Windows 签名 / macOS 公证通过；卸载保留 `$DSH_HOME`。
-- macOS 与 Windows 手测矩阵通过。
+- Windows 签名通过；卸载保留 `$DSH_HOME`。
+- Windows 手测矩阵通过。
 - CI 全绿、有 release tag 与发布说明；若带自动更新，升级与回滚 smoke 通过。
 
-不在 0.1 范围（除非另行拍板）：Web/Electron 兼容、插件市场 UI、远程访问、Linux 首发、多窗口。
+macOS 不在 0.1 范围，作为后续发布单元。
+
+不在 0.1 范围（除非另行拍板）：Web/Electron 兼容、插件市场 UI、远程访问、Linux 首发、多窗口、macOS 安装包。
 
 ## 相关文档
 
