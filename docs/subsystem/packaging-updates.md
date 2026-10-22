@@ -29,6 +29,8 @@ dsh-mygo.app / dsh-mygo/            # MyGo 产物
 
 `resources/` 的布局由构建脚本生成；运行时只通过 `mygo.App.Path(mygo.PathResources)` 读取，不依赖工作目录。`resources/host`、`resources/runtime/mygo-host.mjs`、Node 与 DSH 依赖闭包是发布包的一部分。`runtime/node/`、`runtime/node_modules/` 与 `runtime/manifest.json` 由构建生成，不进入版本库。
 
+`resources/runtime/go.mod` 是一个空的嵌套模块，只用于让 `go build ./...` 与 `go test ./...` 跳过 `runtime/node_modules`；它不参与 Node 依赖解析。
+
 ## 构建
 
 0. `mygo.json` 的 `identifier` 是正式 app id；发布后不要更改，否则更新与系统集成会分裂。
