@@ -15,7 +15,8 @@ dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node H
 - Markdown/复制已落地：MyGo 原生 Stream/View、只读高亮代码、代码/保留源文复制、空白保留、截断/中断保护与 HTTP(S) 点击限制；不加载外部图片或执行代码/HTML。
 - 会话历史已落地：`session.history` capability、公开 persistence/agents.resume、有界分页与原生 Sessions 弹窗、新建/恢复和内存草稿隔离；真实 App 重启回放后可继续发送，不持久化 UI 历史副本。
 - 会话模型设置已落地：model.selection capability、白名单 provider/model/effort 目录、公开 installModelSelection、持久选择事件与原生 Settings；仅下回合生效，不更改启动默认或凭据，真实请求验证模型切换与 effort 清除。
-- 未落地（P2）：timed/continued 提问、实时缺口自动 resync、固定侧栏与会话搜索/管理、通用设置/凭据编辑、RPC 请求级取消、打包。
+- 配置闭环已落地：settings.configuration capability、公开 settings/agentDefaultModel/credentials 服务、revision 保护的持久默认模型、DeepSeek 绑定凭据的安全状态/只写/清除；默认启动读取 Host 配置，显式路由 flags 覆盖。真实隔离 Host 重启和 Windows 原生操作验证，不触碰项目 .env。
+- 未落地（P2）：timed/continued 提问、实时缺口自动 resync、固定侧栏与会话搜索/管理、任意命名空间设置/多 provider 凭据与账户登录、RPC 请求级取消、打包。
 
 ## 文档路由
 

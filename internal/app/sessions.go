@@ -103,10 +103,7 @@ func (a *App) loadSession(id string) {
 	a.loadingSession = id
 	client := a.currentClient()
 	cancel := a.sessionCancel
-	params := map[string]any{"provider": a.options.Provider, "model": a.options.Model}
-	if a.options.ReasoningEffort != "" {
-		params["effort"] = a.options.ReasoningEffort
-	}
+	params := a.routeParams(a.model.CanConfigure)
 	method := "session/resume"
 	if id == "" {
 		method = "session/create"

@@ -84,6 +84,10 @@ func (a *App) OpenSettings() {
 		return
 	}
 	a.model.SettingsOpen = true
+	a.model.ConfigurationReady = false
+	a.model.SettingsNotice = ""
+	a.model.ConfirmCredentialClear = false
+	a.model.ClearCredentialDraft()
 	a.model.ToolInspector = nil
 	a.model.Catalog = view.ModelCatalog{}
 	a.model.PrepareSettings(a.model.ActiveRoute)
@@ -96,9 +100,12 @@ func (a *App) CloseSettings() {
 	}
 	a.cancelSettingsOperation()
 	a.model.SettingsOpen = false
+	a.model.ClearCredentialDraft()
+	a.model.ConfirmCredentialClear = false
 }
 
 func (a *App) cancelSettingsOperation() {
+	a.model.ClearCredentialDraft()
 	a.settingsOperation++
 	if a.settingsCancel != nil {
 		a.settingsCancel()
@@ -106,13 +113,18 @@ func (a *App) cancelSettingsOperation() {
 	}
 	a.model.SettingsBusy = false
 	a.model.SettingsApplying = false
+	a.model.SettingsWritingConfiguration = false
 }
 
 func (a *App) beginSettingsOperation() (context.Context, uint64) {
+	return a.beginSettingsOperationTimeout(15 * time.Second)
+}
+
+func (a *App) beginSettingsOperationTimeout(timeout time.Duration) (context.Context, uint64) {
 	a.cancelSettingsOperation()
 	a.model.SettingsBusy = true
 	a.model.SettingsError = ""
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	a.settingsCancel = cancel
 	return ctx, a.settingsOperation
 }
@@ -127,9 +139,14 @@ func (a *App) RefreshSettings() {
 	}
 	ctx, operation := a.beginSettingsOperation()
 	client, id, provider, cancel := a.currentClient(), a.sessionID, a.model.SettingsProvider, a.settingsCancel
+	canConfigure := a.model.CanConfigure
 	go func() {
 		defer cancel()
 		catalog, err := readModelCatalog(ctx, client, id, provider)
+		var configuration view.Configuration
+		if err == nil && canConfigure {
+			configuration, err = readConfiguration(ctx, client)
+		}
 		a.post(func() {
 			if !a.currentSettingsOperation(operation, id) {
 				return
@@ -140,6 +157,11 @@ func (a *App) RefreshSettings() {
 				return
 			}
 			a.model.Catalog = catalog
+			if canConfigure {
+				a.model.Configuration = configuration
+				a.model.ConfigurationReady = true
+				a.model.ConfigurationUncertain = false
+			}
 			a.model.SetActiveRoute(catalog.Selection)
 			a.model.ModelUncertain = false
 			a.model.SettingsProvider = catalog.Provider
@@ -159,7 +181,7 @@ func (a *App) ApplySettings() {
 	if !a.canEditSettings() || !a.model.SettingsOpen {
 		return
 	}
-	if a.model.ModelUncertain {
+	if a.model.ModelUncertain || a.model.ConfigurationUncertain {
 		a.model.SettingsError = "Refresh to confirm the active route before retrying"
 		return
 	}

@@ -17,7 +17,7 @@ type SessionSummary struct {
 }
 
 func (model *Model) CanChooseSession() bool {
-	return model.CanHistory && model.Phase == PhaseIdle && !model.SessionBusy && !model.SettingsOpen && !model.SettingsBusy && !model.ModelUncertain && len(model.Approvals) == 0 && len(model.Questions) == 0
+	return model.CanHistory && model.Phase == PhaseIdle && !model.SessionBusy && !model.SettingsOpen && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain && len(model.Approvals) == 0 && len(model.Questions) == 0
 }
 
 func (model *Model) ResetTranscript(items []projection.Item) {

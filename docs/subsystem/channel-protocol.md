@@ -15,11 +15,12 @@
 - 已实现 `initialize`、`session/create`、`session/list`、`session/resume`、`session/history`、`session/prompt`、`session/cancel`、`model/list`、`model/select`、`approval/respond`、`question/respond`、`question/cancel`、`shutdown`；通知为 `session/event`、`session/assistant-stream`、`session/status`、`approval/request`、`approval/closed`、`question/request`、`question/closed`、`host/fatal`。
 - UI 声明 `session.cancel`，Host 仅在双方支持时返回该 capability；未协商时调用取消返回 `protocol/capability-unavailable`。旧 Host 不声明时，UI 不展示 Stop。UI 通过 `session.history` 协商 list/resume/history，并提供原生 Sessions 入口；下文其余未列为已实现的方法、附件、RPC 请求取消仍是后续契约。
 - 文本流式通过 `session.assistant-stream` capability 启用；Host 只转发自己拥有的确切 agent 的公开流式帧。旧 Host/SDK 保持仅提交模式，不自动降级协议。Go 只展示 text，reasoning/工具参数不进入临时行。
-- `session/create` 当前要求已有绝对目录 `cwd`、`provider`、`model`，可选 `effort`；Host 验证模型路由后创建并拥有 session id。prompt 只接受自己创建或通过公开 agents.resume 恢复并拥有的会话和 text content，忙碌时拒绝新 prompt。
+- `session/create` 要求已有绝对目录 `cwd` 和显式 provider/model（可选 effort），或协商 settings.configuration 后单独传 useDefaultModel:true；两种路由不能混用。Host 验证模型路由后创建并拥有 session id。prompt 只接受自己创建或通过公开 agents.resume 恢复并拥有的会话和 text content，忙碌时拒绝新 prompt。
 - 创建结果中的 `session.nextSeq` 是创建完成时 DSH 的下一事件 offset。初始会话元数据不重放；后续完整提交事件从此 offset 开始转发。`session/event` 同时携带外层 `seq` 和原始 `event.seq`，两者必须相同。
 - Go 忽略重复事件；实时缺口或无效载荷使连接失败并停止 Host。`session.history` 当前用于显式打开/恢复会话，尚不自动补齐实时缺口。
 - 旧 SDK 的 `contentBlocks`、点分隔通知和隐式会话创建只在显式 `-sdk-protocol` 模式下启用，不自动降级。
 - UI 声明 `approval` / `question`，Host 返回双方交集；未协商时对应交互不可用，不能调用回答/取消提问方法。无 agent 提问使用空 `sessionId`，不冒用当前会话身份。当前仅支持阻塞提问，不声明 timed/continued 回复能力。
+- 已实现 `settings.configuration` 与 configuration/get/default-model/credential；服务缺失时不协商。仅允许固定默认模型与官方 provider 绑定的凭据配置，不暴露任意 settings 或明文读取。
 
 ## 传输
 
@@ -74,7 +75,7 @@
 | --- | --- | --- |
 | `session/list` | `{ cursor?, limit? }` | `{ sessions: SessionSummary[], nextCursor? }` |
 | `session/create` | `{ cwd, provider?, model?, effort?, preset? }` | `{ session: SessionSummary }` |
-| `session/resume` | `{ sessionId, provider, model, effort? }`（冷恢复需显式模型路由） | `{ session: SessionSummary }` |
+| `session/resume` | `{ sessionId, provider, model, effort? }` 或 `{ sessionId, useDefaultModel:true }`（后者需 settings.configuration） | `{ session: SessionSummary }` |
 | `session/rename` | `{ sessionId, title }` | `{ session: SessionSummary }` |
 | `session/archive` | `{ sessionId }` | `{}` |
 | `session/delete` | `{ sessionId }` | `{}`（需要 capability `session.delete`） |
@@ -94,7 +95,7 @@
 - `session.history` 同时保护 list/resume/history；只有公开 sessionPersistence 的 list/stat/open/flush 和 agents.resume 可用时才协商，未协商调用返回 `protocol/capability-unavailable`。
 - list 范围为当前 DSH_HOME/profile 持久化服务可见的根/分叉会话，不按 cwd 筛选；排除 subagent 和 migration-required。仅投影白名单元数据，不转发完整 header、revision、凭据或请求配置。按 createdAt 倒序、id 升序建立固定快照。
 - 当前不折叠标题或最后活动时间：title 为空，updatedAt 等于 createdAt，archived 为 false；冷会话 status 为 `stored`，provider/model/effort 为空，不推断历史路由或宣称其未被其他进程占用。已拥有会话补充本连接模型路由、实时 status 和 nextSeq。
-- 冷恢复要求显式 provider/model，可选 effort，继续使用持久 header.cwd（必须仍为已有绝对目录）。通过 agents.resume 获取单写者句柄，恢复/修复由 DSH 完成，不自行补造事件或扫描私有 JSONL。外来进程占用、未知会话、迁移或路由失败不暴露底层错误。subagent 不可恢复。
+- 冷恢复要求显式 provider/model（可选 effort），或协商后的 useDefaultModel:true；继续使用持久 header.cwd（必须仍为已有绝对目录）。通过 agents.resume 获取单写者句柄，恢复/修复由 DSH 完成，不自行补造事件或扫描私有 JSONL。外来进程占用、未知会话、迁移或路由失败不暴露底层错误。subagent 不可恢复。
 - 已拥有且 idle 的 resume 幂等返回原有路由，不重新配置模型；正在恢复/运行返回 session/busy。恢复预占 maxSessions 名额（与 create 共用，默认 8）；失败释放，退出中止待恢复任务并回收迟到句柄。
 - history 仅可读本 Host 已拥有且 idle 的会话，暂不支持正在运行的 attach 或 assistantStream baseline。每次使用公开 persistence.flush 建立可读屏障，read handle 在成功/失败均关闭；不调用已弃用的同步 session 事件读取方法。
 - 首页捕获 agent.session.seq 为 nextSeq；整次分页固定读取 `[0,nextSeq)`，后续追加不进入此快照。每页严格检查数量和连续 seq，缺失/损坏返回 session/history-failed，不跳过事件。下一实时事件 offset 应由完整历史页的 nextSeq 确认。
@@ -110,11 +111,16 @@
 | --- | --- | --- |
 | `model/list` | `{ sessionId, provider? }`（需 model.selection） | `{ providers: {id,name}[], provider, models: {id,name,available,efforts:{id,name}[],reason?}[], selection:{provider,model,effort}, available, reason? }` |
 | `model/select` | `{ sessionId, provider, model, effort? }`（需 model.selection） | `{ session: SessionSummary }` |
+| `configuration/get` | `{}`（需 settings.configuration） | `ConfigurationSnapshot` |
+| `configuration/default-model` | `{revision,provider,model,effort?}`（需 settings.configuration） | `ConfigurationSnapshot` |
+| `configuration/credential` | `{reference,operation:"set",value}` 或 `{reference,operation:"unset"}`（需 settings.configuration） | `ConfigurationSnapshot` |
 | `settings/get` | `{ namespace? }` | `{ values }`（只返回非 secret） |
 | `settings/set` | `{ namespace, values }` | `{ values }` |
 | `settings/open-document` | `{ namespace }` | `{}`（可选；由 Host 打开原生编辑器） |
 
-当前只实现模型目录和当前会话选择，通过 model.selection 协商；settings/get/set/open-document 均未实现，不接受任意命名空间写入。目录、范围、资源限制和凭据边界见 [设置与凭据](settings-credentials.md#当前实现会话模型设置)。model/select 的 effort 省略或空字符串均代表清除显式 override；成功提交一个 model/selection 事件并返回新的 nextSeq，不修改历史消息或全局默认值。
+模型目录和当前会话选择通过 model.selection 协商；独立的 settings.configuration 保护固定范围的持久默认模型与凭据配置。settings/get/set/open-document 均未实现，不接受任意命名空间写入。目录、范围、资源限制和凭据边界见 [设置与凭据](settings-credentials.md)。model/select 的 effort 省略或空字符串均代表清除显式 override；成功提交一个 model/selection 事件并返回新的 nextSeq，不修改历史消息或全局默认值。
+
+ConfigurationSnapshot 为 `{revision,defaults:{provider,model,effort},credential:{available,reference,configured,writable,source}}`，只包含安全白名单字段，Go 输入预算 8 KiB。revision 为非负安全整数；路由/引用最多 256 UTF-8 bytes；引用必须为 POSIX identifier；source 仅 none/managed/environment/fallback。凭据值仅出现在 set 请求（1–8192 bytes、无 ASCII 空白/控制字符），任何结果或错误都不能回传。默认模型写入使用 revision 乐观冲突检查；凭据 reference 必须等于 Host 当前官方 provider 的配置绑定。写入失败后必须 configuration/get 确认，未结束的写入不被读操作或下一写入越过；不承诺 RPC 超时取消底层持久化。
 
 ### 交互
 

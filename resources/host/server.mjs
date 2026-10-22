@@ -5,6 +5,7 @@ import { ApprovalQueue } from './approval.mjs'
 import { QuestionQueue } from './question.mjs'
 import { SessionHistory, sessionID, sessionSummary } from './history.mjs'
 import { ModelSettings } from './models.mjs'
+import { Configuration } from './configuration.mjs'
 
 export const protocolVersion = 1
 export const releaseVersion = '0.1.0'
@@ -22,7 +23,7 @@ function text(value, field, limit = 256) {
 }
 
 export class MygoServer {
-  constructor(ctx, { notify, createUserMessage, reasoningEffort, ensureProvider, installModelSelection, dshVersion, maxSessions = 8, cancelTimeoutMs = 5000, maxPendingApprovals = 32, maxPendingQuestions = 32, maxFrameBytes = 16 * 1024 * 1024 }) {
+  constructor(ctx, { notify, createUserMessage, reasoningEffort, ensureProvider, installModelSelection, credentialRef, dshVersion, maxSessions = 8, cancelTimeoutMs = 5000, maxPendingApprovals = 32, maxPendingQuestions = 32, maxFrameBytes = 16 * 1024 * 1024 }) {
     this.ctx = ctx
     this.notify = notify
     this.createUserMessage = createUserMessage
@@ -38,6 +39,7 @@ export class MygoServer {
     this.sessions = new Map()
     this.history = new SessionHistory(ctx, this.sessions, Math.floor(maxFrameBytes / 2))
     this.models = new ModelSettings(this, Math.floor(maxFrameBytes / 2))
+    this.configuration = new Configuration(this, credentialRef)
     this.initialized = false
     this.stopping = false
     this.disposers = [
@@ -85,7 +87,14 @@ export class MygoServer {
     if (this.stopping) throw fault('host/stopping', 'Host is stopping')
     if (method === 'initialize') return this.initialize(params)
     if (!this.initialized) throw fault('protocol/not-initialized', 'Initialize the host first')
+    if (this.configuration.pending && ['session/create', 'session/resume', 'session/prompt', 'model/select'].includes(method)) throw fault('settings/busy', 'A configuration write is still pending')
     switch (method) {
+      case 'configuration/get':
+      case 'configuration/default-model':
+      case 'configuration/credential':
+        if (!this.capabilities.includes('settings.configuration')) throw fault('protocol/capability-unavailable', 'Configuration was not negotiated')
+        if (method === 'configuration/get') return this.configuration.get()
+        return method === 'configuration/default-model' ? this.configuration.saveDefaults(params) : this.configuration.saveCredential(params)
       case 'session/create': return this.create(params)
       case 'model/list':
       case 'model/select':
@@ -123,6 +132,7 @@ export class MygoServer {
     this.initialized = true
     this.capabilities = ['session.cancel', 'approval', 'question', 'session.assistant-stream'].filter((capability) => params.capabilities.includes(capability))
     const persistence = this.ctx.get('sessionPersistence')
+    if (params.capabilities.includes('settings.configuration') && this.configuration.supported()) this.capabilities.push('settings.configuration')
     if (params.capabilities.includes('model.selection') && typeof this.installModelSelection === 'function' && ['listProviders', 'listModels', 'resolveModelInfo', 'resolveCallConfig'].every((method) => typeof this.ctx.llm[method] === 'function')) this.capabilities.push('model.selection')
     if (params.capabilities.includes('session.history') && ['list', 'stat', 'open', 'flush'].every((method) => typeof persistence?.[method] === 'function') && typeof this.ctx.agents.resume === 'function') {
       this.capabilities.push('session.history')
@@ -134,6 +144,7 @@ export class MygoServer {
   }
 
   async create(params) {
+    params = this.configuration.sessionRoute(params)
     const cwd = text(params.cwd, 'cwd', 32768)
     if (!isAbsolute(cwd)) throw fault('protocol/invalid-params', 'Session cwd must be absolute', -32602)
     const directory = await stat(cwd).catch(() => undefined)
@@ -168,6 +179,7 @@ export class MygoServer {
       if (!existing.handle || existing.busy || existing.modelUpdating || existing.handle.agent.status !== 'idle') throw fault('session/busy', 'Session is running or being restored')
       return { session: sessionSummary(existing.handle.agent.session.header, existing) }
     }
+    params = this.configuration.sessionRoute(params)
     const provider = text(params.provider, 'provider')
     const model = text(params.model, 'model')
     const effort = params.effort === undefined ? undefined : text(params.effort, 'effort')

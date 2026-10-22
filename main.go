@@ -37,8 +37,8 @@ func main() {
 	dshDir := flag.String("dsh-dir", os.Getenv("DSH_MYGO_DSH_DIR"), "DeepSeek Harness checkout; runs apps/cli/src/bin.ts through tsx")
 	profile := flag.String("profile", "mygo", "DSH profile")
 	sdkProtocol := flag.Bool("sdk-protocol", false, "use the legacy SDK protocol (requires -profile sdk)")
-	provider := flag.String("provider", "deepseek-official", "model provider")
-	model := flag.String("model", "deepseek-flash", "model id")
+	provider := flag.String("provider", "deepseek-official", "explicit model provider override (otherwise use Host defaults when supported)")
+	model := flag.String("model", "deepseek-flash", "explicit model id override (otherwise use Host defaults when supported)")
 	effort := flag.String("effort", "", "optional reasoning effort")
 	cwdFlag := flag.String("cwd", "", "session working directory (default: current directory)")
 	sessionID := flag.String("session", "", "legacy SDK session id (default: generated; requires -sdk-protocol)")
@@ -46,6 +46,7 @@ func main() {
 	maxFrame := flag.Int("max-frame", channel.DefaultMaxFrameBytes, "maximum JSON-RPC frame bytes")
 	hostCommand := flag.String("host-command", "", "override the host executable")
 	flag.Parse()
+	useHostDefaults := useHostDefaultRoute(flag.CommandLine)
 	if *profile == "sdk" && !*sdkProtocol {
 		log.Fatal("-profile sdk requires -sdk-protocol")
 	}
@@ -79,6 +80,7 @@ func main() {
 		Provider:        *provider,
 		Model:           *model,
 		ReasoningEffort: *effort,
+		UseHostDefaults: useHostDefaults,
 		SessionID:       *sessionID,
 		SDKProtocol:     *sdkProtocol,
 		MaxFrame:        *maxFrame,
@@ -127,4 +129,14 @@ func resolveCWD(value string) (string, error) {
 		return "", fmt.Errorf("resolve working directory: %w", err)
 	}
 	return absolute, nil
+}
+
+func useHostDefaultRoute(flags *flag.FlagSet) bool {
+	useDefaults := true
+	flags.Visit(func(option *flag.Flag) {
+		if option.Name == "provider" || option.Name == "model" || option.Name == "effort" {
+			useDefaults = false
+		}
+	})
+	return useDefaults
 }

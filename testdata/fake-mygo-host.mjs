@@ -13,7 +13,7 @@ const ctx = {
   on(name, handler) { events.on(name, handler); return () => events.off(name, handler) },
   llm: { async resolveCallConfig() {} },
   agents: {
-    async create({ sessionId, meta, setup }) {
+    async create({ sessionId, meta, setup, agentOptions }) {
       const source = stored.get(sessionId) ?? { header: { id: sessionId, cwd: meta?.cwd ?? process.cwd(), createdAt: Date.now(), version: 1, isSeeded: false }, events: [] }
       stored.set(sessionId, source)
       const agentScope = {}
@@ -47,7 +47,7 @@ const ctx = {
                   ? { callId, name: 'edit', arguments: '{"file_path":"demo.txt","old_string":"before","new_string":"after"}' }
                   : { callId, name: 'read_file', arguments: '{"path":"README.md"}' })
                 let reply = work.streaming ? work.markdown ? markdownReply : 'Live prefix complete' : work.question ? approvalOutcome : work.approval ? approvalOutcome === 'allowed-once' ? 'Approved write' : 'Denied write' : `Echo: ${message.content.map((block) => block.text).join('\n')}`
-                const selected = agentScope.selection?.current
+                const selected = agentScope.selection?.current ?? agentOptions
                 if (selected?.model === 'route-probe') reply = `Selected ${selected.provider}/${selected.model}/${selected.reasoningEffort ?? 'default'}`
                 if (work.streaming) {
                   chunk({ type: 'text-delta', index: 0, text: work.markdown ? markdownReply.slice(markdownPrefix.length) : ' complete' })
@@ -144,10 +144,30 @@ if (process.argv.includes('--models')) {
   }
 }
 const channel = new LineChannel(process.stdin, process.stdout, { maxFrameBytes: 16 * 1024 * 1024 })
+if (process.argv.includes('--configuration')) {
+  let defaults = { provider: 'test', model: 'echo', reasoningEffort: '' }
+  let revision = 0
+  let credential
+  ctx.agentDefaultModel = { currentSelection: () => ({ ...defaults }) }
+  ctx.settings = {
+    describe: () => [{ ns: 'agent-default-model', revision, value: { ...defaults } }, { ns: 'llm-deepseek', revision: 0, value: { apiKeyEnv: 'MYGO_TEST_ONLY_KEY' } }],
+    async replace(_ns, value, expected) {
+      if (revision !== expected) throw Object.assign(new Error('Conflict'), { code: 'SETTINGS_CONFLICT' })
+      defaults = { ...value }; revision++
+    },
+  }
+  ctx.llm.listConfigurableProviders = () => [{ provider: 'deepseek-official', settingsNs: 'llm-deepseek', settingsPath: [] }]
+  ctx.credentials = {
+    async describe() { return { configured: credential !== undefined, writable: true, ...(credential === undefined ? {} : { source: 'file' }) } },
+    async set(_ref, value) { credential = value },
+    async unset() { credential = undefined },
+  }
+}
 const server = new MygoServer(ctx, {
   notify: (method, params) => channel.notify(method, params),
   createUserMessage: (options) => ({ ...options, id: randomUUID() }),
   reasoningEffort: (value) => value, dshVersion: '0.2.1-rc.2',
+  ...(process.argv.includes('--configuration') ? { credentialRef: (value) => value } : {}),
   ...(process.argv.includes('--models') ? { installModelSelection: (agentScope, selection) => { agentScope.selection = selection } } : {}),
 })
 channel.start(async (method, params) => {

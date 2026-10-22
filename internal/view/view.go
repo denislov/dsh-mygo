@@ -91,6 +91,19 @@ type Model struct {
 	CloseSettings        func()
 	RefreshSettings      func()
 	ApplySettings        func()
+
+	CanConfigure                 bool
+	Configuration                Configuration
+	ConfigurationReady           bool
+	ConfigurationUncertain       bool
+	SettingsWritingConfiguration bool
+	CredentialDraft              CredentialDraft
+	CredentialVersion            uint64
+	ConfirmCredentialClear       bool
+	SettingsNotice               string
+	SaveDefaultModel             func()
+	SaveCredential               func()
+	ClearCredential              func()
 }
 
 // NewModel returns a model with a list that follows the newest row and keeps
@@ -292,7 +305,7 @@ func toolCard(c *mgo.Context, model *Model, item projection.Item) {
 func composer(c *mgo.Context, model *Model) {
 	theme := c.Theme()
 	stopped := model.Phase == PhaseStopped || model.Phase == PhaseFailed || model.SessionSwitching
-	canSend := model.Phase == PhaseIdle && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy && !model.SettingsOpen && !model.SettingsBusy && !model.ModelUncertain
+	canSend := model.Phase == PhaseIdle && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy && !model.SettingsOpen && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain
 	mgo.Column(c).Padding(12, 20, 16, 20).Gap(8).Children(func() {
 		mgo.TextArea(c.Key("composer-"+model.SessionID), &model.Draft).Lines(1, 8).
 			Label("Message").Placeholder("Message DeepSeek…").AutoFocus().Disabled(stopped).
@@ -334,7 +347,7 @@ func composer(c *mgo.Context, model *Model) {
 }
 
 func composerHint(model *Model) string {
-	if model.ModelUncertain && model.Phase == PhaseIdle {
+	if (model.ModelUncertain || model.ConfigurationUncertain) && model.Phase == PhaseIdle {
 		return "Model selection unconfirmed · open Settings to refresh"
 	}
 	if model.SessionSwitching {

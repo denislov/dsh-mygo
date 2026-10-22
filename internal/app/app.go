@@ -45,6 +45,7 @@ type Options struct {
 	Model string
 	// ReasoningEffort is optional; empty leaves it to the host.
 	ReasoningEffort string
+	UseHostDefaults bool
 	// SessionID names the session in legacy SDK mode; custom channel ids come from the Host.
 	SessionID   string
 	SDKProtocol bool
@@ -127,6 +128,9 @@ func New(options Options) *App {
 	app.model.CloseSettings = app.CloseSettings
 	app.model.RefreshSettings = app.RefreshSettings
 	app.model.ApplySettings = app.ApplySettings
+	app.model.SaveDefaultModel = app.SaveDefaultModel
+	app.model.SaveCredential = app.SaveCredential
+	app.model.ClearCredential = app.ClearCredential
 	app.model.ActiveRoute = view.ModelRoute{Provider: options.Provider, Model: options.Model, Effort: options.ReasoningEffort}
 	return app
 }
@@ -204,6 +208,10 @@ func (a *App) Start() {
 		a.model.SessionCWD = a.options.CWD
 		a.model.CanHistory = initialized.canHistory
 		a.model.CanModels = initialized.canModels
+		a.model.CanConfigure = initialized.canConfigure
+		if initialized.route.Provider != "" {
+			a.model.SetActiveRoute(initialized.route)
+		}
 		a.model.CanCancel = initialized.canCancel
 		a.model.CanApprove = initialized.canApprove
 		a.model.CanQuestion = initialized.canQuestion
@@ -216,15 +224,17 @@ func (a *App) Start() {
 }
 
 type initializedSession struct {
-	sessionID   string
-	nextSeq     uint64
-	detail      string
-	canCancel   bool
-	canApprove  bool
-	canQuestion bool
-	canStream   bool
-	canHistory  bool
-	canModels   bool
+	sessionID    string
+	nextSeq      uint64
+	detail       string
+	canCancel    bool
+	canApprove   bool
+	canQuestion  bool
+	canStream    bool
+	canHistory   bool
+	canModels    bool
+	canConfigure bool
+	route        view.ModelRoute
 }
 
 func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSession, error) {
@@ -251,7 +261,7 @@ func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSess
 	result, err := client.Call(ctx, "initialize", map[string]any{
 		"protocolVersion": channel.ProtocolVersion,
 		"client":          map[string]string{"name": "dsh-mygo", "version": channel.ReleaseVersion, "platform": runtime.GOOS, "locale": "zh-CN"},
-		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history", "model.selection"},
+		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history", "model.selection", "settings.configuration"},
 	})
 	if err != nil {
 		return initializedSession{}, err
@@ -260,33 +270,43 @@ func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSess
 	if err != nil {
 		return initializedSession{}, err
 	}
-	params := map[string]any{"cwd": a.options.CWD, "provider": a.options.Provider, "model": a.options.Model}
-	if a.options.ReasoningEffort != "" {
-		params["effort"] = a.options.ReasoningEffort
-	}
+	canConfigure := slices.Contains(initialized.Capabilities, "settings.configuration")
+	params := a.routeParams(canConfigure)
+	params["cwd"] = a.options.CWD
 	result, err = client.Call(ctx, "session/create", params)
 	if err != nil {
 		return initializedSession{}, err
 	}
 	var created struct {
 		Session struct {
-			ID      string  `json:"id"`
-			Status  string  `json:"status"`
-			NextSeq *uint64 `json:"nextSeq"`
+			ID       string  `json:"id"`
+			Status   string  `json:"status"`
+			NextSeq  *uint64 `json:"nextSeq"`
+			Provider *string `json:"provider"`
+			Model    *string `json:"model"`
+			Effort   *string `json:"effort"`
 		} `json:"session"`
 	}
 	if json.Unmarshal(result, &created) != nil || !validSessionID(created.Session.ID) || created.Session.Status != "idle" || created.Session.NextSeq == nil || *created.Session.NextSeq > maxSafeInteger {
 		return initializedSession{}, errors.New("invalid session/create response")
 	}
+	var selected view.ModelRoute
+	if canConfigure {
+		if created.Session.Provider == nil || created.Session.Model == nil || created.Session.Effort == nil || !validModelLabel(*created.Session.Provider, false) || !validModelLabel(*created.Session.Model, false) || !validModelLabel(*created.Session.Effort, true) {
+			return initializedSession{}, errors.New("Invalid created session route")
+		}
+		selected = view.ModelRoute{Provider: *created.Session.Provider, Model: *created.Session.Model, Effort: *created.Session.Effort}
+	}
 	return initializedSession{
 		sessionID: created.Session.ID, nextSeq: *created.Session.NextSeq,
-		detail:      initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
-		canCancel:   slices.Contains(initialized.Capabilities, "session.cancel"),
-		canApprove:  slices.Contains(initialized.Capabilities, "approval"),
-		canQuestion: slices.Contains(initialized.Capabilities, "question"),
-		canStream:   slices.Contains(initialized.Capabilities, "session.assistant-stream"),
-		canHistory:  slices.Contains(initialized.Capabilities, "session.history"),
-		canModels:   slices.Contains(initialized.Capabilities, "model.selection"),
+		detail:       initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
+		canCancel:    slices.Contains(initialized.Capabilities, "session.cancel"),
+		canApprove:   slices.Contains(initialized.Capabilities, "approval"),
+		canQuestion:  slices.Contains(initialized.Capabilities, "question"),
+		canStream:    slices.Contains(initialized.Capabilities, "session.assistant-stream"),
+		canHistory:   slices.Contains(initialized.Capabilities, "session.history"),
+		canModels:    slices.Contains(initialized.Capabilities, "model.selection"),
+		canConfigure: canConfigure, route: selected,
 	}, nil
 }
 
@@ -306,7 +326,7 @@ func validSessionID(value string) bool {
 // while the host is busy or not ready.
 func (a *App) Send(text string) {
 	text = strings.TrimSpace(text)
-	if text == "" || a.shuttingDown.Load() || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 || a.model.SessionBusy || a.model.SettingsBusy || a.model.SettingsOpen || a.model.ModelUncertain {
+	if text == "" || a.shuttingDown.Load() || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 || a.model.SessionBusy || a.model.SettingsBusy || a.model.SettingsOpen || a.model.ModelUncertain || a.model.ConfigurationUncertain {
 		return
 	}
 	client := a.currentClient()

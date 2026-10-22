@@ -18,11 +18,24 @@
 - 面板提供 provider 目录、模型目录快捷选择、实际使用的 Model ID 和 adapter 声明的 effort；允许手填模型 ID，目录成员身份不充当路由校验。空 effort 表示 provider 默认，切回默认会清除上一请求继承的显式 effort，不硬编码 low/high。
 - 目录使用公开 llm.listProviders/listModels/resolveModelInfo；仅返回 id/name、可用性与 effort 白名单，不返回完整 adapter 配置、endpoint、authorization、凭据引用或原始异常。目录可读不代表 API key 可用，也不承诺模型调用成功。不做付费生成来探测配置。
 - 当前会话必须由此 Host 拥有且 idle；校验路由期间禁止 prompt、重复模型写入、history/resume。Host 用公开 resolveCallConfig 校验，再向真实 session log 提交 model/selection，通过 Agent setup 中安装的公开 installModelSelection 生效；不直接改 DSH core 或仅改 UI 标签。
-- 设置仅影响此已拥有会话的下个回合。新建仍使用启动 flags 的模型/cwd；本次 App 内切回同一会话保留其已选模型。冷恢复继续遵守显式启动路由覆盖的既有契约，不自动从旧 model/selection 改写启动配置；这不是全局默认模型或 profile 持久化设置。
+- Apply model 仅影响此已拥有会话的下个回合；本次 App 内切回同一会话保留其已选模型。新建/冷恢复的启动路由按下节决定，不自动从旧 model/selection 改写默认配置。
 - App 在后台读取/提交，以同一通知队列处理 durable event 和响应，收到匹配会话/路由/idle 的确认且序列已前进后才更新标签。提交失败保留表单、草稿与原标签，并标记结果未确认：即使关闭面板，也禁止发送、切换会话或再次 Apply，必须 Refresh 成功查询 Host 当前路由后才解除，避免超时后的迟到提交导致误用模型。没有选择事件的确认使连接失败，不能伪装成功。
 - 读取目录可 Close/Escape 取消；Apply 期间不能关闭、重复提交、发送或切换会话。审批/提问优先，不与 Settings/工具检视器叠加。元数据与校验各有 5 秒 Host 上限，Go 操作上限 15 秒；退出/过期响应不能回写新会话或失败状态。
 - 目录预算为最多 32 providers、当前 provider 最多 128 models、每模型最多 32 efforts，响应不超过 256 KiB 且不超过配置帧上限的一半；Go 再校验类型、长度、唯一身份和 512 KiB 总输入预算。未知/失败 provider、目录或模型元数据明确提示不可用，不展示底层异常；手动模型仍由 Host 独立校验。
-- **尚未实现**：settings/get/set、全局默认模型写入、权限切换、API key 编辑/配置状态查询、账户登录、主题/语言等 UI 偏好持久化。面板不读取 `.env`，也不展示或存储 secret。下文其余设置/凭据/UI 偏好是后续设计，不能视为当前已完成能力。
+- **尚未实现**：任意命名空间 settings/get/set、权限切换、多 provider 凭据编辑、账户登录、主题/语言等 UI 偏好持久化。下文未列为当前实现的通用设置/账户/UI 偏好仍是设计。
+
+## 当前实现：持久默认模型与 DeepSeek 凭据
+
+- 新增 `settings.configuration` capability；仅公开 `configuration/get`、`configuration/default-model`、`configuration/credential` 三个白名单方法。服务缺失不协商，旧 Host/SDK 保持原行为。UI 不读取或解析 `.env`、profile patch 或凭据文件。
+- 默认模型通过公开 `agentDefaultModel.currentSelection()` 读取，并核对 `settings.describe({redactSecrets:true})` 中固定 `agent-default-model` 行；用公开 `settings.replace` 携带预期 revision 写回完整路由。只写 provider/model/可选 reasoningEffort，空 effort 省略该字段以移除旧用户 override，不把空字符串伪装成 effort ID；恢复 base 继承值后再检查实际路由，不匹配则报告未确认并要求刷新。标准 base 未设置 effort，清除后为 provider 默认。目录校验不调用生成 API，也不承诺认证有效。
+- **Save selection as default** 保存表单路由，当前/已拥有会话不变。不显式传 `-provider`、`-model`、`-effort` 时，CLI 对支持此能力的 Host 发送 `useDefaultModel:true`，首次启动、新建、冷恢复均使用 Host 当时的默认值；显式传任一路由 flag（包括空 `-effort`）则使用完整启动路由。旧 Host/SDK 仍使用原有 fallback flags。程序化 App Options 需显式开启 UseHostDefaults。
+- 凭据范围仅为公开 llm configurable-provider 目录中 `deepseek-official` → 固定 `llm-deepseek` 行的根 `apiKeyEnv` 引用；绑定缺失/不兼容时显示不可用，不猜测 DEEPSEEK_API_KEY，也不允许 UI 任意指定其它环境引用。返回状态只含 available/reference/configured/writable/source；source 固定为 none/managed/environment/fallback，不传路径、完整 descriptor、明文或原始异常。
+- 状态使用公开 `credentials.describe`，从不调用 `resolve` 回读明文。输入使用原生 Password；只在显式 Save key 时通过 stdio 写入 `credentials.set`。提交、刷新、关闭、失败/退出时清空表单并更换控件 key，调试格式化也只显示 redacted。读取结果永远没有密钥值；“已配置”不等于经过认证验证。
+- **Clear managed key** 需先勾选确认，只调用公开 `credentials.unset` 删除 DSH 管理的值；环境变量或 `.env` fallback 仍可使状态保持 configured，这不是远端撤销 API key。DSH 管理值优先于环境/fallback；设置与清除都不编辑用户 `.env`。
+- 凭据由 DSH 写入 `$DSH_HOME/.credentials.yaml`，不是本应用的明文副本，更不是加密 OS vault。Unix 文件权限由 DSH 管理；不承诺 Windows ACL 或系统钥匙串加密。
+- 全局写入要求所有已拥有会话 idle，期间阻止 prompt/会话创建恢复/模型写入/重复配置写入。默认模型有 revision 冲突检查；凭据写入前后校验绑定，底层原子写与跨进程锁由 DSH 拥有，不宣称凭据值有 revision/CAS 保护。
+- 写入不使用提前返回的 Promise.race：底层锁/写入未结束，Host 一直保留 pending；查询等待 pending 完成才建立安全快照。Go 写入上限 60 秒，读取仍为 15 秒。失败或超时后 UI 禁止发送、导航、再次写入，必须 Refresh 成功读取模型和配置后解锁；Host 也要求失败写入后先查询。退出期间不报告迟到成功，持久原子性由 DSH 保证。
+- 成功只以 Host 回传的白名单快照确认；保存默认不会产生 session model/selection，也不改当前标签/聊天/草稿。当前连接不广播给其它窗口，多窗口通知仍未实现。
 
 ## DSH 设置
 
@@ -43,7 +56,10 @@ base 提供：
 | 方法 | 用途 |
 | --- | --- |
 | `model/list` | 可用 provider/model/effort |
-| `model/select` | 当前会话或默认模型 |
+| `model/select` | 当前会话模型 |
+| `configuration/get` | 已实现：默认模型与凭据安全状态 |
+| `configuration/default-model` | 已实现：固定默认模型行的 revision 写入 |
+| `configuration/credential` | 已实现：配置绑定的 DeepSeek 引用 set/unset |
 | `settings/get` | 读取一个命名空间（redacted） |
 | `settings/set` | 写入一个命名空间 |
 | `settings/open-document` | 可选：Host 打开原生设置文档 |
@@ -119,7 +135,7 @@ base 提供：
 | --- | --- |
 | 设置命名空间不存在 | 显示可用命名空间/配置错误 |
 | 写入冲突 | 刷新后重试；不覆盖他人修改 |
-| 凭据拒绝 | 显示 provider 的可读原因；保留输入以便修正 |
+| 凭据拒绝 | 显示安全固定错误、清空输入，刷新确认后重输 |
 | 设置文件损坏 | 使用默认值并报告；不静默重置用户数据 |
 | 账户 token 过期 | 提示重新登录；不自动使用过期 token |
 

@@ -24,6 +24,8 @@ Host 历史通过 `session.history` capability 启用，使用公开 sessionPers
 
 模型设置通过 model.selection capability 启用；channel 从同版本 @deepseek-ai/dsh-agent 引入公开 installModelSelection，在 create/resume 的 Agent setup 中安装作用域内选择引用。校验后向 Host 日志提交 model/selection，再由该公开适配器在下一次 prompt/request 组装时应用；不修改 Agent 内部字段、全局默认模型或 profile patch。目录及 secret 边界以 [设置与凭据](settings-credentials.md) 为准。
 
+持久配置独立通过 settings.configuration 启用，复用 base 的公开 agentDefaultModel/settings/credentials 服务；channel 的 credentialRef 来自同版本 @deepseek-ai/dsh-credentials。只允许 agent-default-model 路由与官方 llm-deepseek 行绑定的凭据，持久化和锁归 Host；不改 DSH core，不自行写 profile/credentials。显式 flags 与 Host 默认值的优先级见 [设置与凭据](settings-credentials.md)。
+
 审批通过 `approval` capability 启用，等待原生 UI 允许一次或拒绝；`maxPendingApprovals` 默认 32，范围 1–64，超限返回 unavailable。提问通过 `question` capability 启用，`maxPendingQuestions` 默认 32，范围 1–64；未协商或超限返回 NO_PROVIDER，不悬挂。
 
 base 只提供提问服务；自有 patch 增加稳定行 `tool-ask-user`，绑定 `@deepseek-ai/dsh-tool-ask-user` 同版本并显式配置 `mode: legacy`，注册阻塞式 `ask_user_question`。当前不支持 timed foreground claim、continued/迟到回复，不通过隐式改配置冒充支持。后文私有 Host、发布安装和包管理描述后续设计。

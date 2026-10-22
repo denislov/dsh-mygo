@@ -103,6 +103,12 @@ fake host 的 `--sessions` 提供内存 persistence 和 `demo-history` 已存会
 
 fake `--models` 暴露 test provider 与 echo/route-probe，可结合 --sessions 演示。Windows 原生窗口检查 Settings、手动模型应用、实际后续回复、错误反馈、草稿保留、窄窗口与退出回收；effort 选择/清除由 Tester 与真实 Loader 请求测试验证，不以 UI Automation 不支持的只读 Value/SelectionItem 模式冒充原生点击验收。
 
+持久配置：Node configuration.test.mjs 覆盖 capability、固定白名单、revision 冲突、绑定变更、secret/source 脱敏、空值/长度/控制字符拒绝、busy、失败后必须刷新、未完成写入的读写屏障、清除后 ambient fallback。Go 覆盖配置 schema/8 KiB 预算、安全错误、默认保存不改当前模型/草稿、失败写入隔离，以及 CLI 显式 flags（包括空 effort）优先级。Tester 验证密码输入/提交/控件重建清空、调试格式化 redaction、最小窗口操作和写入期间 Escape 禁用。
+
+`TestAgainstMygoConfiguration/{fake,real}` 使用临时 cwd 与 DSH_HOME，只绑定 MYGO_TEST_ONLY_KEY 并移除子进程的测试引用/官方 key 环境值，真实 source runner 固定 TSX_TSCONFIG_PATH 以在隔离 cwd 启动。不读项目 .env，不调用付费模型。验证公开 settings/credentials 写入、安全状态、Host 默认新建后的真实 mock 路由、effort 清除、冷恢复后的真实请求，以及真实 Host 重启后的模型/凭据保留。fake `--configuration` 仅内存模拟，与 --models/--sessions 组合。
+
+Windows 原生已检查 Save selection as default、Password 的 IsPassword/无可读明文、Save key 后状态/输入清空、勾选确认后清除、保存默认后的 New conversation 实际回复、700×560 物理窗口截图与退出时 Host 回收。macOS 原生验收尚未执行。
+
 `TestAgainstMygoRealStreaming/markdown` 与 `markdown-cancel` 在真实 Loader mock adapter 暂停点验证完整/中断 Markdown 的源文（包括空白）从 stream 到 durable 提交保持一致，之后同会话继续 pong。fake `--markdown` / `--markdown-wait` 供 Windows 原生渲染、代码/消息复制和系统剪贴板精确内容验收，无付费模型调用。
 
 断言：

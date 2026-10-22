@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import Schema from '@deepseek-ai/schemastery'
 import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import * as DeepSeek from '@deepseek-ai/dsh-llm-deepseek-api-key'
 import { LineChannel } from './transport.mjs'
 import { MygoServer } from './server.mjs'
@@ -27,7 +28,7 @@ export function apply(ctx, config) {
   const dshVersion = JSON.parse(readFileSync(fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-llm/package.json')), 'utf8')).version
   const server = new MygoServer(ctx, {
     notify: (method, params) => channel.notify(method, params),
-    createUserMessage, reasoningEffort: ReasoningEffortId, installModelSelection, dshVersion,
+    createUserMessage, reasoningEffort: ReasoningEffortId, installModelSelection, credentialRef, dshVersion,
     maxSessions: config.maxSessions,
     cancelTimeoutMs: config.cancelTimeoutMs,
     maxPendingApprovals: config.maxPendingApprovals,

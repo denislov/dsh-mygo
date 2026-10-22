@@ -74,7 +74,11 @@ func settingsModal(c *mgo.Context, model *Model) {
 	disabled := !model.CanEditSettings()
 	modal := mgo.Modal(c.Key("model-settings"), &model.SettingsOpen, func() {
 		mgo.Text(c, "Model settings").FontSize(18).Bold()
-		mgo.Text(c, "Current session only · next turn · launch defaults unchanged").FontSize(11).TextColor(c.Theme().TextMuted)
+		scope := "Current session only · next turn · launch defaults unchanged"
+		if model.CanConfigure {
+			scope = "Apply model: current session · Save default: future sessions"
+		}
+		mgo.Text(c, scope).FontSize(11).TextColor(c.Theme().TextMuted)
 		mgo.Scroll(c.Key("settings-body")).MaxHeight(230).FillWidth().Children(func() {
 			mgo.Column(c).Gap(4).Children(func() {
 				if model.SettingsBusy {
@@ -82,10 +86,16 @@ func settingsModal(c *mgo.Context, model *Model) {
 					if model.SettingsApplying {
 						label = "Applying model…"
 					}
+					if model.SettingsWritingConfiguration {
+						label = "Saving configuration…"
+					}
 					mgo.Text(c, label).FontSize(12)
 				}
 				if model.SettingsError != "" {
 					mgo.Text(c, model.SettingsError).FontSize(12).TextColor(c.Theme().Danger)
+				}
+				if model.SettingsNotice != "" {
+					mgo.Text(c, model.SettingsNotice).FontSize(11)
 				}
 				if model.Catalog.Reason != "" {
 					mgo.Text(c, model.Catalog.Reason).FontSize(11).TextColor(c.Theme().Warning)
@@ -129,14 +139,15 @@ func settingsModal(c *mgo.Context, model *Model) {
 				mgo.TextInput(c.Key("settings-model-id"), &model.SettingsModel).Label("Model ID").Disabled(disabled).OnChange(func() { model.SettingsEffort = effortChoice("") })
 				mgo.Text(c, "Effort").FontSize(11).TextColor(c.Theme().TextMuted)
 				mgo.Select(c.Key("settings-effort"), &model.SettingsEffort, efforts).Label("Reasoning effort").Disabled(disabled)
-				mgo.Text(c, "Manual model IDs are validated by the Host. No credentials are read or edited here.").FontSize(11).TextColor(c.Theme().TextMuted)
+				mgo.Text(c, "Manual model IDs are validated by the Host. Apply model affects only this session.").FontSize(11).TextColor(c.Theme().TextMuted)
+				configurationControls(c, model, disabled)
 			})
 		})
 		mgo.Row(c).Gap(8).Children(func() {
 			mgo.Button(c.Key("settings-close"), "Close").Disabled(model.SettingsApplying || model.CloseSettings == nil).OnClick(func() { model.CloseSettings() })
 			mgo.Spacer(c)
 			mgo.Button(c.Key("settings-refresh"), "Refresh").Disabled(disabled || model.RefreshSettings == nil).OnClick(func() { model.RefreshSettings() })
-			mgo.PrimaryButton(c.Key("settings-apply"), "Apply model").Disabled(disabled || model.ModelUncertain || model.ApplySettings == nil || strings.TrimSpace(model.SettingsProvider) == "" || strings.TrimSpace(model.SettingsModel) == "").OnClick(func() { model.ApplySettings() })
+			mgo.PrimaryButton(c.Key("settings-apply"), "Apply model").Disabled(disabled || model.ModelUncertain || model.ConfigurationUncertain || model.ApplySettings == nil || strings.TrimSpace(model.SettingsProvider) == "" || strings.TrimSpace(model.SettingsModel) == "").OnClick(func() { model.ApplySettings() })
 		})
 	})
 	if modal.Dismissed() {
