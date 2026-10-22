@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
-	"unicode/utf8"
 )
 
 const maxStreamInteger = 9007199254740991
@@ -194,14 +193,14 @@ func (stream *AssistantStream) Item() (Item, bool) {
 			parts = append(parts, block.text.String())
 		}
 	}
-	text := clip(strings.Join(parts, "\n\n"), maxMessageRunes)
+	text, clipped := clipMarkdown(strings.Join(parts, "\n\n"), maxMessageRunes)
 	if text == "" {
 		return Item{}, false
 	}
-	if stream.truncated && utf8.RuneCountInString(text) <= maxMessageRunes {
+	if stream.truncated && !clipped {
 		text += "…"
 	}
-	return Item{ID: "stream:" + stream.attemptID, Kind: KindAssistant, Title: "Assistant", Text: text, Detail: "Streaming…", State: "streaming"}, true
+	return Item{ID: "stream:" + stream.attemptID, Kind: KindAssistant, Title: "Assistant", Text: text, Detail: "Streaming…", State: "streaming", Truncated: stream.truncated || clipped}, true
 }
 
 func (stream *AssistantStream) Commit(event Event) {

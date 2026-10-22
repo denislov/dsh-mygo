@@ -89,6 +89,10 @@ go test ./internal/channel ./internal/app
 
 `TestAgainstMygoToolDiffs/real` 通过真实 `write` / `edit` 工具在临时工作区创建并编辑文件，验证创建无 hunk 的元数据与真实 before/after hunk，不调用付费模型。fake `--tool-diff` 提供多路径 hunk，供 Windows 原生 UI Automation 检查折叠、详情、导航、关闭与 Host 回收，不触碰真实文件。
 
+Markdown 的投影测试验证前导缩进、末尾换行、开放围栏和截断标记；ui.NewTester 验证原生格式、中文代码精确复制、完整源文复制、开放/中断代码禁用复制、截断原文回退、反馈身份以及用户/工具原文隔离。链接测试使用 Tester 的虚拟 URL 服务，不实际打开网站；不安装图片/HTML 加载器。
+
+`TestAgainstMygoRealStreaming/markdown` 与 `markdown-cancel` 在真实 Loader mock adapter 暂停点验证完整/中断 Markdown 的源文（包括空白）从 stream 到 durable 提交保持一致，之后同会话继续 pong。fake `--markdown` / `--markdown-wait` 供 Windows 原生渲染、代码/消息复制和系统剪贴板精确内容验收，无付费模型调用。
+
 断言：
 
 - 每个请求都有响应或明确超时。

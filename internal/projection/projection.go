@@ -38,6 +38,7 @@ type Item struct {
 	IsError     bool
 	Tool        *ToolDetails
 	ToolEvicted bool
+	Truncated   bool
 }
 
 // Event is one session-log event exactly as the SDK forwards it.
@@ -128,7 +129,7 @@ func (t *Transcript) applyUser(event Event) bool {
 	if text == "" {
 		return false
 	}
-	t.add(Item{ID: eventID(event), Kind: KindUser, Title: "You", Text: text})
+	t.add(Item{ID: eventID(event), Kind: KindUser, Title: "You", Text: text, Truncated: utf8.RuneCountInString(text) > maxMessageRunes})
 	return true
 }
 
@@ -142,11 +143,11 @@ func (t *Transcript) applyAssistant(event Event) bool {
 	if json.Unmarshal(event.Data, &data) != nil {
 		return false
 	}
-	text := blocksText(data.Message.Content, maxMessageRunes)
+	text, truncated := assistantSource(data.Message.Content)
 	if text == "" {
 		return false
 	}
-	item := Item{ID: eventID(event), Kind: KindAssistant, Title: "Assistant", Text: text}
+	item := Item{ID: eventID(event), Kind: KindAssistant, Title: "Assistant", Text: text, Truncated: truncated}
 	if data.Interrupted {
 		item.Detail = "Interrupted"
 		item.State = "interrupted"

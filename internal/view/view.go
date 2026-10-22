@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	mgo "github.com/egoist/mygo/ui"
+	"github.com/egoist/mygo/ui/markdown"
 
 	"dsh-mygo/internal/interaction"
 	"dsh-mygo/internal/projection"
@@ -32,36 +33,43 @@ const (
 // Model is the window's state. The app mutates it on the main thread and
 // keeps the transcript and draft outside the view.
 type Model struct {
-	Items           []projection.Item
-	Draft           string
-	Phase           Phase
-	ModelLabel      string
-	Detail          string
-	Error           string
-	ErrorDetail     string
-	Send            func(text string)
-	Dismiss         func()
-	Cancel          func()
-	CanCancel       bool
-	CanStream       bool
-	CancelPending   bool
-	CanApprove      bool
-	ApprovalOpen    bool
-	Approvals       []interaction.Approval
-	RespondApproval func(requestID, decision string)
-	CanQuestion     bool
-	QuestionOpen    bool
-	Questions       []*interaction.QuestionRequest
-	RespondQuestion func(requestID string, cancel bool)
-	List            mgo.ListState
-	ToolCards       map[string]*ToolCardState
-	ToolInspector   *ToolInspectorState
+	Items               []projection.Item
+	Draft               string
+	Phase               Phase
+	ModelLabel          string
+	Detail              string
+	Error               string
+	ErrorDetail         string
+	Send                func(text string)
+	Dismiss             func()
+	Cancel              func()
+	CanCancel           bool
+	CanStream           bool
+	CancelPending       bool
+	CanApprove          bool
+	ApprovalOpen        bool
+	Approvals           []interaction.Approval
+	RespondApproval     func(requestID, decision string)
+	CanQuestion         bool
+	QuestionOpen        bool
+	Questions           []*interaction.QuestionRequest
+	RespondQuestion     func(requestID string, cancel bool)
+	List                mgo.ListState
+	ToolCards           map[string]*ToolCardState
+	ToolInspector       *ToolInspectorState
+	Markdown            markdown.Options
+	InterruptedMarkdown markdown.Options
+	CopiedMessageID     string
+	CopiedMessageText   string
 }
 
 // NewModel returns a model with a list that follows the newest row and keeps
 // row state by item ID.
 func NewModel() *Model {
-	model := &Model{Phase: PhaseStarting}
+	model := &Model{Phase: PhaseStarting,
+		Markdown:            markdown.Options{Theme: &markdown.Theme{FontSize: 13}, Reveal: &markdown.Reveal{Unit: markdown.AtOnce, Fade: -1}},
+		InterruptedMarkdown: markdown.Options{Theme: &markdown.Theme{FontSize: 13}, CodeBlock: interruptedCodeBlock},
+	}
 	model.List.FollowEnd = true
 	model.List.Key = func(row int) any { return model.Items[row].ID }
 	return model
@@ -70,6 +78,13 @@ func NewModel() *Model {
 // View builds the whole window.
 func View(c *mgo.Context, model *Model) {
 	theme := c.Theme()
+	services := c.Services()
+	model.Markdown.OnLink = func(address string) {
+		if safeMarkdownLink(address) {
+			services.OpenURL(address)
+		}
+	}
+	model.InterruptedMarkdown.OnLink = model.Markdown.OnLink
 	mgo.Column(c).Fill().Background(theme.Background).Children(func() {
 		header(c, model)
 		if model.Error != "" {
@@ -138,11 +153,11 @@ func message(c *mgo.Context, model *Model, item projection.Item) {
 	switch item.Kind {
 	case projection.KindUser:
 		mgo.Row(c).Key(item.ID).FillWidth().Justify(mgo.End).Children(func() {
-			card(c, item, true)
+			card(c, model, item, true)
 		})
 	case projection.KindAssistant:
 		mgo.Row(c).Key(item.ID).FillWidth().Children(func() {
-			card(c, item, false)
+			card(c, model, item, false)
 		})
 	case projection.KindTool:
 		mgo.Row(c).Key(item.ID).FillWidth().Children(func() {
@@ -159,7 +174,7 @@ func message(c *mgo.Context, model *Model, item projection.Item) {
 	}
 }
 
-func card(c *mgo.Context, item projection.Item, fromUser bool) {
+func card(c *mgo.Context, model *Model, item projection.Item, fromUser bool) {
 	theme := c.Theme()
 	border := float32(0)
 	borderColor := theme.Border
@@ -167,15 +182,32 @@ func card(c *mgo.Context, item projection.Item, fromUser bool) {
 		border = 1
 		borderColor = theme.Accent
 	}
-	mgo.Column(c).MaxWidth(680).Padding(10, 14).Gap(4).Radius(10).
-		Background(theme.Surface).Border(border, borderColor).Selectable().Children(func() {
+	container := mgo.Column(c).MaxWidth(680).Padding(10, 14).Gap(4).Radius(10).
+		Background(theme.Surface).Border(border, borderColor)
+	if fromUser {
+		container.Selectable()
+	}
+	container.Children(func() {
 		mgo.Row(c).Gap(8).Children(func() {
 			mgo.Text(c, item.Title).FontSize(11).Bold().TextColor(theme.TextMuted)
 			if item.Detail != "" {
 				mgo.Text(c, item.Detail).FontSize(11).TextColor(theme.TextMuted)
 			}
+			mgo.Spacer(c)
+			messageCopyButton(c, model, item, fromUser)
 		})
-		mgo.Text(c, item.Text).FontSize(13)
+		if item.Truncated {
+			mgo.Text(c, "Truncated message: only the visible prefix is available.").FontSize(11).TextColor(theme.Warning)
+		}
+		if fromUser || item.Truncated {
+			mgo.Text(c, item.Text).FontSize(13).Selectable()
+		} else if item.State == "streaming" {
+			markdown.Stream(c.Key("assistant-markdown"), item.Text, &model.Markdown).FillWidth()
+		} else if item.State == "interrupted" {
+			markdown.View(c.Key("assistant-markdown"), item.Text, &model.InterruptedMarkdown).FillWidth()
+		} else {
+			markdown.View(c.Key("assistant-markdown"), item.Text, &model.Markdown).FillWidth()
+		}
 	})
 }
 

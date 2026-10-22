@@ -92,8 +92,16 @@ func assertOneSettledAssistant(t *testing.T, application *App) {
 }
 
 func TestAgainstMygoRealStreaming(t *testing.T) {
-	for _, action := range []string{"complete", "cancel", "shutdown"} {
+	for _, action := range []string{"complete", "cancel", "shutdown", "markdown", "markdown-cancel"} {
 		t.Run(action, func(t *testing.T) {
+			modelName := "stream-probe"
+			prefix := "Live prefix"
+			completed := "Live prefix complete"
+			if strings.HasPrefix(action, "markdown") {
+				modelName = "markdown-probe"
+				prefix = "# Native reply\n\n**Streaming Markdown**\n\n```go\n  fmt.Println(\"你好\")\n"
+				completed = prefix + "```\n"
+			}
 			launch, _ := realMygoLaunch(t, true)
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			if err != nil {
@@ -109,13 +117,13 @@ func TestAgainstMygoRealStreaming(t *testing.T) {
 			}()
 			launch.Env = append(launch.Env, "DSH_MYGO_MOCK_CONTROL="+listener.Addr().String())
 			updates := make(chan func(), 512)
-			application := New(Options{Launch: launch, CWD: t.TempDir(), Provider: "mygo-mock", Model: "stream-probe", Post: func(fn func()) { updates <- fn }})
+			application := New(Options{Launch: launch, CWD: t.TempDir(), Provider: "mygo-mock", Model: modelName, Post: func(fn func()) { updates <- fn }})
 			defer application.Shutdown(10 * time.Second)
 			go application.Start()
 			waitFor(t, application, updates, 90*time.Second, func() bool { return application.Model().Phase == view.PhaseIdle })
 			sessionID := application.sessionID
 			application.Send("Stream the probe")
-			waitFor(t, application, updates, 30*time.Second, func() bool { return hasStreamingText(application.Model().Items, "Live prefix") })
+			waitFor(t, application, updates, 30*time.Second, func() bool { return hasStreamingText(application.Model().Items, prefix) })
 			for _, item := range application.Model().Items {
 				if strings.Contains(item.Text, "Hidden fixture reasoning") {
 					t.Fatal("reasoning became visible")
@@ -139,11 +147,11 @@ func TestAgainstMygoRealStreaming(t *testing.T) {
 			}
 			application.Model().Draft = "next draft"
 			switch action {
-			case "complete":
+			case "complete", "markdown":
 				if _, err := connection.Write([]byte("continue\n")); err != nil {
 					t.Fatal(err)
 				}
-			case "cancel":
+			case "cancel", "markdown-cancel":
 				application.Cancel()
 			case "shutdown":
 				application.Shutdown(10 * time.Second)
@@ -160,9 +168,9 @@ func TestAgainstMygoRealStreaming(t *testing.T) {
 			}
 			waitFor(t, application, updates, 30*time.Second, func() bool { return application.Model().Phase == view.PhaseIdle })
 			assertOneSettledAssistant(t, application)
-			expected := "Live prefix complete"
-			if action == "cancel" {
-				expected = "Live prefix"
+			expected := completed
+			if action == "cancel" || action == "markdown-cancel" {
+				expected = prefix
 			}
 			if !hasAssistantText(application.Model().Items, expected) || application.Model().Draft != "next draft" {
 				t.Fatal("stream settlement lost final content or draft")

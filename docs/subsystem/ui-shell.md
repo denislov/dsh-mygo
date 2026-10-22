@@ -23,7 +23,11 @@ UI 壳层是 MyGo 进程里的原生界面：
 P1 的单窗口只有 header、transcript 列表、composer：
 
 - transcript 显示提交后的 user 消息、assistant 文本、tool call/result 与 turn 结束通知；不显示 synthetic user context、system/developer 消息、reasoning。
-- 协商 `session.assistant-stream` 后，额外展示带 `Streaming…` 标记的临时 assistant 文本行，稳定绑定 attemptId；提交时由唯一的 durable 行替换。没有可见 text 时不显示空卡片；缺口/abandoned/idle/失败/关闭移除临时行，不改 composer 草稿。原生纯文本增量展示，不解析 Markdown。
+- 协商 `session.assistant-stream` 后，额外展示带 `Streaming…` 标记的临时 assistant 行，稳定绑定 attemptId；提交时由唯一的 durable 行替换。没有可见 text 时不显示空卡片；缺口/abandoned/idle/失败/关闭移除临时行，不改 composer 草稿。
+- 助手正文使用 MyGo 原生 `markdown.Stream` / `markdown.View`：标题、强调、列表、表格、内联代码与只读语法高亮代码块。流式同一 key 增量解析，直接显示已收到内容，不额外逐字延迟；最终提交使用 durable 行身份，不把 Markdown 展示状态写回历史。用户输入、工具参数/结果仍为可选择的原文，不解释为 Markdown。
+- `Copy Markdown` 复制保留的助手源文，`Copy message` 复制可见用户文本；流式按钮标为 `Copy current text`。代码块有独立复制按钮，复制解析后的代码正文（代码行以换行结尾），不带围栏；正在生成的开放代码块禁用复制。Interrupted 消息的代码块也禁用完整代码复制，可显式 `Copy partial Markdown`。
+- 复制反馈绑定消息 ID 与源文；流式源文改变或换消息时不继承“已复制”。超过 8000 rune 的消息明确标为截断，回退原文展示并只提供 `Copy visible text`，不把截断围栏解释为完整代码。复制的是当前保留内容，不承诺复制尚未实现的完整历史。
+- 图片只显示描述，不配置网络或文件加载器；HTML 不接入执行/浏览器渲染器，代码不执行。链接只响应显式点击，并限制为无凭据、无控制字符的 HTTP(S) 地址；file/javascript/data/mailto/相对路径等不打开。剪贴板/URL 回调仅捕获 `c.Services()`，不保存帧作用域 Context/Element。
 - Enter 发送，Shift+Enter 换行；发送期间仍可编辑草稿，但发送按钮与 Enter 发送禁用。
 - 状态来自自定义 channel 的 `session/status`（显式 SDK 模式为 `session.status`）：starting / ready / working / host error。发送失败保留草稿并显示可关闭的错误横幅。自定义 channel 的错误详情不展示原始 stderr。
 - 协商 `session.cancel` 后，working 时的 Send 替换为 Stop；点击后显示禁用的 `Stopping…`，直到取消请求返回且 Host 确认 idle。提前收到 idle 也不会放行新消息；取消失败显示错误并允许重试。取消不清除下一条草稿。Stop 和 Send 使用不同的稳定 key，反复消失/返回时不复用错误控件状态。SDK/旧 Host 不启用 Stop。
@@ -31,7 +35,7 @@ P1 的单窗口只有 header、transcript 列表、composer：
 - 协商 `question` 后，原生 Modal 支持整批单选、多选和自由文本，完整展示题目、选项说明和 detail；所有题目回答后一次提交。表单状态按请求/题目稳定绑定，重试保留答案，Escape/点击外部等同 Cancel question；Stop turn 另行停止回合。无 agent 请求明确标注，不显示 Stop turn。审批优先，同一时刻只有一个交互弹窗。
 - 工具卡片使用原生 Collapsible，默认折叠，展开状态绑定稳定工具行 ID，结果更新/列表位置变化不重置。展开显示预览和 `View details`；原生检视器提供 Arguments / Result / Changes、逐 hunk 导航和只读 DiffView，大 hunk 明确回退文本。不读写显示路径，不提供应用/撤销改动操作。
 - 检视器只保留一个 hunk 的 editor 状态；关闭、结果更新和淘汰释放旧缓冲。审批/提问优先，暂时隐藏检视器，避免两个 Modal 叠加；交互结束后可以继续查看。
-- 尚未实现：Markdown、timed/continued 提问、历史、会话列表、设置、附件。
+- 尚未实现：timed/continued 提问、历史、会话列表、设置、附件。
 
 ## 视图模型
 

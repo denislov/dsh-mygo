@@ -4,6 +4,7 @@ import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createConnection } from 'node:net'
 import { once } from 'node:events'
+import { markdownPrefix, markdownReply } from './markdown-sample.mjs'
 
 class MygoMockAdapter extends LlmAdapter {
   async resolveModel(provider, model) {
@@ -29,13 +30,13 @@ class MygoMockAdapter extends LlmAdapter {
       }
       if (options.messages.at(-1)?.role === 'tool') reply = 'diff probe complete'
     }
-    if (options.model === 'stream-probe' && !this.streamed) {
+    if ((options.model === 'stream-probe' || options.model === 'markdown-probe') && !this.streamed) {
       this.streamed = true
       yield { type: 'block-start', index: 0, blockType: 'reasoning' }
       yield { type: 'reasoning-delta', index: 0, text: 'Hidden fixture reasoning' }
       yield { type: 'block-end', index: 0, block: { type: 'reasoning', text: 'Hidden fixture reasoning' } }
       yield { type: 'block-start', index: 1, blockType: 'text' }
-      yield { type: 'text-delta', index: 1, text: 'Live prefix' }
+      yield { type: 'text-delta', index: 1, text: options.model === 'markdown-probe' ? markdownPrefix : 'Live prefix' }
       const port = Number(process.env.DSH_MYGO_MOCK_CONTROL.split(':').at(-1))
       const control = createConnection({ host: '127.0.0.1', port })
       try {
@@ -59,8 +60,8 @@ class MygoMockAdapter extends LlmAdapter {
         })
       } finally { control.destroy() }
       options.signal.throwIfAborted()
-      yield { type: 'text-delta', index: 1, text: ' complete' }
-      yield { type: 'block-end', index: 1, block: { type: 'text', text: 'Live prefix complete' } }
+      yield { type: 'text-delta', index: 1, text: options.model === 'markdown-probe' ? markdownReply.slice(markdownPrefix.length) : ' complete' }
+      yield { type: 'block-end', index: 1, block: { type: 'text', text: options.model === 'markdown-probe' ? markdownReply : 'Live prefix complete' } }
       yield { type: 'finish', reason: { kind: 'stop' } }
       return
     }

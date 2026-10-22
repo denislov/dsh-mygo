@@ -31,7 +31,8 @@
 - `approval/request` / `approval/closed` 是连接内临时交互，由 `internal/interaction` 管理，不进入 transcript。审批结果只通过 Host 提交的工具结果体现；弹窗展示原始关联参数，不使用下述截断后的工具行。idle、失败和退出清理临时队列，不伪造审批历史。
 - `question/request` / `question/closed` 同样由交互层管理，不把本地表单或取消动作写成历史。结构化答案通过真实 `ask_user_question` 工具结果进入 Host 日志；当前仅支持阻塞等待，尚不投影 timed/continued 问题或迟到回复。会话 idle 清理本会话提问，无 agent 请求不随会话 idle 消失。
 - 列表预览按 rune 截断：消息 8000、工具参数/结果 4000；工具详情按下述独立字节预算保留，超限或淘汰必须提示，不冒充完整内容。完整历史仍待实现。
-- 已有可见 text 的增量展示及工具折叠/只读 diff；reasoning、工具参数不展示为临时正文。无 history、无 Markdown、无 usage/context 展示。
+- 已有助手 Markdown 增量展示及工具折叠/只读 diff；reasoning、工具参数不展示为临时正文。无 history、无 usage/context 展示。
+- 助手保留文本块的前导空白与末尾换行，不用 TrimSpace 改写代码缩进/开放围栏；多文本块仍以两个换行连接。临时和提交投影均显式标记 Truncated，截断上限仍为 8000 rune（省略标记另计），不保留第二份完整历史或推断缺失内容。
 
 ## 真相源
 
@@ -137,7 +138,7 @@ idle
 - `end.abandoned` 没有提交事件；丢弃草稿，必要时展示一次“已取消/已中断”提示。
 - 流式期间不要重新解析整个 Markdown；用 `markdown.Stream` 的增量能力。
 
-当前实现只显示原生纯文本，Markdown 仍未接入。每 attempt 最多保留 128 个块和 8000 个可见 rune，按块顺序拼接 text；block-end 的完整 text 可修正未提交前缀。reasoning/工具参数不进入临时文本缓存。idle、失败、关闭或 turn/end 清理临时状态；取消后的 Interrupted 文本只能来自 Host 提交。
+当前由原生 `markdown.Stream` 增量显示，提交后用 `markdown.View`，不每个 token 重建解析器；具体复制与安全策略见 [UI 壳层](ui-shell.md)。每 attempt 最多保留 128 个块和 8000 个可见 rune，按块顺序拼接 text；block-end 的完整 text 可修正未提交前缀。reasoning/工具参数不进入临时文本缓存。idle、失败、关闭或 turn/end 清理临时状态；取消后的 Interrupted 文本只能来自 Host 提交。
 
 ### 重连
 

@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import { LineChannel } from '../resources/host/transport.mjs'
 import { MygoServer } from '../resources/host/server.mjs'
+import { markdownPrefix, markdownReply } from './markdown-sample.mjs'
 
 const events = new EventEmitter()
 if (process.argv.includes('--stderr-secret')) process.stderr.write('fake-private-token\n')
@@ -40,9 +41,9 @@ const ctx = {
                 if (!work.approval && !work.question && !work.streaming) event('tool/call', diffFixture
                   ? { callId, name: 'edit', arguments: '{"file_path":"demo.txt","old_string":"before","new_string":"after"}' }
                   : { callId, name: 'read_file', arguments: '{"path":"README.md"}' })
-                const reply = work.streaming ? 'Live prefix complete' : work.question ? approvalOutcome : work.approval ? approvalOutcome === 'allowed-once' ? 'Approved write' : 'Denied write' : `Echo: ${message.content.map((block) => block.text).join('\n')}`
+                const reply = work.streaming ? work.markdown ? markdownReply : 'Live prefix complete' : work.question ? approvalOutcome : work.approval ? approvalOutcome === 'allowed-once' ? 'Approved write' : 'Denied write' : `Echo: ${message.content.map((block) => block.text).join('\n')}`
                 if (work.streaming) {
-                  chunk({ type: 'text-delta', index: 0, text: ' complete' })
+                  chunk({ type: 'text-delta', index: 0, text: work.markdown ? markdownReply.slice(markdownPrefix.length) : ' complete' })
                   chunk({ type: 'block-end', index: 0, block: { type: 'text', text: reply } })
                 } else event('tool/result', { message: { toolCallId: callId, content: [{ type: 'text', text: diffFixture ? 'Updated demo.txt (fixture only)' : work.approval ? reply : '# dsh-mygo' }] },
                   ...(diffFixture ? { meta: { operation: 'update', diffs: [
@@ -53,7 +54,7 @@ const ctx = {
                 const seq = event('assistant/message', { turn, step: 1, message: { content: [{ type: 'text', text: reply }] } })
                 if (work.streaming) stream({ type: 'end', index: streamIndex, outcome: { kind: 'committed', eventType: 'assistant/message', seq } })
               } else if (work.streaming) {
-                const seq = event('assistant/message', { turn, step: 1, interrupted: true, message: { content: [{ type: 'text', text: 'Live prefix' }] } })
+                const seq = event('assistant/message', { turn, step: 1, interrupted: true, message: { content: [{ type: 'text', text: work.markdown ? markdownPrefix : 'Live prefix' }] } })
                 stream({ type: 'end', index: streamIndex, outcome: { kind: 'committed', eventType: 'assistant/message', seq } })
               }
               event('turn/end', { reason: aborted ? { kind: 'aborted', reason: { kind: 'user' } } : { kind: 'completed' } })
@@ -63,12 +64,13 @@ const ctx = {
               work.resolve()
             }
             if (work.cancelled) work.finish(true)
-            else if ((process.argv.includes('--stream') || process.argv.includes('--stream-wait')) && turn === 1) {
+            else if (['--stream', '--stream-wait', '--markdown', '--markdown-wait'].some((flag) => process.argv.includes(flag)) && turn === 1) {
               work.streaming = true
+              work.markdown = process.argv.includes('--markdown') || process.argv.includes('--markdown-wait')
               stream({ type: 'start', turn, step: 1 })
               chunk({ type: 'block-start', index: 0, blockType: 'text' })
-              chunk({ type: 'text-delta', index: 0, text: 'Live prefix' })
-              if (!process.argv.includes('--stream-wait')) work.timer = setTimeout(() => work.finish(false), 700)
+              chunk({ type: 'text-delta', index: 0, text: work.markdown ? markdownPrefix : 'Live prefix' })
+              if (!process.argv.includes('--stream-wait') && !process.argv.includes('--markdown-wait')) work.timer = setTimeout(() => work.finish(false), 700)
             }
             else if ((process.argv.includes('--question') && turn === 1) || (process.argv.includes('--question-twice') && turn <= 2)) {
               work.question = true
