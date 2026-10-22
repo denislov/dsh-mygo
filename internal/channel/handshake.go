@@ -3,11 +3,13 @@ package channel
 import (
 	"encoding/json"
 	"fmt"
+
+	"dsh-mygo/internal/version"
 )
 
-const ProtocolVersion = 1
-const ReleaseVersion = "0.1.0"
-const DSHVersion = "0.2.1-rc.2"
+const ProtocolVersion = version.Protocol
+const ReleaseVersion = version.App
+const DSHVersion = version.DSH
 
 type InitializeResult struct {
 	ProtocolVersion int `json:"protocolVersion"`

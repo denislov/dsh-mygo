@@ -56,6 +56,8 @@ dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node H
 ```text
 main.go              MyGo 入口：flag、窗口、Host 生命周期
 mygo.json            MyGo 配置
+versions.json        发布身份单点：identifier、版本、protocolVersion、DSH pin
+.github/workflows/   CI（Windows 全量、Linux Go 测试）
 cmd/spike/           P0 协议验证：initialize → prompt → events
 internal/channel/    JSON-RPC 编解码与客户端
 internal/host/       HostSupervisor + ResolveLaunch：spawn / stdio / stderr / stop

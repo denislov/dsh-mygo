@@ -48,11 +48,13 @@ dsh-mygo.app / dsh-mygo/            # MyGo 产物
 
 | 版本 | 来源 | 规则 |
 | --- | --- | --- |
-| 应用版本 | `mygo.json` / 构建参数 | 发布单元的主版本 |
-| DSH 版本 | `@deepseek-ai/dsh` | 与 bundle 的 peer 依赖对齐 |
+| 应用标识/名称/版本 | `versions.json`（镜像到 `mygo.json`） | 发布单元的主版本；发布后 identifier 不再更改 |
+| DSH 版本 | `versions.json`（镜像到 host `engines.dsh` 与 peer 依赖） | 与 bundle 的 peer 依赖对齐 |
 | bundle 版本 | `@your-scope/dsh-mygo-app` | 与 app 同版本或显式兼容 |
-| 协议版本 | `protocolVersion` | UI 与 Host 的额外保险 |
+| 协议版本 | `versions.json` / host `dshMygo.protocolVersion` | UI 与 Host 的额外保险 |
 | profile 格式 | DSH profile manifest | 由 DSH 负责迁移 |
+
+`versions.json` 是发布身份的唯一来源；`mygo.json`、`resources/host/package.json` 与 `internal/version` 的 Go 常量由 `go test ./internal/version` 校验一致。
 
 UI、Host、bundle 作为一个发布单元验证；不允许只升级其中一个。
 

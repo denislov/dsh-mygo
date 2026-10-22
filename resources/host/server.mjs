@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import { ApprovalQueue } from './approval.mjs'
@@ -7,9 +8,13 @@ import { SessionHistory, sessionID, sessionSummary } from './history.mjs'
 import { ModelSettings } from './models.mjs'
 import { Configuration } from './configuration.mjs'
 
-export const protocolVersion = 1
-export const releaseVersion = '0.1.0'
-export const supportedDshVersion = '0.2.1-rc.2'
+const identity = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
+if (!Number.isSafeInteger(identity.dshMygo?.protocolVersion)) {
+  throw new Error('The host package must declare dshMygo.protocolVersion')
+}
+export const protocolVersion = identity.dshMygo.protocolVersion
+export const releaseVersion = identity.version
+export const supportedDshVersion = identity.engines.dsh
 
 function fault(kind, message, code = -32000) {
   return Object.assign(new Error(message), { kind, code })
