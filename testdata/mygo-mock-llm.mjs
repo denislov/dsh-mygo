@@ -12,6 +12,23 @@ class MygoMockAdapter extends LlmAdapter {
 
   async *stream(options) {
     let reply = 'pong'
+    if (options.model === 'diff-probe') {
+      const step = this.diffCalls ?? 0
+      if (step < 2) {
+        this.diffCalls = step + 1
+        const toolName = step === 0 ? 'write' : 'edit'
+        const argumentsText = JSON.stringify(step === 0
+          ? { file_path: 'diff-probe.txt', content: 'before\n' }
+          : { file_path: 'diff-probe.txt', old_string: 'before', new_string: 'after' })
+        const callId = ToolCallId(`diff-probe-${step}`)
+        yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+        yield { type: 'tool-call-delta', index: 0, id: callId, name: toolName, argumentsDelta: argumentsText }
+        yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: callId, name: toolName, arguments: argumentsText } }
+        yield { type: 'finish', reason: { kind: 'tool-calls' } }
+        return
+      }
+      if (options.messages.at(-1)?.role === 'tool') reply = 'diff probe complete'
+    }
     if (options.model === 'stream-probe' && !this.streamed) {
       this.streamed = true
       yield { type: 'block-start', index: 0, blockType: 'reasoning' }

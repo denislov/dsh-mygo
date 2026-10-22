@@ -54,6 +54,8 @@ type Model struct {
 	Questions       []*interaction.QuestionRequest
 	RespondQuestion func(requestID string, cancel bool)
 	List            mgo.ListState
+	ToolCards       map[string]*ToolCardState
+	ToolInspector   *ToolInspectorState
 }
 
 // NewModel returns a model with a list that follows the newest row and keeps
@@ -78,6 +80,7 @@ func View(c *mgo.Context, model *Model) {
 	})
 	approvalModal(c, model)
 	questionModal(c, model)
+	toolInspectorModal(c, model)
 }
 
 func header(c *mgo.Context, model *Model) {
@@ -119,7 +122,7 @@ func errorBanner(c *mgo.Context, model *Model) {
 
 func transcript(c *mgo.Context, model *Model) {
 	mgo.List(c, &model.List, len(model.Items), func(row int) {
-		message(c, model.Items[row])
+		message(c, model, model.Items[row])
 	}).Grow(1).Gap(10).Padding(16, 20).Justify(mgo.End).Children(func() {
 		if len(model.Items) == 0 {
 			theme := c.Theme()
@@ -131,7 +134,7 @@ func transcript(c *mgo.Context, model *Model) {
 	})
 }
 
-func message(c *mgo.Context, item projection.Item) {
+func message(c *mgo.Context, model *Model, item projection.Item) {
 	switch item.Kind {
 	case projection.KindUser:
 		mgo.Row(c).Key(item.ID).FillWidth().Justify(mgo.End).Children(func() {
@@ -143,7 +146,7 @@ func message(c *mgo.Context, item projection.Item) {
 		})
 	case projection.KindTool:
 		mgo.Row(c).Key(item.ID).FillWidth().Children(func() {
-			toolCard(c, item)
+			toolCard(c, model, item)
 		})
 	default:
 		theme := c.Theme()
@@ -176,7 +179,7 @@ func card(c *mgo.Context, item projection.Item, fromUser bool) {
 	})
 }
 
-func toolCard(c *mgo.Context, item projection.Item) {
+func toolCard(c *mgo.Context, model *Model, item projection.Item) {
 	theme := c.Theme()
 	stateColor := theme.TextMuted
 	if item.IsError {
@@ -185,18 +188,22 @@ func toolCard(c *mgo.Context, item projection.Item) {
 	mgo.Column(c).MaxWidth(680).Padding(8, 12).Gap(4).Radius(8).
 		Background(theme.Surface).Border(1, theme.Border).Selectable().Children(func() {
 		mgo.Row(c).Gap(8).AlignItems(mgo.Center).Children(func() {
-			mgo.Text(c, item.Title).FontSize(12).Bold()
+			mgo.Collapsible(c.Key("tool-disclosure"), item.Title, &model.toolCardState(item.ID).Expanded, func() {
+				if item.Text != "" {
+					mgo.Text(c, item.Text).FontSize(11).TextColor(theme.TextMuted)
+				}
+				if item.Detail != "" {
+					mgo.Text(c, item.Detail).FontSize(12)
+				}
+				if mgo.Button(c.Key("tool-details"), "View details").Clicked() {
+					model.OpenToolDetails(item.ID)
+				}
+			}).Grow(1)
 			mgo.Spacer(c)
 			if item.State != "" {
 				mgo.Text(c, toolState(item.State)).FontSize(11).TextColor(stateColor)
 			}
 		})
-		if item.Text != "" {
-			mgo.Text(c, item.Text).FontSize(11).TextColor(theme.TextMuted)
-		}
-		if item.Detail != "" {
-			mgo.Text(c, item.Detail).FontSize(12)
-		}
 	})
 }
 

@@ -29,13 +29,15 @@ const (
 // Item is one row the transcript list renders. ID is stable for the lifetime
 // of the row so the list keeps its scroll position and row state.
 type Item struct {
-	ID      string
-	Kind    Kind
-	Title   string
-	Text    string
-	Detail  string
-	State   string
-	IsError bool
+	ID          string
+	Kind        Kind
+	Title       string
+	Text        string
+	Detail      string
+	State       string
+	IsError     bool
+	Tool        *ToolDetails
+	ToolEvicted bool
 }
 
 // Event is one session-log event exactly as the SDK forwards it.
@@ -70,9 +72,10 @@ func DecodeNotification(params json.RawMessage) (Notification, error) {
 // Transcript is the ordered set of rows projected from one session's log.
 // The zero value is ready to use.
 type Transcript struct {
-	items     []Item
-	seen      map[uint64]struct{}
-	toolIndex map[string]int
+	items           []Item
+	seen            map[uint64]struct{}
+	toolIndex       map[string]int
+	toolDetailBytes int
 }
 
 // Items returns the rows in session-log order. Callers must treat the slice
@@ -168,14 +171,29 @@ func (t *Transcript) applyToolCall(event Event) bool {
 	if data.CallID == "" {
 		id = eventID(event)
 	}
+	details := &ToolDetails{}
+	details.Arguments, details.ArgumentsTruncated = boundedToolText(data.Arguments, MaxToolDetailBytes)
 	item := Item{
 		ID:    id,
 		Kind:  KindTool,
 		Title: "Tool · " + data.Name,
-		Text:  prettyJSON(data.Arguments, maxToolRunes),
+		Text:  prettyJSON(details.Arguments, maxToolRunes),
 		State: "running",
 	}
+	if index, exists := t.toolIndex[data.CallID]; exists && data.CallID != "" {
+		if previous := t.items[index].Tool; previous != nil {
+			*details = *previous
+			details.Arguments, details.ArgumentsTruncated = boundedToolText(data.Arguments, MaxToolDetailBytes)
+		} else {
+			details.Notice = "Earlier tool details were evicted."
+		}
+		t.setToolDetails(index, details)
+		t.items[index].Title = item.Title
+		t.items[index].Text = item.Text
+		return true
+	}
 	t.add(item)
+	t.setToolDetails(len(t.items)-1, details)
 	if data.CallID != "" {
 		if t.toolIndex == nil {
 			t.toolIndex = make(map[string]int)
@@ -195,13 +213,18 @@ func (t *Transcript) applyToolResult(event Event) bool {
 		Error *struct {
 			Reason string `json:"reason"`
 		} `json:"error"`
+		Meta json.RawMessage `json:"meta"`
 	}
 	if json.Unmarshal(event.Data, &data) != nil {
 		return false
 	}
-	detail := blocksText(data.Message.Content, maxToolRunes)
+	full := &ToolDetails{}
+	full.Result, full.ResultTruncated = toolResultText(data.Message.Content)
+	full.Diffs, full.DiffNotice = projectDiffs(data.Meta)
+	detail := clip(full.Result, maxToolRunes)
 	if data.Error != nil && data.Error.Reason != "" {
-		detail = clip(data.Error.Reason, maxToolRunes)
+		reason, _ := boundedToolText(data.Error.Reason, MaxToolDetailBytes)
+		detail = clip(reason, maxToolRunes)
 	}
 	isError := data.Message.IsError || data.Error != nil
 	state := "done"
@@ -210,13 +233,19 @@ func (t *Transcript) applyToolResult(event Event) bool {
 	}
 	callID := data.Message.ToolCallID
 	if index, ok := t.toolIndex[callID]; ok && callID != "" {
+		if previous := t.items[index].Tool; previous != nil {
+			full.Arguments, full.ArgumentsTruncated = previous.Arguments, previous.ArgumentsTruncated
+		} else {
+			full.Notice = "Earlier tool details were evicted."
+		}
+		t.setToolDetails(index, full)
 		item := &t.items[index]
 		item.Detail = detail
 		item.State = state
 		item.IsError = isError
 		return true
 	}
-	id := "tool-result:" + callID
+	id := "tool:" + callID
 	if callID == "" {
 		id = eventID(event)
 	}
@@ -228,6 +257,13 @@ func (t *Transcript) applyToolResult(event Event) bool {
 		State:   state,
 		IsError: isError,
 	})
+	t.setToolDetails(len(t.items)-1, full)
+	if callID != "" {
+		if t.toolIndex == nil {
+			t.toolIndex = make(map[string]int)
+		}
+		t.toolIndex[callID] = len(t.items) - 1
+	}
 	return true
 }
 
@@ -306,6 +342,9 @@ func blocksText(blocks []contentBlock, limit int) string {
 func prettyJSON(text string, limit int) string {
 	if strings.TrimSpace(text) == "" {
 		return ""
+	}
+	if len(text) > 16*1024 || strings.Count(text, "{")+strings.Count(text, "[") > 64 {
+		return clip(text, limit)
 	}
 	var buffer bytes.Buffer
 	if json.Indent(&buffer, []byte(text), "", "  ") != nil {

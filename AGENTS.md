@@ -11,7 +11,8 @@ dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node H
 - 工具审批已落地：`approval` capability、Host answerer、有界队列、原生 Allow once / Deny / Stop turn，以及真实 approval 服务的允许/拒绝/取消执行验证。
 - 用户提问已落地：`question` capability、阻塞式 `ask_user_question` 工具行、Host answerer、原生多问题表单（单选/多选/自由文本）、明确取消与真实工具闭环；无 agent 请求单独标注。
 - 文本流式已落地：`session.assistant-stream` capability、公开帧转发、有界临时 text 投影、提交替换与顺序批处理；真实 agent loop 验证提交前可见、完成/取消/退出与同会话继续发送。
-- 未落地（P2）：Markdown、工具卡片折叠/diff、timed/continued 提问、历史、会话列表、设置、RPC 请求级取消、打包。
+- 工具折叠/diff 已落地：默认折叠、稳定身份、有界参数/结果详情、FileDiff 元数据校验、只读原生 hunk 检视与大 hunk 文本回退；真实 write/edit 提交验证。
+- 未落地（P2）：Markdown、timed/continued 提问、历史、会话列表、设置、RPC 请求级取消、打包。
 
 ## 文档路由
 

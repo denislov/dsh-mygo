@@ -245,7 +245,7 @@ Go 的 `SessionProjection` 从 `session/assistant-stream` 与 `session/event` �
 - 成功标准：登录/模型配置后能完成一个真实回合；取消与退出可用。
 - 不做：live 流式、审批、提问、历史、设置。
 
-**当前进度**：P1 原生窗口和 SDK 闭环已完成；自定义 channel、回合取消、工具审批、阻塞式用户提问与可见文本流式已完成，默认入口使用 `mygo` profile，支持版本握手、显式创建会话、prompt、提交事件、状态、Stop、原生审批/问答与关闭。流式是临时投影，提交日志仍为唯一真相。SDK 作为显式回归模式保留。当前能力边界见 [通道协议](subsystem/channel-protocol.md)；Markdown、timed/continued 提问、历史和设置仍在后续阶段。
+**当前进度**：P1 原生窗口和 SDK 闭环已完成；自定义 channel、回合取消、工具审批、阻塞式用户提问、可见文本流式与工具折叠/diff 已完成。默认入口使用 `mygo` profile，工具详情与只读 hunk 来自 Host 提交，不重读文件或推算历史；流式仅是临时投影，提交日志仍为唯一真相。SDK 作为显式回归模式保留。当前能力边界见 [通道协议](subsystem/channel-protocol.md)；Markdown、timed/continued 提问、历史和设置仍在后续阶段。
 
 ### 阶段 B：自定义 profile
 

@@ -36,12 +36,20 @@ const ctx = {
               clearTimeout(work.timer)
               if (!aborted) {
                 const callId = `fake-${turn}`
-                if (!work.approval && !work.question && !work.streaming) event('tool/call', { callId, name: 'read_file', arguments: '{"path":"README.md"}' })
+                const diffFixture = process.argv.includes('--tool-diff') && turn === 1
+                if (!work.approval && !work.question && !work.streaming) event('tool/call', diffFixture
+                  ? { callId, name: 'edit', arguments: '{"file_path":"demo.txt","old_string":"before","new_string":"after"}' }
+                  : { callId, name: 'read_file', arguments: '{"path":"README.md"}' })
                 const reply = work.streaming ? 'Live prefix complete' : work.question ? approvalOutcome : work.approval ? approvalOutcome === 'allowed-once' ? 'Approved write' : 'Denied write' : `Echo: ${message.content.map((block) => block.text).join('\n')}`
                 if (work.streaming) {
                   chunk({ type: 'text-delta', index: 0, text: ' complete' })
                   chunk({ type: 'block-end', index: 0, block: { type: 'text', text: reply } })
-                } else event('tool/result', { message: { toolCallId: callId, content: [{ type: 'text', text: work.approval ? reply : '# dsh-mygo' }] } })
+                } else event('tool/result', { message: { toolCallId: callId, content: [{ type: 'text', text: diffFixture ? 'Updated demo.txt (fixture only)' : work.approval ? reply : '# dsh-mygo' }] },
+                  ...(diffFixture ? { meta: { operation: 'update', diffs: [
+                    { path: 'demo.txt', oldText: 'before', newText: 'after' },
+                    { path: 'second.txt', oldText: null, newText: 'created' },
+                  ] } } : {}),
+                })
                 const seq = event('assistant/message', { turn, step: 1, message: { content: [{ type: 'text', text: reply }] } })
                 if (work.streaming) stream({ type: 'end', index: streamIndex, outcome: { kind: 'committed', eventType: 'assistant/message', seq } })
               } else if (work.streaming) {

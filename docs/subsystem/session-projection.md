@@ -24,14 +24,14 @@
 约束：
 
 - synthetic user context（`source.kind != "user"`）、system/developer 消息、reasoning、`assistant/attempt`、请求元数据不进入 transcript。
-- 每个事件的 `seq` 去重；工具结果先到时单独成行，不猜测配对。
+- 每个事件的 `seq` 去重；工具结果先到时保留稳定占位，后续仅按确切 callId 补齐，不按工具名/位置猜测。工具行身份始终是 `tool:<callId>`，补齐不覆盖已记录结果与错误状态。
 - 自定义 channel 的 `session/create.session.nextSeq` 提供实时事件起点；App 校验外层 `seq` 与 `event.seq` 一致，重复事件忽略，缺口停止 Host 并报错。history capability 落地前不尝试拼接缺失事件。
 - 旧 SDK 回归模式仍消费 `session.event`；两种 envelope 共用相同提交事件投影，UI 不生成或持久化会话历史。
 - Stop 不直接修改 transcript；DSH 提交的 `turn/end.reason.kind == "aborted"` 投影为取消 notice。若取消发生在回合完成之后，按实际提交结果展示，不补造取消行。取消后的同一 session 继续从原有 `nextSeq` 接收下一回合。
 - `approval/request` / `approval/closed` 是连接内临时交互，由 `internal/interaction` 管理，不进入 transcript。审批结果只通过 Host 提交的工具结果体现；弹窗展示原始关联参数，不使用下述截断后的工具行。idle、失败和退出清理临时队列，不伪造审批历史。
 - `question/request` / `question/closed` 同样由交互层管理，不把本地表单或取消动作写成历史。结构化答案通过真实 `ask_user_question` 工具结果进入 Host 日志；当前仅支持阻塞等待，尚不投影 timed/continued 问题或迟到回复。会话 idle 清理本会话提问，无 agent 请求不随会话 idle 消失。
-- 文本按 rune 截断：消息 8000、工具内容 4000；完整历史与展开查看留给 P2。
-- 已有可见 text 的增量展示；reasoning、工具参数不展示为临时正文。无 history、无 Markdown、无 usage/context 展示、无 diff。
+- 列表预览按 rune 截断：消息 8000、工具参数/结果 4000；工具详情按下述独立字节预算保留，超限或淘汰必须提示，不冒充完整内容。完整历史仍待实现。
+- 已有可见 text 的增量展示及工具折叠/只读 diff；reasoning、工具参数不展示为临时正文。无 history、无 Markdown、无 usage/context 展示。
 
 ## 真相源
 
@@ -165,8 +165,12 @@ idle
 
 - `tool/call.arguments` 是模型产出的原始 JSON 字符串；展示前解析，解析失败时显示原文。
 - `tool/result.message` 是模型可见结果；`error` 是失败身份与用户可读原因；`meta` 是工具私有展示数据。
-- 文件编辑工具可能在 `tool/result.meta` 中携带 diff；有则用 `editor.DiffView`，没有则退化为文本 diff 或纯文本结果。
-- 工具结果可能很大：默认折叠，按需展开；不要一次性放进 Markdown 渲染。
+- 当前识别 DSH `FileDiff`：`meta.diffs: [{ path, oldText: string|null, newText: string }]`。每项是记录的上下文 hunk，不是整文件快照；同一路径可有多个 hunk。`oldText: null` 仅表示此 hunk 无旧文本，不据此断言文件创建。
+- 新建文件可能只有 `operation: create` 和空 `diffs`，显示创建状态，不从参数或磁盘合成 diff。空非创建 diff 显示无文本 hunk；缺少/非法/超限元数据回退结果文本，不展示半份有效元数据。
+- 路径只展示，不 resolve、打开、执行或读取；本地投影不重新计算文件真相，不改 Host/协议。元数据对象最多 256 KiB、16 个 hunk，路径最多 4096 UTF-8 字节，全部前后文本与路径共最多 128 KiB；字段类型和 NUL 校验失败时整批回退。
+- 工具卡片默认折叠，标题和运行/完成/错误状态常驻；展开看短预览，`View details` 切换 Arguments / Result / Changes。结果按可见内容保留，错误原因独立于原始结果显示，不因错误覆盖原始结果详情。
+- 每项参数/结果各最多保留 64 KiB，按 UTF-8 边界截断并明确标记。Transcript 额外详情缓存预算 4 MiB，超限淘汰最旧详情，保留列表预览和淘汰提示；当前不自动重新拉取，不能把残留预览称为完整历史。长/复杂 JSON 参数不全量缩进，避免预览放大。
+- 原生 `editor.DiffView` 仅按需构建一个只读 hunk，禁用编辑和 Revert/Keep；前后文本合计超过 16 KiB 或 400 个换行时不在 UI 线程计算 diff，改为明确标注的只读 Before/After 文本。切换 hunk、结果更新或缓存淘汰会替换/释放旧缓冲，关闭检视器清理全部检视状态。
 - 同一 `callId` 的 call/result 必须配对；结果先到（异常）时保留占位并在结果到达后补齐。
 
 ## 状态与使用量

@@ -6,7 +6,7 @@ DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node Host（`dsh-ba
 - 当前阶段：路线 A（SDK 验证）→ 路线 C（自定义 channel）。
 - 目标平台：macOS、Windows；Linux 视后续需要。
 
-自定义 channel、回合取消、工具审批、用户提问与文本流式已落地：默认使用 `mygo` profile，校验 UI/Host/DSH 版本，显式创建会话、发送 prompt、显示提交后的 user/assistant/tool 事件与 running/idle 状态。协商后提供逐字文本、Stop、原生 Allow once / Deny 审批与多问题问答表单，保留会话与下一条草稿。流式只展示可见正文，提交后不重复答案。SDK 链路保留作回归入口。Markdown、timed/continued 提问、历史、设置与打包尚未实现。
+自定义 channel、回合取消、工具审批、用户提问、文本流式与工具折叠/diff 已落地：默认使用 `mygo` profile，校验 UI/Host/DSH 版本，显式创建会话、发送 prompt、显示提交后的 user/assistant/tool 事件与 running/idle 状态。协商后提供逐字文本、Stop、原生审批与问答表单，保留会话与下一条草稿。工具默认折叠，支持有界参数/结果详情和只读 hunk 检视；流式提交后不重复答案。SDK 链路保留作回归入口。Markdown、timed/continued 提问、历史、设置与打包尚未实现。
 
 ## 文档
 
@@ -38,6 +38,8 @@ go run . -host-command node -host-arg testdata/fake-mygo-host.mjs
 验证问答时额外传入 `-host-arg --question`（连续两次用 `--question-twice`）：展示单选、多选、自由文本问题；Submit answers 提交整批答案，Cancel question 或 Escape 取消提问，Stop turn 停止回合。
 
 验证流式时额外传入 `-host-arg --stream`：第一回合先显示 `Live prefix`，再提交完整答案。`--stream-wait` 保持部分文本直到 Stop；`--no-stream` 模拟未声明能力的旧 Host。后续回合恢复 Echo。
+
+验证工具卡片时额外传入 `-host-arg --tool-diff`：发送任意消息后展开 `Tool · edit`，点击 `View details`，切换 Arguments / Result / Changes 并逐个查看记录的 hunk。该演示不写真实文件。详情超限/缓存淘汰会明确提示，diff 不提供编辑或应用操作。
 
 原生窗口 + 真实自定义 profile（Node 24+；DSH `0.2.1-rc.2`）：
 

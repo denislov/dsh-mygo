@@ -85,6 +85,10 @@ go test ./internal/channel ./internal/app
 
 `TestAgainstMygoRealStreaming` 使用真实 DSH agent loop 与 mock adapter，在随机 localhost 测试控制端口暂停生成。先断言 UI 已显示 `Live prefix` 而 durable transcript 尚无 assistant，再放行完整答案或 Stop/退出；验证唯一最终行、保留草稿与同会话 pong。不依赖付费模型，也不靠固定延时猜测真实流式时点。fake `--stream` / `--stream-wait` 和 ui.NewTester 覆盖原生行生命周期与旧 Host 仅提交模式。
 
+工具详情覆盖结果先到的精确配对、不可变快照、64 KiB UTF-8 截断、4 MiB 淘汰、非法元数据整批回退、创建空 diff、多文件/hunk 与大 hunk 文本降级。ui.NewTester 验证默认折叠、稳定身份、详情页切换、只读 DiffView、更新/淘汰释放缓冲、Escape 关闭和交互优先；动画后点击使用测试时钟推进，不靠真实等待。
+
+`TestAgainstMygoToolDiffs/real` 通过真实 `write` / `edit` 工具在临时工作区创建并编辑文件，验证创建无 hunk 的元数据与真实 before/after hunk，不调用付费模型。fake `--tool-diff` 提供多路径 hunk，供 Windows 原生 UI Automation 检查折叠、详情、导航、关闭与 Host 回收，不触碰真实文件。
+
 断言：
 
 - 每个请求都有响应或明确超时。

@@ -23,7 +23,7 @@ func TestViewShowsTranscriptAndStatus(t *testing.T) {
 		{ID: "3", Kind: projection.KindTool, Title: "Tool · read_file", Text: `{"path": "a.txt"}`, Detail: "file contents", State: "done"},
 	}
 	tt := tester(model)
-	for _, text := range []string{"You", "hello", "Assistant", "pong", "Tool · read_file", "file contents", "Ready"} {
+	for _, text := range []string{"You", "hello", "Assistant", "pong", "Tool · read_file", "Ready"} {
 		if !tt.HasText(text) {
 			t.Errorf("missing %q in %v", text, tt.Texts())
 		}
