@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,26 +23,28 @@ import (
 )
 
 const (
-	initializeTimeout = 60 * time.Second
-	promptTimeout     = 60 * time.Second
-	stopTimeout       = 5 * time.Second
-	maxErrorRunes     = 3000
+	initializeTimeout   = 60 * time.Second
+	promptTimeout       = 60 * time.Second
+	stopTimeout         = 5 * time.Second
+	maxErrorRunes       = 3000
+	maxPendingUIUpdates = 32
 )
 
 // Options describes one host session and how to publish view updates.
 type Options struct {
 	// Launch is the resolved host process configuration.
 	Launch host.Config
-	// CWD is recorded on the SDK session header.
+	// CWD is recorded on the Host session header.
 	CWD string
 	// Provider and Model select the model route.
 	Provider string
-	// Model is the model id sent in initialize.
+	// Model is the model id used when creating a session.
 	Model string
 	// ReasoningEffort is optional; empty leaves it to the host.
 	ReasoningEffort string
-	// SessionID names the SDK session this window drives.
-	SessionID string
+	// SessionID names the session in legacy SDK mode; custom channel ids come from the Host.
+	SessionID   string
+	SDKProtocol bool
 	// MaxFrame bounds one JSON-RPC frame; zero uses the channel default.
 	MaxFrame int
 	// Post runs fn on the window's main thread. A nil Post runs it inline,
@@ -73,8 +76,12 @@ type App struct {
 	awaitingTurn bool
 	sawActivity  bool
 	promptID     uint64
+	sessionID    string
+	nextSeq      uint64
 
 	shuttingDown atomic.Bool
+	stopped      chan struct{}
+	pendingUI    chan struct{}
 }
 
 // New creates an app. The caller starts it once the window exists.
@@ -82,7 +89,7 @@ func New(options Options) *App {
 	if options.Post == nil {
 		options.Post = func(fn func()) { fn() }
 	}
-	app := &App{options: options}
+	app := &App{options: options, sessionID: options.SessionID, stopped: make(chan struct{}), pendingUI: make(chan struct{}, maxPendingUIUpdates)}
 	app.model = view.NewModel()
 	if options.Provider != "" && options.Model != "" {
 		app.model.ModelLabel = options.Provider + " · " + options.Model
@@ -106,14 +113,32 @@ func (a *App) Start() {
 	}
 	a.mu.Lock()
 	a.supervisor = supervisor
+	if a.shuttingDown.Load() {
+		a.mu.Unlock()
+		a.stopHost()
+		return
+	}
 	a.mu.Unlock()
 
 	client := channel.NewClient(supervisor.Stdout(), supervisor.Stdin(), a.options.MaxFrame)
 	client.OnNotification(func(method string, params json.RawMessage) {
-		a.post(func() { a.handleNotification(method, params) })
+		select {
+		case a.pendingUI <- struct{}{}:
+		case <-a.stopped:
+			return
+		}
+		a.post(func() {
+			defer func() { <-a.pendingUI }()
+			a.handleNotification(method, params)
+		})
 	})
 	a.mu.Lock()
 	a.client = client
+	if a.shuttingDown.Load() {
+		a.mu.Unlock()
+		a.stopHost()
+		return
+	}
 	a.mu.Unlock()
 
 	go a.watchHost(supervisor)
@@ -123,43 +148,107 @@ func (a *App) Start() {
 			return
 		}
 		a.fail("The host connection closed", err)
+		a.stopHost()
 	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), initializeTimeout)
 	defer cancel()
-	params := map[string]any{
-		"cwd":      a.options.CWD,
-		"provider": a.options.Provider,
-		"model":    a.options.Model,
-	}
-	if a.options.ReasoningEffort != "" {
-		params["reasoningEffort"] = a.options.ReasoningEffort
-	}
-	result, err := client.Call(ctx, "initialize", params)
+	initialized, err := a.initialize(ctx, client)
 	if err != nil {
+		if !a.options.SDKProtocol {
+			err = fmt.Errorf("%w\n\nCheck that the mygo profile contains dsh-base and @dsh-mygo/host. Initialize a new development profile with resources/host/setup-profile.mjs --dsh-home <absolute-directory>", err)
+		}
 		a.fail("Could not initialize the host", err)
 		a.stopHost()
 		return
 	}
 
-	var initialized struct {
-		ServerInfo struct {
-			Name    string `json:"name"`
-			Version string `json:"version"`
-		} `json:"serverInfo"`
-	}
-	_ = json.Unmarshal(result, &initialized)
 	a.post(func() {
 		if a.shuttingDown.Load() || a.model.Phase == view.PhaseFailed {
 			return
 		}
-		if initialized.ServerInfo.Name != "" || initialized.ServerInfo.Version != "" {
-			a.model.Detail = strings.TrimSpace(initialized.ServerInfo.Name + " " + initialized.ServerInfo.Version)
-		}
+		a.sessionID = initialized.sessionID
+		a.nextSeq = initialized.nextSeq
+		a.model.Detail = initialized.detail
 		if a.model.Phase == view.PhaseStarting {
 			a.model.Phase = view.PhaseIdle
 		}
 	})
+}
+
+type initializedSession struct {
+	sessionID string
+	nextSeq   uint64
+	detail    string
+}
+
+func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSession, error) {
+	if a.options.SDKProtocol {
+		params := map[string]any{"cwd": a.options.CWD, "provider": a.options.Provider, "model": a.options.Model}
+		if a.options.ReasoningEffort != "" {
+			params["reasoningEffort"] = a.options.ReasoningEffort
+		}
+		result, err := client.Call(ctx, "initialize", params)
+		if err != nil {
+			return initializedSession{}, err
+		}
+		var initialized struct {
+			ServerInfo struct {
+				Name    string `json:"name"`
+				Version string `json:"version"`
+			} `json:"serverInfo"`
+		}
+		if json.Unmarshal(result, &initialized) != nil || initialized.ServerInfo.Name == "" {
+			return initializedSession{}, errors.New("invalid SDK host handshake")
+		}
+		return initializedSession{sessionID: a.options.SessionID, detail: strings.TrimSpace(initialized.ServerInfo.Name + " " + initialized.ServerInfo.Version)}, nil
+	}
+	result, err := client.Call(ctx, "initialize", map[string]any{
+		"protocolVersion": channel.ProtocolVersion,
+		"client":          map[string]string{"name": "dsh-mygo", "version": channel.ReleaseVersion, "platform": runtime.GOOS, "locale": "zh-CN"},
+		"capabilities":    []string{},
+	})
+	if err != nil {
+		return initializedSession{}, err
+	}
+	initialized, err := channel.DecodeInitialize(result)
+	if err != nil {
+		return initializedSession{}, err
+	}
+	params := map[string]any{"cwd": a.options.CWD, "provider": a.options.Provider, "model": a.options.Model}
+	if a.options.ReasoningEffort != "" {
+		params["effort"] = a.options.ReasoningEffort
+	}
+	result, err = client.Call(ctx, "session/create", params)
+	if err != nil {
+		return initializedSession{}, err
+	}
+	var created struct {
+		Session struct {
+			ID      string  `json:"id"`
+			Status  string  `json:"status"`
+			NextSeq *uint64 `json:"nextSeq"`
+		} `json:"session"`
+	}
+	if json.Unmarshal(result, &created) != nil || !validSessionID(created.Session.ID) || created.Session.Status != "idle" || created.Session.NextSeq == nil {
+		return initializedSession{}, errors.New("invalid session/create response")
+	}
+	return initializedSession{
+		sessionID: created.Session.ID, nextSeq: *created.Session.NextSeq,
+		detail: initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
+	}, nil
+}
+
+func validSessionID(value string) bool {
+	if len(value) == 0 || len(value) > 128 {
+		return false
+	}
+	for _, character := range value {
+		if character != '-' && character != '_' && !(character >= 'a' && character <= 'z') && !(character >= 'A' && character <= 'Z') && !(character >= '0' && character <= '9') {
+			return false
+		}
+	}
+	return true
 }
 
 // Send queues one user prompt. It runs on the main thread and ignores calls
@@ -180,15 +269,19 @@ func (a *App) Send(text string) {
 	a.awaitingTurn = true
 	a.sawActivity = false
 	a.promptID++
-	go a.prompt(client, text, a.promptID)
+	go a.prompt(client, text, a.promptID, a.sessionID)
 }
 
-func (a *App) prompt(client rpcClient, text string, promptID uint64) {
+func (a *App) prompt(client rpcClient, text string, promptID uint64, sessionID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), promptTimeout)
 	defer cancel()
+	contentField := "content"
+	if a.options.SDKProtocol {
+		contentField = "contentBlocks"
+	}
 	_, err := client.Call(ctx, "session/prompt", map[string]any{
-		"sessionId": a.options.SessionID,
-		"contentBlocks": []map[string]any{
+		"sessionId": sessionID,
+		contentField: []map[string]any{
 			{"type": "text", "text": text},
 		},
 	})
@@ -215,14 +308,54 @@ func (a *App) DismissError() {
 
 // handleNotification runs on the main thread.
 func (a *App) handleNotification(method string, params json.RawMessage) {
+	if a.shuttingDown.Load() || a.model.Phase == view.PhaseFailed {
+		return
+	}
+	if !a.options.SDKProtocol {
+		switch method {
+		case "session/event":
+			method = "session.event"
+		case "session/status":
+			method = "session.status"
+		case "host/fatal":
+			a.setFailure("The host reported an agent failure", errors.New("Restart the host before retrying"))
+			go a.stopHost()
+			return
+		case "session.event", "session.status":
+			a.setFailure("Invalid host notification", errors.New("SDK notifications are not valid on the mygo channel"))
+			go a.stopHost()
+			return
+		}
+	}
 	switch method {
 	case "session.event":
 		notification, err := projection.DecodeNotification(params)
 		if err != nil {
+			if !a.options.SDKProtocol {
+				a.setFailure("Invalid host event", errors.New("The host sent an invalid session event"))
+				go a.stopHost()
+			}
 			return
 		}
-		if notification.SessionID != a.options.SessionID {
+		if notification.SessionID != a.sessionID {
 			return
+		}
+		if !a.options.SDKProtocol {
+			var envelope struct {
+				Seq   *uint64 `json:"seq"`
+				Event struct {
+					Seq *uint64 `json:"seq"`
+				} `json:"event"`
+			}
+			if json.Unmarshal(params, &envelope) != nil || envelope.Seq == nil || envelope.Event.Seq == nil || *envelope.Seq != notification.Event.Seq || *envelope.Seq > a.nextSeq {
+				a.setFailure("Invalid session event sequence", errors.New("Restart the host; this version cannot resynchronize history"))
+				go a.stopHost()
+				return
+			}
+			if *envelope.Seq < a.nextSeq {
+				return
+			}
+			a.nextSeq++
 		}
 		if isTurnActivity(notification.Event.Type) {
 			a.sawActivity = true
@@ -235,7 +368,19 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 			SessionID string `json:"sessionId"`
 			Status    string `json:"status"`
 		}
-		if json.Unmarshal(params, &notification) != nil || notification.SessionID != a.options.SessionID {
+		if json.Unmarshal(params, &notification) != nil {
+			if !a.options.SDKProtocol {
+				a.setFailure("Invalid host status", errors.New("The host sent an invalid session status"))
+				go a.stopHost()
+			}
+			return
+		}
+		if notification.SessionID != a.sessionID {
+			return
+		}
+		if !a.options.SDKProtocol && notification.Status != "idle" && notification.Status != "running" {
+			a.setFailure("Invalid host status", errors.New("The host sent an unknown session status"))
+			go a.stopHost()
 			return
 		}
 		a.applyStatus(notification.Status)
@@ -272,6 +417,7 @@ func (a *App) Shutdown(timeout time.Duration) {
 	if !a.shuttingDown.CompareAndSwap(false, true) {
 		return
 	}
+	close(a.stopped)
 	a.mu.Lock()
 	client := a.client
 	supervisor := a.supervisor
@@ -322,8 +468,10 @@ func (a *App) setFailure(summary string, err error) {
 	if err != nil {
 		detail = err.Error()
 	}
-	if tail := a.stderrTail(); tail != "" {
-		detail += "\n\nHost stderr:\n" + tail
+	if a.options.SDKProtocol {
+		if tail := a.stderrTail(); tail != "" {
+			detail += "\n\nHost stderr:\n" + tail
+		}
 	}
 	a.model.ErrorDetail = clipDetail(detail, maxErrorRunes)
 	a.awaitingTurn = false

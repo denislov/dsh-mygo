@@ -2,7 +2,7 @@
 
 ## 职责
 
-`@your-scope/dsh-mygo-app` 是 dsh-mygo 在 DSH 侧的唯一边界：
+`@dsh-mygo/host` 是 dsh-mygo 在 DSH 侧的唯一边界：
 
 - 把 dsh-mygo profile 组合成 `dsh-base` + 自有行。
 - 提供 Host 启动入口（命令解析、生命周期、stdio 占用）。
@@ -10,17 +10,25 @@
 - 实现 channel server 与 session 投影所需的 Host 侧服务。
 - 不包含 Web 传输、浏览器客户端或 Electron 适配。
 
+## 当前实现（自定义 channel 阶段 1）
+
+实现位于 `resources/host/`：`index.mjs` 提供 startup，`channel.mjs` 装配 DSH 公开服务，`server.mjs` 实现会话方法，`transport.mjs` 负责有界 stdio 帧。当前是无需 JS 构建步骤的本地 ESM bundle，尚未发布到 npm；Node/runtime 分发未落地。
+
+profile 由 `dsh-base` + `@dsh-mygo/host` 组成。channel 依赖 launcher 的 `appReady`，只在真实 Loader 启动成功后接管 stdio；握手再次等待 Loader 稳定，并检查 `profileContext.startedBundles`。当前能力与版本以 [通道协议](channel-protocol.md) 为准。
+
+审批和提问目前由 fail-closed answerer 明确拒绝；交互队列、回答方法和 UI 在阶段 2 实现。后文私有 Host、发布安装和包管理描述后续设计。
+
 ## 包形态
 
 ```json
 {
-  "name": "@your-scope/dsh-mygo-app",
+  "name": "@dsh-mygo/host",
   "version": "0.1.0",
   "type": "module",
-  "main": "lib/index.js",
+  "main": "index.mjs",
   "exports": {
-    ".": "./lib/index.js",
-    "./channel": "./lib/channel.js",
+    ".": "./index.mjs",
+    "./channel": "./channel.mjs",
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
@@ -30,14 +38,14 @@
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:~"
+    "@deepseek-ai/cordis": "4.0.5"
   }
 }
 ```
 
 - `main` 是 Cordis 插件入口。
 - `dsh.bundle.patch` 让 `dsh plugin --profile mygo add` 识别这个包是 bundle。
-- 依赖 DSH 的包用 `workspace:*` 或与 DSH 版本对齐的精确版本；不要依赖内部实现路径。
+- 本仓库不属于 DSH workspace，使用精确 peer 版本并由 profile 的 runtime resolution 提供；完整 manifest 见 `resources/host/package.json`。不依赖 DSH 内部实现路径。
 
 ## Bundle patch
 
@@ -45,15 +53,17 @@
 # 以 dsh-base 为底，只加 dsh-mygo 的宿主侧入口。
 - insert:
     - id: mygo-app-startup
-      name: '@your-scope/dsh-mygo-app'
+      name: '@dsh-mygo/host'
       config:
         profile: mygo
 
     - id: mygo-channel
-      name: '@your-scope/dsh-mygo-app/channel'
-      inject: [mygoAppStartup]
+      name: '@dsh-mygo/host/channel'
+      inject: [mygoAppStartup, loader]
       config:
-        maxFrameBytes: 1048576
+        maxFrameBytes: 16777216
+        maxQueuedBytes: 33554432
+        maxSessions: 8
 ```
 
 行 id 是 patch 的稳定接口；重命名会破坏用户的 profile patch。新增行用新 id；废弃行先 disable，再在下个 major 移除。
@@ -86,13 +96,13 @@ base 已经包含这些行；bundle 不应重复插入，除非需要覆盖配�
 
 ## 启动入口
 
-### 方案一：`dsh --profile mygo`
+### 当前入口：`dsh --profile mygo`
 
 - 复用 CLI 的 profile 解析、`profileContext`、插件管理、`--patch`。
 - 需要 startup provider 处理参数与 help，避免 `dsh --profile mygo` 打印帮助后退出。
 - stdout 必须只属于 channel。
 
-### 方案二：私有 `mygo-host`
+### 后续入口：私有 `mygo-host`
 
 - 直接 `import { runProfile } from '@deepseek-ai/dsh/profile-boot'`。
 - 自己提供 `environment`、`profile`、`resolvedProfile`、`patchFiles`、`args`。
@@ -136,17 +146,19 @@ export function apply(ctx: Context, config: Config) {
 
 ## Profile 初始化
 
-### 安装
+### 当前开发初始化
 
 ```sh
-dsh plugin --profile mygo add @your-scope/dsh-mygo-app
+node resources/host/setup-profile.mjs --dsh-home D:/Temp/dsh-mygo-dev
 ```
 
 这会：
 
-1. 创建 `$DSH_HOME/profiles/mygo`（若不存在）。
-2. 安装包与依赖。
-3. 把 bundle 加入 `dsh.profile.bundles`。
+1. 在指定绝对 `DSH_HOME` 下创建新的 `profiles/mygo`；目标已存在时拒绝，不覆盖用户文件。
+2. 将本仓库 bundle 链接到 profile 的 `node_modules/@dsh-mygo/host`；Windows 使用 junction，不修改 DSH checkout。
+3. 写入 `dsh.profile.bundles: ["@deepseek-ai/dsh-base", "@dsh-mygo/host"]` 和空用户 patch；不运行包安装器。
+
+该 profile 通过 DSH 的正式 CLI 和 Loader 启动，并复用安装侧公开 peer 包。发布时改为安装/携带完整 bundle 和 runtime，不能依赖开发机的仓库链接。
 
 ### 首启校验
 

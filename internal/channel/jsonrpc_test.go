@@ -9,10 +9,30 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestInvalidFrameConformance(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "tests", "fixtures", "protocol", "invalid-frames.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var frames []string
+	if err := json.Unmarshal(data, &frames); err != nil {
+		t.Fatal(err)
+	}
+	for index, frame := range frames {
+		t.Run(fmt.Sprintf("frame-%d", index), func(t *testing.T) {
+			if _, err := readMessage(bufio.NewReader(strings.NewReader(frame)), 1024); err == nil {
+				t.Fatal("invalid protocol frame accepted")
+			}
+		})
+	}
+}
 
 func TestCallAndNotification(t *testing.T) {
 	clientConn, serverConn := net.Pipe()

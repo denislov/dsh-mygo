@@ -6,7 +6,7 @@ DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node Host（`dsh-ba
 - 当前阶段：路线 A（SDK 验证）→ 路线 C（自定义 channel）。
 - 目标平台：macOS、Windows；Linux 视后续需要。
 
-当前 P1：原生窗口可以启动 Host、发送 prompt、显示提交后的 user/assistant/tool 事件与 running/idle 状态。逐字流式、审批、提问、历史、设置与打包在 P2。
+自定义 channel 阶段 1 已落地：默认使用 `mygo` profile，校验 UI/Host/DSH 版本，显式创建会话、发送 prompt、显示提交后的 user/assistant/tool 事件与 running/idle 状态。SDK 链路保留作回归入口。逐字流式、审批、提问、历史、设置、取消与打包尚未实现。
 
 ## 文档
 
@@ -28,14 +28,31 @@ go tool mygo build
 原生窗口 + fake host（无需 DSH 或 API key）：
 
 ```sh
-go run . -host-command node -host-arg testdata/fake-sdk-host.mjs
+go run . -host-command node -host-arg testdata/fake-mygo-host.mjs
 ```
 
-原生窗口 + 真实 SDK profile：
+原生窗口 + 真实自定义 profile（Node 24+；DSH `0.2.1-rc.2`）：
 
 ```sh
-# DSH checkout 先 pnpm install；DEEPSEEK_API_KEY 只从环境读取
-go run . -dsh-dir D:/Workspace/deepseek-harness -dsh-home <临时目录>
+# DSH checkout 先安装依赖并构建；DEEPSEEK_API_KEY 只从环境读取
+node resources/host/setup-profile.mjs --dsh-home D:/Temp/dsh-mygo-dev
+go run . -dsh-dir D:/Workspace/deepseek-harness -dsh-home D:/Temp/dsh-mygo-dev
+```
+
+初始化脚本只创建新的 `mygo` profile，将本仓库的 `resources/host` 链接为 bundle；已有 profile 不会被覆盖。`go tool mygo dev` 使用的 `DSH_HOME` 中也需要先初始化该 profile；这是开发入口，运行时打包留到后续阶段。
+
+无需 API key 的真实 Loader + mock 模型集成（PowerShell）：
+
+```powershell
+$env:DSH_MYGO_DSH_DIR = 'D:/Workspace/deepseek-harness'
+go test ./internal/app -run TestAgainstMygoRealComposition -v -timeout 2m
+node --test resources/host/tests/protocol.test.mjs
+```
+
+显式使用旧 SDK 窗口链路：
+
+```sh
+go run . -sdk-protocol -profile sdk -host-command node -host-arg testdata/fake-sdk-host.mjs
 ```
 
 P0 协议 spike（不开窗口，打印提交事件）：

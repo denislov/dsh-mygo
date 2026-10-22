@@ -13,12 +13,13 @@ import (
 )
 
 type fakeClient struct {
-	mu     sync.Mutex
-	calls  []string
-	params []any
-	result json.RawMessage
-	err    error
-	closed bool
+	mu      sync.Mutex
+	calls   []string
+	params  []any
+	result  json.RawMessage
+	results map[string]json.RawMessage
+	err     error
+	closed  bool
 }
 
 func (f *fakeClient) Call(_ context.Context, method string, params any) (json.RawMessage, error) {
@@ -26,6 +27,9 @@ func (f *fakeClient) Call(_ context.Context, method string, params any) (json.Ra
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, method)
 	f.params = append(f.params, params)
+	if result, ok := f.results[method]; ok {
+		return result, f.err
+	}
 	return f.result, f.err
 }
 
@@ -47,11 +51,12 @@ func (f *fakeClient) called() []string {
 
 func newTestApp(client rpcClient) *App {
 	application := New(Options{
-		CWD:       "C:/work",
-		Provider:  "deepseek-official",
-		Model:     "deepseek-flash",
-		SessionID: "s1",
-		Post:      func(fn func()) { fn() },
+		CWD:         "C:/work",
+		Provider:    "deepseek-official",
+		Model:       "deepseek-flash",
+		SessionID:   "s1",
+		SDKProtocol: true,
+		Post:        func(fn func()) { fn() },
 	})
 	application.client = client
 	application.model.Phase = view.PhaseIdle
@@ -176,5 +181,57 @@ func TestShutdownCallsHostAndClosesClient(t *testing.T) {
 	}
 	if !client.closed {
 		t.Fatal("client was not closed")
+	}
+}
+
+func TestMygoInitializeCreatesSessionAfterValidHandshake(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		handshake string
+		session   string
+		wantCalls int
+		valid     bool
+	}{
+		{"valid", `{"protocolVersion":1,"server":{"name":"dsh-mygo-host","version":"0.1.0","dshVersion":"0.2.1-rc.2"},"capabilities":["approval"]}`, `{"session":{"id":"host-session","status":"idle","nextSeq":7}}`, 2, true},
+		{"wrong protocol", `{"protocolVersion":2}`, `{}`, 1, false},
+		{"wrong release", `{"protocolVersion":1,"server":{"name":"host","version":"9","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`, `{}`, 1, false},
+		{"invalid session id", `{"protocolVersion":1,"server":{"name":"host","version":"0.1.0","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`, `{"session":{"id":"../unsafe","status":"idle","nextSeq":0}}`, 2, false},
+		{"missing baseline", `{"protocolVersion":1,"server":{"name":"host","version":"0.1.0","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`, `{"session":{"id":"s1","status":"idle"}}`, 2, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := &fakeClient{results: map[string]json.RawMessage{"initialize": json.RawMessage(test.handshake), "session/create": json.RawMessage(test.session)}}
+			application := newTestApp(client)
+			application.options.SDKProtocol = false
+			initialized, err := application.initialize(context.Background(), client)
+			if (err == nil) != test.valid {
+				t.Fatalf("initialize error = %v", err)
+			}
+			if len(client.called()) != test.wantCalls {
+				t.Fatalf("calls = %v", client.called())
+			}
+			if test.valid && (initialized.sessionID != "host-session" || initialized.nextSeq != 7) {
+				t.Fatalf("initialized = %+v", initialized)
+			}
+			if test.valid {
+				params := client.params[0].(map[string]any)
+				if len(params["capabilities"].([]string)) != 0 {
+					t.Fatal("unimplemented capabilities advertised")
+				}
+			}
+		})
+	}
+}
+
+func TestMygoEventsUseBaselineAndRejectGaps(t *testing.T) {
+	application := newTestApp(&fakeClient{})
+	application.options.SDKProtocol = false
+	application.nextSeq = 7
+	application.handleNotification("session/event", json.RawMessage(`{"sessionId":"s1","seq":7,"event":{"seq":7,"type":"user/message","data":{"source":{"kind":"user"},"content":[{"type":"text","text":"hello"}]}}}`))
+	if len(application.Model().Items) != 1 || application.nextSeq != 8 {
+		t.Fatalf("items = %+v, next seq = %d", application.Model().Items, application.nextSeq)
+	}
+	application.handleNotification("session/event", json.RawMessage(`{"sessionId":"s1","seq":9,"event":{"seq":9,"type":"turn/end","data":{}}}`))
+	if application.Model().Phase != view.PhaseFailed {
+		t.Fatal("event gap was silently accepted")
 	}
 }

@@ -5,9 +5,20 @@
 通道协议连接两件东西：
 
 - **Go UI**：MyGo 进程，发起请求、消费事件、展示界面。
-- **Host 插件**：`@your-scope/dsh-mygo-app`，在 DSH 的 Cordis 树中调用 agent/session/approval/user-questions 服务。
+- **Host 插件**：`@dsh-mygo/host`，在 DSH 的 Cordis 树中调用 agent/session/approval/user-questions 服务。
 
 协议只描述消息、顺序与错误，不描述 UI 布局，也不复制 DSH 的业务方法。
+
+## 当前实现（自定义 channel 阶段 1）
+
+- UI/Host 发布版本 `0.1.0`、`protocolVersion: 1`、DSH `0.2.1-rc.2` 精确绑定；不匹配时拒绝进入 ready。
+- 已实现 `initialize`、`session/create`、`session/prompt`、`shutdown`；通知为 `session/event`、`session/status`、`host/fatal`。
+- 双方 `capabilities` 均为 `[]`；下文其余方法、流式、附件、请求取消和 history 恢复是后续契约，当前不启用。
+- `session/create` 当前要求已有绝对目录 `cwd`、`provider`、`model`，可选 `effort`；Host 验证模型路由后创建并拥有 session id。只接受自己创建的会话和 text content，忙碌时拒绝新 prompt。
+- 创建结果中的 `session.nextSeq` 是创建完成时 DSH 的下一事件 offset。初始会话元数据不重放；后续完整提交事件从此 offset 开始转发。`session/event` 同时携带外层 `seq` 和原始 `event.seq`，两者必须相同。
+- Go 忽略重复事件；缺口或无效载荷使连接失败并停止 Host。当前没有 `session.history` capability，因此不能自动补齐。
+- 旧 SDK 的 `contentBlocks`、点分隔通知和隐式会话创建只在显式 `-sdk-protocol` 模式下启用，不自动降级。
+- Host 安装拒绝审批和拒绝提问的 answerer，避免未实现的交互挂起；不声明 approval/question capability。
 
 ## 传输
 
@@ -17,7 +28,8 @@
 - 请求：`{"jsonrpc":"2.0","id":1,"method":"session/create","params":{...}}`
 - 响应：`{"jsonrpc":"2.0","id":1,"result":{...}}` 或 `{"jsonrpc":"2.0","id":1,"error":{"code":...,"message":"...","data":{...}}}`
 - 通知：`{"jsonrpc":"2.0","method":"session/event","params":{...}}`
-- 最大帧长：自定义 channel 第一版建议 `1 MiB`（附件另算，见“附件”）；SDK 验证期因为 assistant 事件内嵌完整 stream，使用 `16 MiB` 上限。上限必须可配置。
+- 当前最大帧长为 `16 MiB`（包含换行）：阶段 1 仍转发内嵌完整 stream 的提交事件。Go 用 `-max-frame`，Host 用 `mygo-channel.config.maxFrameBytes` 配置，范围需一致。后续拆分流式后再评估缩小上限。
+- 不接受空行、无换行的末帧、非法 UTF-8、非法 id 或混合请求/响应结构；`params` 仅接受对象。id 为不超过 128 字符的非空字符串或安全整数。
 - 非法 JSON、未知帧结构、超长帧：关闭连接，Host 退出；UI 报协议错误。
 
 未来如果需要多窗口或调试端口，可以在同一消息集上增加 loopback WebSocket transport；消息语义不变。
@@ -48,7 +60,7 @@
 
 规则：
 
-- `protocolVersion` 不兼容时，Host 返回错误并退出；UI 显示版本不匹配。
+- `protocolVersion`、客户端 release 或 DSH 版本不兼容时，Host 返回错误并退出；UI 显示版本不匹配。协议/能力校验通过后才发送 `session/create`。
 - capability 取双方交集；UI 不调用未协商的方法。
 - `initialize` 之前只接受 `initialize` 与 `shutdown`。
 - 重复 `initialize` 返回 `already-initialized`。
@@ -198,8 +210,8 @@ type AssistantStreamFrame =
 
 ## 背压
 
-- Go → Host：请求队列有界；超过上限时 UI 显示“忙碌”，不无限堆积。
-- Host → Go：`session/event` 是持久事件，不能丢；UI 侧队列满时暂停读取 stdout（stdio 自然背压）。
+- Go → Host：当前 UI 在 busy 时禁用新 prompt；Host 顺序处理请求，并通过 `maxSessions`（默认 8）限制会话数量。
+- Host → Go：`session/event` 是持久事件，不能静默丢弃；Go 最多等待 32 个通知 UI 更新，满时暂停读取 stdout。Host 写队列由 `maxQueuedBytes`（默认 32 MiB）限制；超限关闭连接，使 UI 进入失败状态。
 - 只影响 UI 的派生通知（例如百分比进度）可以合并/丢弃；持久事件不可以。
 
 ## 版本化

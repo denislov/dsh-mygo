@@ -1,3 +1,4 @@
 /build/
+/.env
 /.mygo/
 mygo_windows_*.syso

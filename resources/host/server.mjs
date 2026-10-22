@@ -1,0 +1,144 @@
+import { randomUUID } from 'node:crypto'
+import { stat } from 'node:fs/promises'
+import { isAbsolute } from 'node:path'
+
+export const protocolVersion = 1
+export const releaseVersion = '0.1.0'
+export const supportedDshVersion = '0.2.1-rc.2'
+
+function fault(kind, message, code = -32000) {
+  return Object.assign(new Error(message), { kind, code })
+}
+
+function text(value, field, limit = 256) {
+  if (typeof value !== 'string' || value.trim().length === 0 || value.length > limit || value.includes('\0')) {
+    throw fault('protocol/invalid-params', `Invalid ${field}`, -32602)
+  }
+  return value
+}
+
+export class MygoServer {
+  constructor(ctx, { notify, createUserMessage, reasoningEffort, ensureProvider, dshVersion, maxSessions = 8 }) {
+    this.ctx = ctx
+    this.notify = notify
+    this.createUserMessage = createUserMessage
+    this.reasoningEffort = reasoningEffort
+    this.ensureProvider = ensureProvider
+    this.dshVersion = dshVersion
+    this.maxSessions = maxSessions
+    this.sessions = new Map()
+    this.initialized = false
+    this.stopping = false
+    this.disposers = [
+      ctx.on('session/event', (session, event) => {
+        const record = this.sessions.get(String(session.id))
+        if (record?.handle?.agent.session !== session) return
+        this.notify('session/event', { sessionId: String(session.id), seq: event.seq, event })
+      }),
+      ctx.on('agent/status', ({ agent, status }) => {
+        const record = this.sessions.get(String(agent.session.id))
+        if (record?.handle?.agent !== agent) return
+        if (status === 'idle') record.busy = false
+        this.notify('session/status', { sessionId: String(agent.session.id), status })
+      }),
+      ctx.on('agent/error', ({ agent }) => {
+        if (this.sessions.get(String(agent.session.id))?.handle?.agent !== agent) return
+        this.notify('host/fatal', { message: 'The agent failed. Restart the host before retrying.' })
+      }),
+    ]
+  }
+
+  async handle(method, params) {
+    if (method === 'shutdown') return this.shutdown()
+    if (this.stopping) throw fault('host/stopping', 'Host is stopping')
+    if (method === 'initialize') return this.initialize(params)
+    if (!this.initialized) throw fault('protocol/not-initialized', 'Initialize the host first')
+    switch (method) {
+      case 'session/create': return this.create(params)
+      case 'session/prompt': return this.prompt(params)
+      default: throw fault('protocol/method-not-found', 'Unknown channel method', -32601)
+    }
+  }
+
+  initialize(params) {
+    if (this.initialized) throw fault('protocol/already-initialized', 'Host is already initialized')
+    if (!Number.isSafeInteger(params.protocolVersion)) throw fault('protocol/invalid-params', 'Invalid protocolVersion', -32602)
+    if (params.protocolVersion !== protocolVersion) throw fault('protocol/version-mismatch', 'Incompatible channel protocol version')
+    if (this.dshVersion !== supportedDshVersion) throw fault('protocol/runtime-mismatch', 'Incompatible DSH runtime version')
+    if (params.client === null || typeof params.client !== 'object' || Array.isArray(params.client)) throw fault('protocol/invalid-params', 'Invalid client', -32602)
+    for (const field of ['name', 'version', 'platform', 'locale']) text(params.client[field], `client.${field}`)
+    if (params.client.version !== releaseVersion) throw fault('protocol/release-mismatch', 'UI and host release versions differ')
+    if (!Array.isArray(params.capabilities) || params.capabilities.length > 64) throw fault('protocol/invalid-params', 'Invalid capabilities', -32602)
+    for (const capability of params.capabilities) text(capability, 'capability')
+    this.initialized = true
+    return {
+      server: { name: 'dsh-mygo-host', version: releaseVersion, dshVersion: this.dshVersion },
+      protocolVersion, capabilities: [],
+    }
+  }
+
+  async create(params) {
+    const cwd = text(params.cwd, 'cwd', 32768)
+    if (!isAbsolute(cwd)) throw fault('protocol/invalid-params', 'Session cwd must be absolute', -32602)
+    const directory = await stat(cwd).catch(() => undefined)
+    if (!directory?.isDirectory()) throw fault('protocol/invalid-params', 'Session cwd must be an existing directory', -32602)
+    const provider = text(params.provider, 'provider')
+    const model = text(params.model, 'model')
+    const effort = params.effort === undefined ? undefined : text(params.effort, 'effort')
+    if (this.sessions.size >= this.maxSessions) throw fault('session/limit', 'Host session limit reached')
+    const record = { handle: undefined, busy: false }
+    const sessionId = randomUUID()
+    this.sessions.set(sessionId, record)
+    try {
+      await this.ensureProvider?.(provider)
+      const agentOptions = { provider, model, ...(effort === undefined ? {} : { reasoningEffort: this.reasoningEffort(effort) }) }
+      await this.ctx.llm.resolveCallConfig(agentOptions)
+      record.handle = await this.ctx.agents.create({ sessionId, meta: { cwd }, agentOptions })
+      return { session: {
+        id: sessionId, title: '', cwd, provider, model, effort: effort ?? '',
+        createdAt: Date.now(), updatedAt: Date.now(), status: 'idle', archived: false,
+        nextSeq: record.handle.agent.session.seq ?? 0,
+      } }
+    } catch {
+      this.sessions.delete(sessionId)
+      throw fault('session/create-failed', 'Could not create the session; check the model route and host configuration')
+    }
+  }
+
+  prompt(params) {
+    const sessionId = text(params.sessionId, 'sessionId', 128)
+    if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) throw fault('protocol/invalid-params', 'Invalid sessionId', -32602)
+    const record = this.sessions.get(sessionId)
+    if (!record?.handle) throw fault('session/not-found', 'Session is not owned by this host')
+    if (!Array.isArray(params.content) || params.content.length === 0 || params.content.length > 64) throw fault('protocol/invalid-params', 'Invalid content', -32602)
+    const content = params.content.map((block) => {
+      if (block === null || typeof block !== 'object' || Array.isArray(block) || block.type !== 'text') throw fault('protocol/invalid-params', 'Only text content is supported', -32602)
+      return { type: 'text', text: text(block.text, 'content text', 1024 * 1024) }
+    })
+    if (record.busy || record.handle.agent.status !== 'idle') throw fault('session/busy', 'Session is running')
+    record.busy = true
+    try {
+      const message = this.createUserMessage({ content, source: { kind: 'user' } })
+      record.handle.agent.followup(message)
+      return { messageId: message.id }
+    } catch {
+      record.busy = false
+      throw fault('session/prompt-failed', 'Could not deliver the prompt')
+    }
+  }
+
+  shutdown() {
+    this.shutdownTask ??= this.dispose()
+    return this.shutdownTask
+  }
+
+  async dispose() {
+    this.stopping = true
+    for (const dispose of this.disposers.splice(0)) dispose()
+    const records = [...this.sessions.values()]
+    await this.ctx.get('subagents')?.drainDescendants(records.filter((record) => record.handle).map((record) => record.handle.agent))
+    await Promise.all(records.map((record) => record.handle?.dispose()))
+    this.sessions.clear()
+    return {}
+  }
+}

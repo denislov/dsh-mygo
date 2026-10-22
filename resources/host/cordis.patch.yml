@@ -1,0 +1,23 @@
+- id: system-prompt
+  config:
+    personaPrefix: You are a coding agent powered by the {{model}} model.
+
+- id: session-title-llm
+  disabled: true
+
+- id: hmr
+  disabled: true
+
+- insert:
+    - id: mygo-app-startup
+      name: '@dsh-mygo/host'
+      config:
+        profile: mygo
+
+    - id: mygo-channel
+      name: '@dsh-mygo/host/channel'
+      inject: [mygoAppStartup, loader]
+      config:
+        maxFrameBytes: 16777216
+        maxQueuedBytes: 33554432
+        maxSessions: 8

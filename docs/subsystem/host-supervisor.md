@@ -15,12 +15,12 @@
 
 `internal/host` 已实现：
 
-- `ResolveLaunch`：三种入口——`-host-command` 覆盖、`-dsh-dir` source checkout（`node --import tsx/esm apps/cli/src/bin.ts --profile sdk`）、PATH 上的 `dsh --profile sdk`。`-dsh-home` 以大小写不敏感的方式替换 `DSH_HOME`。
+- `ResolveLaunch`：三种入口——`-host-command` 覆盖、`-dsh-dir` source checkout（`node --import tsx/esm apps/cli/src/bin.ts --profile mygo`）、PATH 上的 `dsh --profile mygo`。`-dsh-home` 以大小写不敏感的方式替换 `DSH_HOME`。
 - `Start`：建立 stdin/stdout/stderr 管道，stderr 保留最后 64 KiB；调用方通过 `Stdin` / `Stdout` 接 `ChannelClient`。
 - `Stop`：关闭 stdin，等待优雅退出；超时后杀进程。POSIX 杀进程组，Windows 杀进程句柄（Job Object 在打包阶段补齐）。
-- `App` 在初始化失败、Host 意外退出、协议读循环失败时进入 `Host error`，错误横幅显示 stderr 尾部（有界）。
+- `App` 在初始化失败、Host 意外退出、协议读循环失败时进入 `Host error`；自定义 channel 不把原始 stderr 放入错误横幅。显式 SDK 回归模式保留原有有界 stderr 详情。
 
-P1 不包含重启、健康检查、版本校验与崩溃报告落盘；这些在 P2 随自定义 channel 一起落地。
+自定义 channel 阶段 1 已增加版本校验、默认 `mygo` profile 和显式会话创建；SDK 模式由 `-sdk-protocol -profile sdk` 选择。重启、健康检查、崩溃报告落盘和 Windows Job Object 尚未实现。
 
 ## 入口选择
 

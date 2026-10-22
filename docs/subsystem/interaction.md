@@ -2,6 +2,8 @@
 
 ## 职责
 
+当前自定义 Host 阶段 1 不开放交互 UI，也不声明 approval/question capability。Host 对审批返回 `unavailable`，对用户提问返回明确失败，防止工具等待没有 answerer 的请求。本页其余内容描述阶段 2 的交互契约。
+
 `interaction` 子系统把 DSH 的两类人机交互桥接到原生 UI：
 
 - **审批**：工具执行前要求用户允许/拒绝。

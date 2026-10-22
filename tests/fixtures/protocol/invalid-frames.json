@@ -1,0 +1,21 @@
+[
+  "{}\n",
+  "null\n",
+  "[]\n",
+  "not-json\n",
+  "\n",
+  "{\"id\":1,\"method\":\"initialize\"}\n",
+  "{\"jsonrpc\":\"1.0\",\"id\":1,\"method\":\"initialize\"}\n",
+  "{\"jsonrpc\":\"2.0\",\"id\":null,\"method\":\"initialize\"}\n",
+  "{\"jsonrpc\":\"2.0\",\"id\":[],\"method\":\"initialize\"}\n",
+  "{\"jsonrpc\":\"2.0\",\"id\":true,\"method\":\"initialize\"}\n",
+  "{\"jsonrpc\":\"2.0\",\"id\":1.5,\"method\":\"initialize\"}\n",
+  "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":null}\n",
+  "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":[]}\n",
+  "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"result\":{}}\n",
+  "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"error\":null}\n",
+  "{\"jsonrpc\":\"2.0\",\"id\":1}\n",
+  "{\"jsonrpc\":\"2.0\",\"result\":{}}\n",
+  "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{},\"error\":{\"code\":-32603,\"message\":\"failed\"}}\n",
+  "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}"
+]

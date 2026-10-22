@@ -10,8 +10,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"sync"
 	"sync/atomic"
+	"unicode/utf8"
 )
 
 // DefaultMaxFrameBytes bounds one inbound or outbound JSON-RPC frame.
@@ -287,29 +289,72 @@ func (c *Client) write(value any) error {
 	return nil
 }
 
-// readMessage reads one newline-terminated frame, skipping blank lines.
+// readMessage reads and validates one newline-terminated frame.
 func readMessage(r *bufio.Reader, maxFrame int) (message, error) {
 	for {
 		line, err := readLine(r, maxFrame)
 		if err != nil {
 			return message{}, err
 		}
-		if len(line) == 0 {
-			continue
+		if len(line) == 0 || !utf8.Valid(line) {
+			return message{}, errors.New("channel: invalid JSON-RPC frame")
 		}
 		var msg message
 		if err := json.Unmarshal(line, &msg); err != nil {
-			return message{}, fmt.Errorf("channel: invalid JSON-RPC frame: %w", err)
+			return message{}, errors.New("channel: invalid JSON-RPC frame")
 		}
-		if msg.JSONRPC != "" && msg.JSONRPC != "2.0" {
-			return message{}, fmt.Errorf("channel: unsupported JSON-RPC version %q", msg.JSONRPC)
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(line, &fields) != nil || msg.JSONRPC != "2.0" {
+			return message{}, errors.New("channel: invalid JSON-RPC version or frame")
+		}
+		_, hasMethod := fields["method"]
+		_, hasResult := fields["result"]
+		_, hasError := fields["error"]
+		_, hasID := fields["id"]
+		if hasID && !validID(msg.ID) {
+			return message{}, errors.New("channel: invalid JSON-RPC id")
+		}
+		if hasMethod {
+			if msg.Method == "" || len(msg.Method) > 128 || hasResult || hasError {
+				return message{}, errors.New("channel: invalid JSON-RPC request")
+			}
+			if raw, exists := fields["params"]; exists {
+				var params map[string]json.RawMessage
+				if json.Unmarshal(raw, &params) != nil || params == nil {
+					return message{}, errors.New("channel: invalid JSON-RPC params")
+				}
+			}
+		} else {
+			if !hasID || hasResult == hasError || fields["params"] != nil {
+				return message{}, errors.New("channel: invalid JSON-RPC response")
+			}
+			if hasError {
+				var failure map[string]json.RawMessage
+				if json.Unmarshal(fields["error"], &failure) != nil || msg.Error == nil || failure["code"] == nil || failure["message"] == nil || msg.Error.Message == "" {
+					return message{}, errors.New("channel: invalid JSON-RPC error")
+				}
+			}
 		}
 		return msg, nil
 	}
 }
 
-// readLine reads through the next newline. A final partial line before EOF is
-// returned as a frame; the following read reports io.EOF.
+func validID(raw json.RawMessage) bool {
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return false
+	}
+	switch identifier := value.(type) {
+	case string:
+		return len(identifier) > 0 && len(identifier) <= 128
+	case float64:
+		return identifier == math.Trunc(identifier) && math.Abs(identifier) <= 9007199254740991
+	default:
+		return false
+	}
+}
+
+// readLine reads through the next newline and rejects incomplete final frames.
 func readLine(r *bufio.Reader, maxFrame int) ([]byte, error) {
 	var line []byte
 	for {
@@ -325,7 +370,7 @@ func readLine(r *bufio.Reader, maxFrame int) ([]byte, error) {
 			continue
 		}
 		if errors.Is(err, io.EOF) && len(line) > 0 {
-			return bytes.TrimSpace(line), nil
+			return nil, io.ErrUnexpectedEOF
 		}
 		return nil, err
 	}

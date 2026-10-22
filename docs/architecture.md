@@ -38,7 +38,7 @@ dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：
 │  @deepseek-ai/dsh-base                                       │
 │    llm / agent / session / tools / settings / credentials    │
 │    user-questions / approval / permission / jobs / subagent  │
-│  @your-scope/dsh-mygo-app                                    │
+│  @dsh-mygo/host                                              │
 │    startup provider / channel server                         │
 │    approval answerer / question answerer                     │
 │    session event 投影与历史读取                               │
@@ -86,7 +86,7 @@ Profile 是组合根。当前设计：
     "profile": {
       "bundles": [
         "@deepseek-ai/dsh-base",
-        "@your-scope/dsh-mygo-app"
+        "@dsh-mygo/host"
       ]
     }
   }
@@ -245,11 +245,11 @@ Go 的 `SessionProjection` 从 `session/assistant-stream` 与 `session/event` �
 - 成功标准：登录/模型配置后能完成一个真实回合；取消与退出可用。
 - 不做：live 流式、审批、提问、历史、设置。
 
-**当前进度（P1）**：Host 启动/停止、`initialize`、`session/prompt`、提交事件投影、原生窗口、transcript、composer、running/idle、错误横幅与 fake-host 全链路测试已落地。取消、审批、提问、历史、设置和逐字流式仍在后续阶段。
+**当前进度**：P1 原生窗口和 SDK 闭环已完成；自定义 channel 阶段 1 已完成，默认入口使用 `mygo` profile，支持版本握手、显式创建会话、prompt、提交事件、状态和关闭。SDK 作为显式回归模式保留。当前能力边界见 [通道协议](subsystem/channel-protocol.md)；取消、审批、提问、历史、设置和逐字流式仍在后续阶段。
 
 ### 阶段 B：自定义 profile
 
-- 新建 `@your-scope/dsh-mygo-app` bundle 与 `mygo` profile。
+- 新建 `@dsh-mygo/host` bundle 与 `mygo` profile（最小闭环已完成）。
 - 实现 startup provider、stdio channel、session create/resume/prompt/cancel。
 - 转发 `agent/assistant-stream` 为 `session/assistant-stream`，实现逐字渲染。
 - 注册 approval/question answerer。

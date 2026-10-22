@@ -16,7 +16,7 @@ UI 壳层是 MyGo 进程里的原生界面：
 | 文件 | 责任 |
 | --- | --- |
 | `internal/view/view.go` | `Model`、页面布局、transcript 行、composer、状态栏、错误横幅 |
-| `internal/app/app.go` | Host 启动/停止、`initialize`、`session/prompt`、通知分发、`Window.Update` |
+| `internal/app/app.go` | Host 启动/停止、版本握手、`session/create` / `session/prompt`、有界通知分发、`Window.Update` |
 | `internal/projection/` | 提交事件 → `Item`（user / assistant / tool / notice） |
 | `main.go` | flag、窗口、退出时停止 Host |
 
@@ -24,7 +24,7 @@ P1 的单窗口只有 header、transcript 列表、composer：
 
 - transcript 显示提交后的 user 消息、assistant 文本、tool call/result 与 turn 结束通知；不显示 synthetic user context、system/developer 消息、reasoning。
 - Enter 发送，Shift+Enter 换行；发送期间仍可编辑草稿，但发送按钮与 Enter 发送禁用。
-- 状态来自 `session.status`：starting / ready / working / host error。发送失败保留草稿并显示可关闭的错误横幅。
+- 状态来自自定义 channel 的 `session/status`（显式 SDK 模式为 `session.status`）：starting / ready / working / host error。发送失败保留草稿并显示可关闭的错误横幅。自定义 channel 的错误详情不展示原始 stderr。
 - 尚未实现：流式占位、Markdown、工具卡片折叠/diff、取消、审批、提问、历史、会话列表、设置、附件。
 
 ## 视图模型

@@ -9,7 +9,7 @@
 
 投影层不产生新的会话真相，也不把 UI 状态回写 Host。打开旧会话时，先回放历史，再接实时事件。
 
-## 当前实现（P1）
+## 当前实现（P1 + 自定义 channel 阶段 1）
 
 `internal/projection` 只消费提交后的 `session/event`，输出扁平的 `Item` 列表：
 
@@ -25,6 +25,8 @@
 
 - synthetic user context（`source.kind != "user"`）、system/developer 消息、reasoning、`assistant/attempt`、请求元数据不进入 transcript。
 - 每个事件的 `seq` 去重；工具结果先到时单独成行，不猜测配对。
+- 自定义 channel 的 `session/create.session.nextSeq` 提供实时事件起点；App 校验外层 `seq` 与 `event.seq` 一致，重复事件忽略，缺口停止 Host 并报错。history capability 落地前不尝试拼接缺失事件。
+- 旧 SDK 回归模式仍消费 `session.event`；两种 envelope 共用相同提交事件投影，UI 不生成或持久化会话历史。
 - 文本按 rune 截断：消息 8000、工具内容 4000；完整历史与展开查看留给 P2。
 - 无逐字流式、无 history、无 usage/context 展示、无 diff。
 

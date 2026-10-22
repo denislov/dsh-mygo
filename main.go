@@ -35,22 +35,29 @@ func main() {
 	flag.Var(&hostArgs, "host-arg", "argument for -host-command (repeatable)")
 
 	dshDir := flag.String("dsh-dir", os.Getenv("DSH_MYGO_DSH_DIR"), "DeepSeek Harness checkout; runs apps/cli/src/bin.ts through tsx")
-	profile := flag.String("profile", "sdk", "DSH profile")
+	profile := flag.String("profile", "mygo", "DSH profile")
+	sdkProtocol := flag.Bool("sdk-protocol", false, "use the legacy SDK protocol (requires -profile sdk)")
 	provider := flag.String("provider", "deepseek-official", "model provider")
 	model := flag.String("model", "deepseek-flash", "model id")
 	effort := flag.String("effort", "", "optional reasoning effort")
 	cwdFlag := flag.String("cwd", "", "session working directory (default: current directory)")
-	sessionID := flag.String("session", "", "session id (default: generated)")
+	sessionID := flag.String("session", "", "legacy SDK session id (default: generated; requires -sdk-protocol)")
 	dshHome := flag.String("dsh-home", "", "optional DSH_HOME override")
 	maxFrame := flag.Int("max-frame", channel.DefaultMaxFrameBytes, "maximum JSON-RPC frame bytes")
 	hostCommand := flag.String("host-command", "", "override the host executable")
 	flag.Parse()
+	if *profile == "sdk" && !*sdkProtocol {
+		log.Fatal("-profile sdk requires -sdk-protocol")
+	}
+	if *sessionID != "" && !*sdkProtocol {
+		log.Fatal("-session requires -sdk-protocol; mygo session ids are assigned by the host")
+	}
 
 	cwd, err := resolveCWD(*cwdFlag)
 	if err != nil {
 		log.Fatal(err)
 	}
-	if *sessionID == "" {
+	if *sdkProtocol && *sessionID == "" {
 		*sessionID = fmt.Sprintf("mygo-%d", time.Now().UnixNano())
 	}
 	launch, err := host.ResolveLaunch(host.LaunchOptions{
@@ -73,6 +80,7 @@ func main() {
 		Model:           *model,
 		ReasoningEffort: *effort,
 		SessionID:       *sessionID,
+		SDKProtocol:     *sdkProtocol,
 		MaxFrame:        *maxFrame,
 		Post: func(fn func()) {
 			if win := window.Load(); win != nil {

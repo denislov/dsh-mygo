@@ -6,6 +6,7 @@ dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node H
 
 - P0 已落地：`internal/host`、`internal/channel`、`cmd/spike`。
 - P1 已落地：`internal/projection`、`internal/view`、`internal/app`、根 `main.go`；原生窗口可启动 Host、发送 prompt、投影提交事件、显示运行状态与错误。
+- 自定义 channel 阶段 1 已落地：`resources/host` bundle、`mygo` profile 初始化、版本握手、显式创建会话和真实 Loader + mock 模型测试。默认协议为自定义 channel；SDK 回归须显式 `-sdk-protocol -profile sdk`。
 - 未落地（P2）：逐字流式、工具卡片折叠/diff、审批、提问、历史、会话列表、设置、取消、打包。
 
 ## 文档路由
@@ -59,6 +60,7 @@ internal/projection/ 提交的 session.event → transcript 行
 internal/view/       MyGo 原生界面（Model、List、Composer、状态）
 internal/app/        Host + channel + projection + window.Update 装配
 testdata/            fake-sdk-host.mjs 等测试数据
+resources/host/      自定义 Host bundle、profile 初始化、Node 协议测试
 resources/           随应用分发的资源
 docs/                研究、架构、子系统文档
 AGENTS.md            本文件
@@ -82,7 +84,7 @@ docs/
 ## 命令
 
 ```sh
-go tool mygo dev                    # 开发运行（默认 dsh --profile sdk）
+go tool mygo dev                    # 开发运行（默认 dsh --profile mygo；先初始化 profile）
 go tool mygo build                  # 打包
 go test ./...                       # 单元测试
 go test -race ./...                 # 并发改动
@@ -90,10 +92,15 @@ CGO_ENABLED=0 go test ./...         # 纯 Go 构建
 go tool mygo vet .                  # UI 存储值与 goroutine 捕获
 
 # 原生窗口 + fake host（不需要 DSH 或 API key）
-go run . -host-command node -host-arg testdata/fake-sdk-host.mjs
+go run . -host-command node -host-arg testdata/fake-mygo-host.mjs
 
 # 原生窗口 + 真实 DSH source checkout（key 只从环境读取）
+node resources/host/setup-profile.mjs --dsh-home <临时目录的绝对路径>
 go run . -dsh-dir D:/Workspace/deepseek-harness -dsh-home <临时目录>
+
+node --test resources/host/tests/protocol.test.mjs
+# 设置 DSH_MYGO_DSH_DIR 后，无需 key 的真实组合测试
+go test ./internal/app -run TestAgainstMygoRealComposition -v -timeout 2m
 ```
 
 DSH 侧（在 DSH checkout 中）：

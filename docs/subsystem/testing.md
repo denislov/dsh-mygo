@@ -61,19 +61,21 @@ P1 的 `internal/view/view_test.go` 覆盖：transcript 文本、Enter 发送、
 
 ## 协议 conformance
 
-固定 fixture：
+阶段 1 已落地的 fixture：
 
 ```text
 tests/fixtures/protocol/
-  initialize.ok.json
-  initialize.version-mismatch.json
-  session-prompt.ok.json
-  session-prompt.busy.json
-  approval.request.json
-  approval.stale.json
-  assistant-stream.gap.json
-  shutdown.ok.json
+  invalid-frames.json
 ```
+
+Go channel 与 Node transport 共用非法帧 fixture；握手、重复初始化、模型路由校验、busy/外来 session、text content 校验、输出背压、顺序响应、shutdown 和错误信息隔离由 `resources/host/tests/protocol.test.mjs` 与 Go App 测试覆盖。
+
+```sh
+node --test resources/host/tests/protocol.test.mjs
+go test ./internal/channel ./internal/app
+```
+
+审批、取消、流式等尚未实现的协议随功能落地增加对应 fixture。完整目标断言：
 
 断言：
 
@@ -86,8 +88,9 @@ tests/fixtures/protocol/
 
 ## Fake Host
 
+- `testdata/fake-mygo-host.mjs` 复用正式 `MygoServer` 和 `LineChannel`，替换 DSH 服务；支持显式创建 session、两个连续回合、工具投影、错误版本与无效 session 响应。默认窗口 smoke 使用此入口。
 - `testdata/fake-sdk-host.mjs` 是最小 SDK 协议 host：initialize、prompt、一个提交回合（user、tool call/result、assistant）、wait、shutdown；prompt 文本会回显为 `Echo: <text>`。
-- 可模拟：启动超时、崩溃、stderr 噪声、stdout 污染、慢响应。
+- HostSupervisor 的 helper process 另覆盖退出和超时；默认 fake host 不模拟所有失败模式。
 - 用于 `HostSupervisor` 状态机测试、`internal/app` 全链路测试与手动 smoke；不验证真实模型行为。
 - 必须能验证进程树回收（Windows Job Object / POSIX 进程组）。
 
@@ -100,13 +103,13 @@ go run ./cmd/spike -host-command node -host-arg testdata/fake-sdk-host.mjs -prom
 P1 全链路（Go 测试，Node 不在时跳过）：
 
 ```sh
-go test ./internal/app -run TestAgainstFakeHost -v
+go test ./internal/app -run 'TestAgainstFakeHost|TestAgainstMygoFakeHost|TestMygoRejectsInvalidHost' -v
 ```
 
 P1 手动窗口 smoke：
 
 ```sh
-go run . -host-command node -host-arg testdata/fake-sdk-host.mjs
+go run . -host-command node -host-arg testdata/fake-mygo-host.mjs
 ```
 
 ## Host 集成
@@ -114,8 +117,8 @@ go run . -host-command node -host-arg testdata/fake-sdk-host.mjs
 用真实 DSH：
 
 ```sh
-DSH_HOME=$(mktemp -d) dsh plugin --profile mygo add <local-bundle>
-DSH_HOME=... dsh --profile mygo
+node resources/host/setup-profile.mjs --dsh-home /absolute/temp/dsh-mygo
+DSH_HOME=/absolute/temp/dsh-mygo dsh --profile mygo
 ```
 
 测试：
@@ -138,11 +141,25 @@ DEEPSEEK_API_KEY=... DSH_MYGO_DSH_DIR=D:/Workspace/deepseek-harness \
 
 测试使用临时 `DSH_HOME`，只发送一个 `Reply with exactly: pong` 回合，不写入用户数据。
 
+自定义 channel 的真实模型测试为 `TestAgainstMygoRealModel`：不加载 mock overlay，使用 `deepseek-official/deepseek-flash`，在临时工作目录和临时 `DSH_HOME` 中验证精确 `pong` 回复及 Host 正常退出。需设置 `DEEPSEEK_API_KEY` 与 `DSH_MYGO_DSH_DIR`；缺失时跳过。
+
+项目根目录 `.env` 可通过 Node 加载到测试子进程环境，凭据不进入命令参数：
+
+```sh
+node -e 'process.loadEnvFile(".env"); process.env.DSH_MYGO_DSH_DIR = "D:/Workspace/deepseek-harness"; const result = require("node:child_process").spawnSync("go", ["test", "./internal/app", "-run", "^TestAgainstMygoRealModel$", "-v", "-count=1", "-timeout", "5m"], { stdio: "inherit", env: process.env }); process.exit(result.status ?? 1)'
+```
+
 ## DSH real-composition
+
+阶段 1 已落地 `TestAgainstMygoRealComposition`：设置 `DSH_MYGO_DSH_DIR` 即可运行，不需要 API key。测试创建临时 `DSH_HOME`、初始化真实 `mygo` profile，再用 `--patch` 加入 `testdata/mygo-mock-llm.mjs`。通过真实 CLI/Loader、session log 和 agent loop 完成一轮 `pong`，严格校验协议帧、连续 seq 和退出码。Host 自身校验 `profileContext.startedBundles` 包含两个 bundle。测试不修改 DSH checkout，也不手工 `ctx.plugin(...)` 拼装应用。
+
+```sh
+go test ./internal/app -run TestAgainstMygoRealComposition -v -timeout 2m
+```
 
 bundle 必须有一个 real-composition 测试：
 
-- 通过 Loader 启动 `dsh-base` + `dsh-mygo-app` 的真实组合。
+- 通过 Loader 启动 `dsh-base` + `@dsh-mygo/host` 的真实组合。
 - 断言行存在、`profileContext` 正确、channel server 就绪、stdout 未被污染。
 - 不只用手工 `ctx.plugin(...)` 拼装。
 
