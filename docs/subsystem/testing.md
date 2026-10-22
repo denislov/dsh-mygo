@@ -77,9 +77,13 @@ go test ./internal/channel ./internal/app
 
 回合取消已由 Node/Go 测试覆盖：能力协商、外来 session、空闲取消、并发合并、Host 超时、错误隔离、立即取消的请求顺序、旧响应隔离和草稿保留。`ui.NewTester` 覆盖 Stop → Stopping → Send → Stop 的生命周期与无 capability 时隐藏按钮。
 
-审批已有 Node 队列、Go 状态、App 和 ui.NewTester 覆盖：一次性回答、撤销、重复/过期身份、队列上限、参数超限、关联与 external 警告、FIFO、防重复点击、失败重试、Escape 拒绝和草稿保留。RPC 请求取消、流式等尚未实现的协议随功能落地增加对应 fixture。完整目标断言：
+审批已有 Node 队列、Go 状态、App 和 ui.NewTester 覆盖：一次性回答、撤销、重复/过期身份、队列上限、参数超限、关联与 external 警告、FIFO、防重复点击、失败重试、Escape 拒绝和草稿保留。RPC 请求取消等尚未实现的协议随功能落地增加对应 fixture。完整目标断言：
 
 提问覆盖整批答案校验、空答案拒绝、单选互斥、多选混合文本、无 agent/外来 agent、capability、FIFO/队列上限、abort/停止/退出、重复/过期回答、失败重试保留表单、连续表单身份和审批优先不叠加 Modal。`TestAgainstMygoQuestions` 包含 fake 与真实 Loader 两组，各验证 answer/cancel/stop/shutdown；真实组调用正式 `ask_user_question` 工具，不需要 API key。
+
+流式覆盖 capability/确切 agent 作用域、帧校验、revision/index 缺口、重复、重试、abandoned、提交前后交错、可见文本与 Unicode 上限、reasoning/工具参数隐藏、idle 清理，以及有界批处理顺序和关闭中断背压。已有取消回归同时验证 RPC 回调不会越过尚未发布的提交事件。
+
+`TestAgainstMygoRealStreaming` 使用真实 DSH agent loop 与 mock adapter，在随机 localhost 测试控制端口暂停生成。先断言 UI 已显示 `Live prefix` 而 durable transcript 尚无 assistant，再放行完整答案或 Stop/退出；验证唯一最终行、保留草稿与同会话 pong。不依赖付费模型，也不靠固定延时猜测真实流式时点。fake `--stream` / `--stream-wait` 和 ui.NewTester 覆盖原生行生命周期与旧 Host 仅提交模式。
 
 断言：
 

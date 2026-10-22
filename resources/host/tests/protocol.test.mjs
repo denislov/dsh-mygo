@@ -214,6 +214,21 @@ test('questions negotiate capability, delegate foreign agents, and accept agentl
   await server.shutdown()
 })
 
+test('assistant stream is capability-gated and owned by the exact live agent', async () => {
+  const { server, handles, listeners, notifications } = runtime()
+  await server.handle('initialize', { ...handshake, capabilities: ['session.assistant-stream'] })
+  const { session } = await server.handle('session/create', { cwd: process.cwd(), provider: 'test', model: 'echo' })
+  const frame = { type: 'start', attemptId: `${session.id}:1`, revision: 1, turn: 1, step: 1 }
+  listeners.get('agent/assistant-stream')({ agent: { session: handles[0].agent.session }, frame })
+  assert.equal(notifications.length, 0)
+  listeners.get('agent/assistant-stream')({ agent: handles[0].agent, frame })
+  assert.deepEqual(notifications, [{ method: 'session/assistant-stream', params: { sessionId: session.id, frame } }])
+  server.capabilities = []
+  listeners.get('agent/assistant-stream')({ agent: handles[0].agent, frame })
+  assert.equal(notifications.length, 1)
+  await server.shutdown()
+})
+
 test('channel returns structured errors before EOF', async () => {
   const input = new PassThrough()
   const output = new PassThrough()

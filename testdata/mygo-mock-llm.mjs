@@ -12,6 +12,41 @@ class MygoMockAdapter extends LlmAdapter {
 
   async *stream(options) {
     let reply = 'pong'
+    if (options.model === 'stream-probe' && !this.streamed) {
+      this.streamed = true
+      yield { type: 'block-start', index: 0, blockType: 'reasoning' }
+      yield { type: 'reasoning-delta', index: 0, text: 'Hidden fixture reasoning' }
+      yield { type: 'block-end', index: 0, block: { type: 'reasoning', text: 'Hidden fixture reasoning' } }
+      yield { type: 'block-start', index: 1, blockType: 'text' }
+      yield { type: 'text-delta', index: 1, text: 'Live prefix' }
+      const port = Number(process.env.DSH_MYGO_MOCK_CONTROL.split(':').at(-1))
+      const control = createConnection({ host: '127.0.0.1', port })
+      try {
+        await once(control, 'connect')
+        control.write('paused\n')
+        await new Promise((resolve, reject) => {
+          const onAbort = () => { cleanup(); reject(options.signal.reason) }
+          const onData = () => { cleanup(); resolve() }
+          const onError = () => { cleanup(); reject(new Error('Fixture control connection failed')) }
+          const cleanup = () => {
+            options.signal.removeEventListener('abort', onAbort)
+            control.off('data', onData)
+            control.off('error', onError)
+            control.off('end', onError)
+          }
+          options.signal.addEventListener('abort', onAbort, { once: true })
+          control.once('data', onData)
+          control.once('error', onError)
+          control.once('end', onError)
+          if (options.signal.aborted) onAbort()
+        })
+      } finally { control.destroy() }
+      options.signal.throwIfAborted()
+      yield { type: 'text-delta', index: 1, text: ' complete' }
+      yield { type: 'block-end', index: 1, block: { type: 'text', text: 'Live prefix complete' } }
+      yield { type: 'finish', reason: { kind: 'stop' } }
+      return
+    }
     if (options.model === 'approval-probe' || options.model === 'question-probe') {
       if (!this.probeStarted) {
         this.probeStarted = true

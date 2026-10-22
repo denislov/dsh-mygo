@@ -1,7 +1,6 @@
-// Package projection turns committed DeepSeek Harness session events into
-// transcript rows for the native UI. It reads only the durable session log
-// events forwarded as session.event notifications; it does not own the
-// session or write any state back to the host.
+// Package projection turns committed DeepSeek Harness session events and
+// temporary assistant frames into native UI rows. Transcript reads the durable
+// session log; AssistantStream never persists its preview or writes to the host.
 package projection
 
 import (
@@ -19,7 +18,7 @@ type Kind int
 const (
 	// KindUser is a direct human prompt.
 	KindUser Kind = iota
-	// KindAssistant is a committed assistant message.
+	// KindAssistant is assistant text, either committed or a temporary preview.
 	KindAssistant
 	// KindTool is one tool call, updated when its result arrives.
 	KindTool

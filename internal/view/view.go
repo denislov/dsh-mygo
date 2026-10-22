@@ -43,6 +43,7 @@ type Model struct {
 	Dismiss         func()
 	Cancel          func()
 	CanCancel       bool
+	CanStream       bool
 	CancelPending   bool
 	CanApprove      bool
 	ApprovalOpen    bool

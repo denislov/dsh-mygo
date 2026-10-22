@@ -36,6 +36,12 @@ export class MygoServer {
     this.initialized = false
     this.stopping = false
     this.disposers = [
+      ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+        if (this.stopping || !this.capabilities.includes('session.assistant-stream')) return
+        const sessionId = String(agent.session.id)
+        if (this.sessions.get(sessionId)?.handle?.agent !== agent) return
+        this.notify('session/assistant-stream', { sessionId, frame })
+      }),
       ctx.on('session/event', (session, event) => {
         const record = this.sessions.get(String(session.id))
         if (record?.handle?.agent.session !== session) return
@@ -100,7 +106,7 @@ export class MygoServer {
     if (!Array.isArray(params.capabilities) || params.capabilities.length > 64) throw fault('protocol/invalid-params', 'Invalid capabilities', -32602)
     for (const capability of params.capabilities) text(capability, 'capability')
     this.initialized = true
-    this.capabilities = ['session.cancel', 'approval', 'question'].filter((capability) => params.capabilities.includes(capability))
+    this.capabilities = ['session.cancel', 'approval', 'question', 'session.assistant-stream'].filter((capability) => params.capabilities.includes(capability))
     return {
       server: { name: 'dsh-mygo-host', version: releaseVersion, dshVersion: this.dshVersion },
       protocolVersion, capabilities: this.capabilities,

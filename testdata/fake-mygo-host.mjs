@@ -12,7 +12,7 @@ const ctx = {
   agents: {
     async create({ sessionId }) {
       const agent = {
-        session: { id: sessionId, seq: 0 }, status: 'idle', turns: 0,
+        session: { id: sessionId, seq: 0 }, status: 'idle', turns: 0, revision: 0,
         followup(message) {
           const work = { ...Promise.withResolvers(), finished: false, cancelled: false, abort: new AbortController() }
           agent.work = work
@@ -20,18 +20,33 @@ const ctx = {
           setImmediate(() => {
             agent.status = 'running'
             events.emit('agent/status', { agent, status: 'running' })
-            const event = (type, data) => events.emit('session/event', agent.session, { type, data, seq: agent.session.seq++, time: Date.now() })
-            event('turn/start', { turn: 1 })
+            const event = (type, data) => {
+              const seq = agent.session.seq++
+              events.emit('session/event', agent.session, { type, data, seq, time: Date.now() })
+              return seq
+            }
+            const stream = (frame) => events.emit('agent/assistant-stream', { agent, frame: { attemptId: `${sessionId}:${turn}`, revision: ++agent.revision, ...frame } })
+            let streamIndex = 0
+            const chunk = (chunk) => stream({ type: 'chunk', index: streamIndex++, time: Date.now(), chunk })
+            event('turn/start', { turn })
             event('user/message', message)
             work.finish = (aborted, approvalOutcome) => {
               if (work.finished) return
               work.finished = true
+              clearTimeout(work.timer)
               if (!aborted) {
                 const callId = `fake-${turn}`
-                if (!work.approval && !work.question) event('tool/call', { callId, name: 'read_file', arguments: '{"path":"README.md"}' })
-                const reply = work.question ? approvalOutcome : work.approval ? approvalOutcome === 'allowed-once' ? 'Approved write' : 'Denied write' : `Echo: ${message.content.map((block) => block.text).join('\n')}`
-                event('tool/result', { message: { toolCallId: callId, content: [{ type: 'text', text: work.approval ? reply : '# dsh-mygo' }] } })
-                event('assistant/message', { message: { content: [{ type: 'text', text: reply }] } })
+                if (!work.approval && !work.question && !work.streaming) event('tool/call', { callId, name: 'read_file', arguments: '{"path":"README.md"}' })
+                const reply = work.streaming ? 'Live prefix complete' : work.question ? approvalOutcome : work.approval ? approvalOutcome === 'allowed-once' ? 'Approved write' : 'Denied write' : `Echo: ${message.content.map((block) => block.text).join('\n')}`
+                if (work.streaming) {
+                  chunk({ type: 'text-delta', index: 0, text: ' complete' })
+                  chunk({ type: 'block-end', index: 0, block: { type: 'text', text: reply } })
+                } else event('tool/result', { message: { toolCallId: callId, content: [{ type: 'text', text: work.approval ? reply : '# dsh-mygo' }] } })
+                const seq = event('assistant/message', { turn, step: 1, message: { content: [{ type: 'text', text: reply }] } })
+                if (work.streaming) stream({ type: 'end', index: streamIndex, outcome: { kind: 'committed', eventType: 'assistant/message', seq } })
+              } else if (work.streaming) {
+                const seq = event('assistant/message', { turn, step: 1, interrupted: true, message: { content: [{ type: 'text', text: 'Live prefix' }] } })
+                stream({ type: 'end', index: streamIndex, outcome: { kind: 'committed', eventType: 'assistant/message', seq } })
               }
               event('turn/end', { reason: aborted ? { kind: 'aborted', reason: { kind: 'user' } } : { kind: 'completed' } })
               agent.status = 'idle'
@@ -40,6 +55,13 @@ const ctx = {
               work.resolve()
             }
             if (work.cancelled) work.finish(true)
+            else if ((process.argv.includes('--stream') || process.argv.includes('--stream-wait')) && turn === 1) {
+              work.streaming = true
+              stream({ type: 'start', turn, step: 1 })
+              chunk({ type: 'block-start', index: 0, blockType: 'text' })
+              chunk({ type: 'text-delta', index: 0, text: 'Live prefix' })
+              if (!process.argv.includes('--stream-wait')) work.timer = setTimeout(() => work.finish(false), 700)
+            }
             else if ((process.argv.includes('--question') && turn === 1) || (process.argv.includes('--question-twice') && turn <= 2)) {
               work.question = true
               const questions = [
@@ -83,6 +105,9 @@ channel.start(async (method, params) => {
   const result = await server.handle(method, params)
   if (method === 'initialize' && process.argv.includes('--bad-version')) result.protocolVersion = 2
   if (method === 'initialize' && process.argv.includes('--no-cancel')) { result.capabilities = []; server.capabilities = [] }
+  if (method === 'initialize' && process.argv.includes('--no-stream')) {
+    server.capabilities = result.capabilities = result.capabilities.filter((capability) => capability !== 'session.assistant-stream')
+  }
   if (method === 'session/create' && process.argv.includes('--bad-session')) result.session.id = '../unsafe'
   if (method === 'shutdown') setImmediate(async () => { await channel.flush(); process.exit(0) })
   return result

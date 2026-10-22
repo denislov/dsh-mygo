@@ -72,19 +72,23 @@ type App struct {
 	transcript projection.Transcript
 	approvals  interaction.ApprovalQueue
 	questions  interaction.QuestionQueue
+	stream     projection.AssistantStream
 
-	mu         sync.Mutex
-	supervisor *host.Supervisor
-	client     rpcClient
+	mu                sync.Mutex
+	supervisor        *host.Supervisor
+	client            rpcClient
+	notificationInput chan hostNotification
 
 	// These fields belong to the main thread.
-	awaitingTurn bool
-	sawActivity  bool
-	promptID     uint64
-	sessionID    string
-	nextSeq      uint64
-	promptDone   <-chan error
-	cancelIdle   bool
+	awaitingTurn    bool
+	sawActivity     bool
+	promptID        uint64
+	sessionID       string
+	nextSeq         uint64
+	promptDone      <-chan error
+	cancelIdle      bool
+	batchUpdating   bool
+	transcriptDirty bool
 
 	shuttingDown atomic.Bool
 	stopped      chan struct{}
@@ -131,19 +135,18 @@ func (a *App) Start() {
 	a.mu.Unlock()
 
 	client := channel.NewClient(supervisor.Stdout(), supervisor.Stdin(), a.options.MaxFrame)
+	incoming := make(chan hostNotification)
+	go a.runNotifications(incoming)
 	client.OnNotification(func(method string, params json.RawMessage) {
 		select {
-		case a.pendingUI <- struct{}{}:
+		case incoming <- hostNotification{method: method, params: params}:
 		case <-a.stopped:
 			return
 		}
-		a.post(func() {
-			defer func() { <-a.pendingUI }()
-			a.handleNotification(method, params)
-		})
 	})
 	a.mu.Lock()
 	a.client = client
+	a.notificationInput = incoming
 	if a.shuttingDown.Load() {
 		a.mu.Unlock()
 		a.stopHost()
@@ -182,6 +185,7 @@ func (a *App) Start() {
 		a.model.CanCancel = initialized.canCancel
 		a.model.CanApprove = initialized.canApprove
 		a.model.CanQuestion = initialized.canQuestion
+		a.model.CanStream = initialized.canStream
 		a.model.Detail = initialized.detail
 		if a.model.Phase == view.PhaseStarting {
 			a.model.Phase = view.PhaseIdle
@@ -196,6 +200,7 @@ type initializedSession struct {
 	canCancel   bool
 	canApprove  bool
 	canQuestion bool
+	canStream   bool
 }
 
 func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSession, error) {
@@ -222,7 +227,7 @@ func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSess
 	result, err := client.Call(ctx, "initialize", map[string]any{
 		"protocolVersion": channel.ProtocolVersion,
 		"client":          map[string]string{"name": "dsh-mygo", "version": channel.ReleaseVersion, "platform": runtime.GOOS, "locale": "zh-CN"},
-		"capabilities":    []string{"session.cancel", "approval", "question"},
+		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream"},
 	})
 	if err != nil {
 		return initializedSession{}, err
@@ -255,6 +260,7 @@ func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSess
 		canCancel:   slices.Contains(initialized.Capabilities, "session.cancel"),
 		canApprove:  slices.Contains(initialized.Capabilities, "approval"),
 		canQuestion: slices.Contains(initialized.Capabilities, "question"),
+		canStream:   slices.Contains(initialized.Capabilities, "session.assistant-stream"),
 	}, nil
 }
 
@@ -285,6 +291,7 @@ func (a *App) Send(text string) {
 	a.model.Error = ""
 	a.model.ErrorDetail = ""
 	a.model.Phase = view.PhaseRunning
+	a.clearStream()
 	a.model.CancelPending = false
 	a.cancelIdle = false
 	a.awaitingTurn = true
@@ -412,6 +419,9 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 	}
 	if !a.options.SDKProtocol {
 		switch method {
+		case "session/assistant-stream":
+			a.handleStreamNotification(params)
+			return
 		case "question/request", "question/closed":
 			a.handleQuestionNotification(method, params)
 			return
@@ -465,9 +475,9 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 		if isTurnActivity(notification.Event.Type) {
 			a.sawActivity = true
 		}
-		if a.transcript.Apply(notification.Event) {
-			a.model.Items = a.transcript.Items()
-		}
+		a.stream.Commit(notification.Event)
+		a.transcript.Apply(notification.Event)
+		a.publishTranscript()
 	case "session.status":
 		var notification struct {
 			SessionID string `json:"sessionId"`
@@ -514,6 +524,7 @@ func (a *App) applyStatus(status string) {
 			a.sawActivity = false
 		}
 		a.questions.RemoveSession(a.sessionID)
+		a.clearStream()
 		a.publishQuestions()
 		if a.model.CancelPending {
 			a.clearApprovals()
@@ -535,6 +546,7 @@ func (a *App) Shutdown(timeout time.Duration) {
 	close(a.stopped)
 	a.post(a.clearApprovals)
 	a.post(a.clearQuestions)
+	a.post(a.clearStream)
 	a.mu.Lock()
 	client := a.client
 	supervisor := a.supervisor
@@ -583,6 +595,7 @@ func (a *App) setFailure(summary string, err error) {
 	a.model.CancelPending = false
 	a.clearApprovals()
 	a.clearQuestions()
+	a.clearStream()
 	a.model.Error = summary
 	detail := ""
 	if err != nil {
@@ -630,7 +643,17 @@ func (a *App) stderrTail() string {
 }
 
 func (a *App) post(fn func()) {
-	a.options.Post(fn)
+	a.mu.Lock()
+	incoming := a.notificationInput
+	a.mu.Unlock()
+	if incoming == nil || a.shuttingDown.Load() {
+		a.options.Post(fn)
+		return
+	}
+	select {
+	case incoming <- hostNotification{apply: fn}:
+	case <-a.stopped:
+	}
 }
 
 func isTurnActivity(eventType string) bool {

@@ -9,11 +9,12 @@
 
 协议只描述消息、顺序与错误，不描述 UI 布局，也不复制 DSH 的业务方法。
 
-## 当前实现（自定义 channel 阶段 1 + 回合取消 + 人机交互）
+## 当前实现（自定义 channel + 取消 + 人机交互 + 文本流式）
 
 - UI/Host 发布版本 `0.1.0`、`protocolVersion: 1`、DSH `0.2.1-rc.2` 精确绑定；不匹配时拒绝进入 ready。
-- 已实现 `initialize`、`session/create`、`session/prompt`、`session/cancel`、`approval/respond`、`question/respond`、`question/cancel`、`shutdown`；通知为 `session/event`、`session/status`、`approval/request`、`approval/closed`、`question/request`、`question/closed`、`host/fatal`。
-- UI 声明 `session.cancel`，Host 仅在双方支持时返回该 capability；未协商时调用取消返回 `protocol/capability-unavailable`。旧 Host 不声明时，UI 不展示 Stop。下文其余方法、流式、附件、RPC 请求取消和 history 恢复仍是后续契约。
+- 已实现 `initialize`、`session/create`、`session/prompt`、`session/cancel`、`approval/respond`、`question/respond`、`question/cancel`、`shutdown`；通知为 `session/event`、`session/assistant-stream`、`session/status`、`approval/request`、`approval/closed`、`question/request`、`question/closed`、`host/fatal`。
+- UI 声明 `session.cancel`，Host 仅在双方支持时返回该 capability；未协商时调用取消返回 `protocol/capability-unavailable`。旧 Host 不声明时，UI 不展示 Stop。下文其余方法、附件、RPC 请求取消和 history 恢复仍是后续契约。
+- 文本流式通过 `session.assistant-stream` capability 启用；Host 只转发自己拥有的确切 agent 的公开流式帧。旧 Host/SDK 保持仅提交模式，不自动降级协议。Go 只展示 text，reasoning/工具参数不进入临时行。
 - `session/create` 当前要求已有绝对目录 `cwd`、`provider`、`model`，可选 `effort`；Host 验证模型路由后创建并拥有 session id。只接受自己创建的会话和 text content，忙碌时拒绝新 prompt。
 - 创建结果中的 `session.nextSeq` 是创建完成时 DSH 的下一事件 offset。初始会话元数据不重放；后续完整提交事件从此 offset 开始转发。`session/event` 同时携带外层 `seq` 和原始 `event.seq`，两者必须相同。
 - Go 忽略重复事件；缺口或无效载荷使连接失败并停止 Host。当前没有 `session.history` capability，因此不能自动补齐。
@@ -28,7 +29,7 @@
 - 请求：`{"jsonrpc":"2.0","id":1,"method":"session/create","params":{...}}`
 - 响应：`{"jsonrpc":"2.0","id":1,"result":{...}}` 或 `{"jsonrpc":"2.0","id":1,"error":{"code":...,"message":"...","data":{...}}}`
 - 通知：`{"jsonrpc":"2.0","method":"session/event","params":{...}}`
-- 当前最大帧长为 `16 MiB`（包含换行）：阶段 1 仍转发内嵌完整 stream 的提交事件。Go 用 `-max-frame`，Host 用 `mygo-channel.config.maxFrameBytes` 配置，范围需一致。后续拆分流式后再评估缩小上限。
+- 当前最大帧长为 `16 MiB`（包含换行）：流式通知落地后，提交事件仍保留内嵌完整 stream，不能缩小上限后丢弃持久记录。Go 用 `-max-frame`，Host 用 `mygo-channel.config.maxFrameBytes` 配置，范围需一致。
 - 不接受空行、无换行的末帧、非法 UTF-8、非法 id 或混合请求/响应结构；`params` 仅接受对象。id 为不超过 128 字符的非空字符串或安全整数。
 - 非法 JSON、未知帧结构、超长帧：关闭连接，Host 退出；UI 报协议错误。
 
@@ -149,11 +150,12 @@ type AssistantStreamFrame =
              | { kind: 'abandoned' } }
 ```
 
-- `revision` 在一次 Agent attach 生命周期内单调；`start.revision === 1` 表示新的生命周期。
+- `revision` 在一次 Agent attach 生命周期内单调；每次 attach 从 1 开始。当前 Host 只创建会话，不替换/恢复 agent，Go 保留该连接的 revision 高水位并忽略重复/迟到帧；将来重连必须以明确的生命周期/baseline 重置，不能把旧 start 当成新答案。
 - `chunk.index` 从 0 开始、密集递增；UI 发现缺口时丢弃当前 attempt，等待下一次 `start` 或提交事件。
-- `end.committed` 表示随后会到达对应 `seq` 的提交事件；UI 用提交事件替换流式草稿。
+- 真实 DSH 先提交对应 `seq` 的 `assistant/message` / `assistant/attempt`，再发送 `end.committed`，不是结束帧先到。Go 在同 turn/step 的提交到达时替换/清理草稿，迟到 end 不恢复旧行；也容忍 end 先到，保留前缀直到对应提交、idle 或退出，不把 end 本身当历史。
 - `end.abandoned` 表示没有提交事件；UI 丢弃该 attempt 的草稿。
-- 重连时 Host 在 `session/resume` / `session/history` 结果中提供 baseline（`revision` + `activeAttempt`），UI 从 baseline 之后继续接收。
+- 临时状态最多 128 个块、8000 个可见 Unicode 字符；超长文本只截断显示。帧结构/类型非法使连接失败；revision/index 缺口或块关联异常只丢弃当前临时 attempt，提交日志仍按原有 seq 校验继续。
+- 重连 baseline（`revision` + `activeAttempt`）仍是后续设计，当前没有 `session/resume` / `session/history` capability。
 
 ## 事件顺序
 
@@ -224,7 +226,8 @@ type AssistantStreamFrame =
 ## 背压
 
 - Go → Host：当前 UI 在 busy 时禁用新 prompt；Host 顺序处理请求，并通过 `maxSessions`（默认 8）限制会话数量。
-- Host → Go：`session/event` 是持久事件，不能静默丢弃；Go 最多等待 32 个通知 UI 更新，满时暂停读取 stdout。Host 写队列由 `maxQueuedBytes`（默认 32 MiB）限制；超限关闭连接，使 UI 进入失败状态。
+- Host → Go：通知按接收顺序进入同一有界批处理队列，16 ms、64 项或累计 256 KiB 时发布一批；最后一帧受单帧上限约束，可使该批超过字节阈值。最多等待 32 个 UI 批次，满时暂停读取 stdout；不静默丢弃事件或 token。Host 写队列由 `maxQueuedBytes`（默认 32 MiB）限制；超限关闭连接，使 UI 进入失败状态。
+- RPC 结果的 UI 回调也经过同一队列，不能越过已经接收的提交通知或 idle。尤其取消响应不得提前解除发送屏障，让旧取消/idle 影响下一回合。每批只生成一次可见 transcript 快照，不逐 token 重建列表。
 - 只影响 UI 的派生通知（例如百分比进度）可以合并/丢弃；持久事件不可以。
 
 ## 版本化

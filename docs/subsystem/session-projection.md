@@ -9,9 +9,9 @@
 
 投影层不产生新的会话真相，也不把 UI 状态回写 Host。打开旧会话时，先回放历史，再接实时事件。
 
-## 当前实现（P1 + 自定义 channel 阶段 1）
+## 当前实现（提交投影 + 临时文本流式）
 
-`internal/projection` 只消费提交后的 `session/event`，输出扁平的 `Item` 列表：
+`internal/projection.Transcript` 消费提交后的 `session/event`，输出扁平的 `Item` 列表；`AssistantStream` 单独折叠临时流式帧，绝不写入 Transcript：
 
 | 事件 | 投影 |
 | --- | --- |
@@ -31,7 +31,7 @@
 - `approval/request` / `approval/closed` 是连接内临时交互，由 `internal/interaction` 管理，不进入 transcript。审批结果只通过 Host 提交的工具结果体现；弹窗展示原始关联参数，不使用下述截断后的工具行。idle、失败和退出清理临时队列，不伪造审批历史。
 - `question/request` / `question/closed` 同样由交互层管理，不把本地表单或取消动作写成历史。结构化答案通过真实 `ask_user_question` 工具结果进入 Host 日志；当前仅支持阻塞等待，尚不投影 timed/continued 问题或迟到回复。会话 idle 清理本会话提问，无 agent 请求不随会话 idle 消失。
 - 文本按 rune 截断：消息 8000、工具内容 4000；完整历史与展开查看留给 P2。
-- 无逐字流式、无 history、无 usage/context 展示、无 diff。
+- 已有可见 text 的增量展示；reasoning、工具参数不展示为临时正文。无 history、无 Markdown、无 usage/context 展示、无 diff。
 
 ## 真相源
 
@@ -129,12 +129,15 @@ idle
 
 规则：
 
-- `start.revision === 1` 表示新的 Agent attach 生命周期；清空当前 attempt。
+- 当前每个 Host 所有的 agent 只有一个 attach 生命周期，revision 从 1 开始并保持高水位；重复/迟到帧忽略。新 start 可作为缺口后的恢复点；不要因旧 start.revision == 1 回放旧答案。重连/替换 agent 的显式 reset 仍待实现。
 - `revision` 不连续时，丢弃当前 attempt，等待下一次 `start` 或提交事件。
 - `chunk.index` 必须密集递增；缺口时丢弃草稿（不要拼接不连续内容）。
 - 提交事件（`assistant/message` / `assistant/attempt`）到达后，用其 `stream` 或 `message` 替换草稿；提交事件是权威。
+- DSH 先提交再发 end，不能等待结束帧才去重。Go 按当前 turn/step 识别提交；end 先到时按 seq 等待提交。assistant/attempt 不伪造可见历史。临时行使用 `stream:<attemptId>`，提交行使用 durable seq；最终界面只有一份答案。
 - `end.abandoned` 没有提交事件；丢弃草稿，必要时展示一次“已取消/已中断”提示。
 - 流式期间不要重新解析整个 Markdown；用 `markdown.Stream` 的增量能力。
+
+当前实现只显示原生纯文本，Markdown 仍未接入。每 attempt 最多保留 128 个块和 8000 个可见 rune，按块顺序拼接 text；block-end 的完整 text 可修正未提交前缀。reasoning/工具参数不进入临时文本缓存。idle、失败、关闭或 turn/end 清理临时状态；取消后的 Interrupted 文本只能来自 Host 提交。
 
 ### 重连
 
@@ -193,7 +196,7 @@ idle
 
 - 只渲染可视区域：`ui.List` 只构建可见行。
 - 每个事件只更新受影响的行；避免整棵 transcript 重建。
-- 流式 chunk 合并到固定频率（例如每帧一次）再触发 `Window.Update`，不要每个 token 都重绘。
+- App 将通知与 RPC UI 回调按序合并，16 ms / 64 项 / 256 KiB 任一阈值触发批次，最多等待 32 个批次再背压 stdout；每批只发布一次组合后的 Items。慢 UI 不丢提交事件，停止会打断背压等待。
 - 保留有界缓存：折叠的历史、工具输出、diff；超出后按需重新拉取。
 - 不在投影层做网络/磁盘 I/O。
 
@@ -204,7 +207,7 @@ idle
 | 未知事件类型 | 忽略 + 一次性诊断日志 |
 | `seq` 缺口 | 标记 `resyncing`，拉 history，合并后恢复 |
 | 流式帧乱序/缺口 | 丢弃当前 attempt，等待 `start` |
-| 提交事件缺失 | 保留草稿并在 turn 结束时标记“未确认” |
+| 提交事件缺失 | end 本身不成为历史；保留前缀等待提交，idle/turn 结束时清理，不伪造最终答案 |
 | 工具参数 JSON 非法 | 展示原文 + 解析错误 |
 | 历史页损坏 | 展示可操作错误；不猜测内容 |
 
