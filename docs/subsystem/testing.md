@@ -85,10 +85,11 @@ Go channel 与 Node transport 共用非法帧 fixture。`resources/host/tests/pr
 真实 Loader 测试使用临时 `DSH_HOME`，不会写入用户数据：
 
 ```sh
-$env:DSH_MYGO_DSH_DIR = 'D:/Workspace/deepseek-harness'
-go test ./internal/app -run 'TestAgainstMygo|TestMygoReal' -v -timeout 10m
+node scripts/test-real-host.mjs D:/Workspace/deepseek-harness
 node --test resources/host/tests/*.test.mjs
 ```
+
+脚本把 `DSH_MYGO_DSH_DIR` 固定到指定 checkout，并跑 `TestAgainstMygo|TestMygoReal` 组。
 
 不设置 `DSH_MYGO_DSH_DIR` 时，真实组合组自动 skip；报告结果时要区分"跑了"与"跳过"。
 

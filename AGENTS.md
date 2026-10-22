@@ -59,6 +59,7 @@ mygo.json            MyGo 配置
 versions.json        发布身份单点：identifier、版本、protocolVersion、DSH pin
 .github/workflows/   CI（Windows 全量、Linux Go 测试）
 cmd/spike/           P0 协议验证：initialize → prompt → events
+scripts/             测试辅助脚本（真实 Host 入口）
 internal/channel/    JSON-RPC 编解码与客户端
 internal/host/       HostSupervisor + ResolveLaunch：spawn / stdio / stderr / stop
 internal/projection/ 提交的 session.event → transcript 行
@@ -104,7 +105,8 @@ node resources/host/setup-profile.mjs --dsh-home <临时目录的绝对路径>
 go run . -dsh-dir D:/Workspace/deepseek-harness -dsh-home <临时目录>
 
 node --test resources/host/tests/*.test.mjs
-# 设置 DSH_MYGO_DSH_DIR 后，无需 key 的真实组合测试
+# 无需 key 的真实组合测试（固定 DSH checkout）
+node scripts/test-real-host.mjs D:/Workspace/deepseek-harness
 go test ./internal/app -run TestAgainstMygoRealComposition -v -timeout 2m
 ```
 
