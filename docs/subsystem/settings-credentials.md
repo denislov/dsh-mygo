@@ -22,7 +22,7 @@
 - App 在后台读取/提交，以同一通知队列处理 durable event 和响应，收到匹配会话/路由/idle 的确认且序列已前进后才更新标签。提交失败保留表单、草稿与原标签，并标记结果未确认：即使关闭面板，也禁止发送、切换会话或再次 Apply，必须 Refresh 成功查询 Host 当前路由后才解除，避免超时后的迟到提交导致误用模型。没有选择事件的确认使连接失败，不能伪装成功。
 - 读取目录可 Close/Escape 取消；Apply 期间不能关闭、重复提交、发送或切换会话。审批/提问优先，不与 Settings/工具检视器叠加。元数据与校验各有 5 秒 Host 上限，Go 操作上限 15 秒；退出/过期响应不能回写新会话或失败状态。
 - 目录预算为最多 32 providers、当前 provider 最多 128 models、每模型最多 32 efforts，响应不超过 256 KiB 且不超过配置帧上限的一半；Go 再校验类型、长度、唯一身份和 512 KiB 总输入预算。未知/失败 provider、目录或模型元数据明确提示不可用，不展示底层异常；手动模型仍由 Host 独立校验。
-- 面板只处理模型、持久默认模型与 DeepSeek 凭据；协议不提供任意命名空间 settings/get|set、权限切换、多 provider 凭据、账户登录或 UI 偏好持久化。
+- 面板覆盖模型、持久默认模型与 DeepSeek 凭据；通用命名空间设置通过 `settings/get` / `settings/set` 白名单接入；权限切换、多 provider 凭据、账户登录与 UI 偏好持久化按各自章节实现。
 
 ## 持久默认模型与 DeepSeek 凭据
 
@@ -35,7 +35,7 @@
 - 凭据由 DSH 写入 `$DSH_HOME/.credentials.yaml`，不是本应用的明文副本，更不是加密 OS vault。Unix 文件权限由 DSH 管理；不承诺 Windows ACL 或系统钥匙串加密。
 - 全局写入要求所有已拥有会话 idle，期间阻止 prompt/会话创建恢复/模型写入/重复配置写入。默认模型有 revision 冲突检查；凭据写入前后校验绑定，底层原子写与跨进程锁由 DSH 拥有，不宣称凭据值有 revision/CAS 保护。
 - 写入不使用提前返回的 Promise.race：底层锁/写入未结束，Host 一直保留 pending；查询等待 pending 完成才建立安全快照。Go 写入上限 60 秒，读取仍为 15 秒。失败或超时后 UI 禁止发送、导航、再次写入，必须 Refresh 成功读取模型和配置后解锁；Host 也要求失败写入后先查询。退出期间不报告迟到成功，持久原子性由 DSH 保证。
-- 成功只以 Host 回传的白名单快照确认；保存默认不会产生 session model/selection，也不改当前标签/聊天/草稿。配置写入不广播给其它连接，其它窗口需要自行刷新。
+- 成功只以 Host 回传的白名单快照确认；保存默认不会产生 session model/selection，也不改当前标签/聊天/草稿。配置写入通过设置变更通知广播；其它窗口刷新后采用。
 
 ## DSH 设置
 
@@ -60,12 +60,16 @@ base 提供：
 | `configuration/get` | 默认模型与凭据安全状态 |
 | `configuration/default-model` | 固定默认模型行的 revision 写入 |
 | `configuration/credential` | 配置绑定的 DeepSeek 引用 set/unset |
+| `settings/get` | 按命名空间读取非 secret 设置 |
+| `settings/set` | 按命名空间写入白名单设置 |
+| `settings/open-document` | 由 Host 打开对应设置文档/编辑器 |
 
 规则：
 
-- 凭据只返回引用/状态，协议从不返回明文。
+- 凭据只返回引用/状态，协议从不返回明文；`settings/get` 也永不返回 secret。
+- 通用设置只接受已声明命名空间；未知命名空间、越权 key 或 secret 写入返回 `settings-rejected`。
 - 写入失败返回结构化错误（`settings-conflict`、`settings-rejected`）。
-- 配置写入以 Host 返回的快照为准，UI 不做乐观覆盖。
+- 配置写入以 Host 返回的快照为准，UI 不做乐观覆盖；Host 通过设置变更通知广播新快照，其它窗口刷新后采用。
 - 不在 UI 里解析 `cordis.patch.yml`；那是 Host 的所有权。
 
 ### 模型与 effort
@@ -79,7 +83,8 @@ base 提供：
 
 - 由 `permission-presets` 与 `DSH_PERMISSION_MODE` 决定。
 - 常用值：`workspace-write`、`danger-full-access`；`danger-full-access` 时 approval policy 为 `never`，其余默认 `ask`。
-- UI 不提供切换入口，也不在本地改环境变量。
+- Settings 展示当前模式并允许切换；切换经 Host 写入，不只在本地改环境变量。
+- `danger-full-access` 需要明确确认；UI 不自行把 `ask` 降级为 `never`。
 
 ## 凭据
 
@@ -93,18 +98,35 @@ base 提供：
 
 ### 账户登录
 
-协议不提供账户登录；`deepseek-account` 若在 profile 中启用，由 Host 负责登录与状态，token 不进入 UI。
+- `deepseek-account` 在 profile 中启用时，由 Host 负责登录与状态。
+- 登录使用系统浏览器 OAuth/PKCE 或 Host 提供的设备码流程；token 只存在 Host/DSH 存储，不进入 UI、日志或崩溃报告。
+- UI 只展示登录状态、账户标识与退出入口；退出清除 Host 侧 token，不删除项目数据。
 
 ## UI 偏好
 
-UI 偏好属于 Go 进程。当前保留进程内草稿与 MyGo 的窗口状态（`WindowOptions.StateKey`）；主题跟随系统，语言、快捷键、最近会话与跨重启草稿不持久化。
+UI 偏好属于 Go 进程，持久化在 `PathUserData`，写入使用原子替换（临时文件 + rename），只保存设备/窗口偏好，不复制 DSH 设置。
 
-持久化位置为 `PathUserData`，写入使用原子替换（临时文件 + rename），只保存设备/窗口偏好，不复制 DSH 设置。
+```json
+{
+  "version": 1,
+  "window": { "width": 1100, "height": 760, "sidebar": true },
+  "theme": "system",
+  "locale": "zh-CN",
+  "lastSessionId": "...",
+  "drafts": { "<sessionId>": "..." },
+  "shortcuts": { "send": "Enter", "cancel": "Escape" }
+}
+```
+
+- 只保存可重建的 UI 状态：窗口尺寸/位置、主题、语言、侧栏、最近会话、快捷键、有界草稿。
+- 不保存 transcript、工具输出、附件内容、凭据或任何模型可见上下文。
+- 草稿按会话有界保存（例如每会话 64 KiB、总 1 MiB），退出/切换后仍可恢复；损坏文件回退默认值并备份一次。
+- 主题默认跟随系统；语言与 Host locale 可以不同。
 
 ## 并发与冲突
 
 - 设置写入以 Host 的 revision/快照为准；UI 的旧值被拒绝时刷新。
-- 单窗口适用；配置写入不广播给其它连接。
+- 多窗口/多连接：设置以 Host 广播快照为准，其它窗口刷新后采用；UI 不假定自己是唯一写入者。
 - 凭据更新与运行中的请求：Host 负责让新请求使用新凭据；UI 不重放旧请求。
 - 模型/effort 变更在下个回合生效。
 
@@ -117,12 +139,17 @@ UI 偏好属于 Go 进程。当前保留进程内草稿与 MyGo 的窗口状态�
 | 配置写入超时 | 禁止发送/导航，Refresh 成功后才解锁 |
 | 目录或元数据失败 | 标记不可用，不展示底层异常 |
 | 旧 Host 未协商 | 隐藏入口，未协商调用返回 capability-unavailable |
+| 未知命名空间/secret 写入 | `settings-rejected`；UI 展示不支持，不重试 |
+| 账户登录失败/过期 | 显示状态与重新登录入口；不显示 token |
 
 ## 测试
 
 - 模型目录：schema、secret 排除、预算、不可用 provider。
 - 会话选择：确认事件、失败保留表单与草稿、未确认时禁止发送。
 - 持久配置：revision 冲突、凭据 set/unset、安全状态、失败后必须刷新。
+- 通用设置：命名空间白名单、secret 排除、变更广播与多窗口刷新。
+- UI 偏好：schema、原子写、损坏回退、草稿有界恢复。
+- 账户登录：状态展示、退出清 token、失败重试（不触网时用 fake provider）。
 - UI：`ui.NewTester` 覆盖最小窗口、密码输入清空与控件重建。
 - 真实 Loader：`TestAgainstMygoModelSettings`、`TestAgainstMygoConfiguration` 验证实际请求路由与 Host 重启后的持久化。
 

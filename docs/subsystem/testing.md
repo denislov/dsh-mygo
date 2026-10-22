@@ -18,7 +18,7 @@
 | Host 集成 | 真实 `dsh --profile mygo`、真实 session log | 进程测试 |
 | DSH 组合 | Loader 启动 profile | 临时 `DSH_HOME` + 真实 CLI |
 | E2E | 真实模型或 mock adapter | `DEEPSEEK_API_KEY` 可选 |
-| 打包 | 安装、启动、更新、签名 | 平台 CI（未接入） |
+| 打包 | 安装、启动、更新、签名 | 平台 CI |
 
 ## Go 单元
 
@@ -28,6 +28,9 @@
 - 协议：合法/非法帧、版本、未知方法、超时、取消、重复回答、背压。
 - 交互：审批/提问的载荷校验、FIFO、上限、过期身份、表单草稿。
 - 会话/设置：摘要校验、切换门禁、草稿隔离、模型确认事件、配置 revision 与写入屏障。
+- 会话管理：rename/archive/delete/fork 的参数、事件、列表更新与冲突。
+- 恢复：seq 缺口 resync、baseline 重连、resync 失败时的停止路径。
+- 通用设置与偏好：命名空间白名单、secret 排除、UI 偏好 schema/原子写/损坏回退。
 - 纯函数优先；I/O 用接口注入。
 
 ### 命令
@@ -49,9 +52,10 @@ go tool mygo vet .
 - 断言 `HasText` / `Texts` 与可见状态，不断言像素。
 - 用 fake `ChannelClient` 或直接构造 `view.Model` 提供固定状态。
 - 覆盖：transcript 行、Enter/Shift+Enter、停止生命周期、审批/提问表单、Markdown 与复制、工具折叠/检视器、Sessions/Settings 弹窗、错误横幅、配置密码清空。
+- 目标态 UI：侧栏、搜索、重命名/归档/删除/fork、附件与 `@`、设置分区、主题/语言、resync 指示与更新提示。
 - 一帧可能构建多次；测试覆盖元素消失/返回、控件身份变化、弹窗关闭后的焦点回收。
 
-真实窗口检查在 Windows 上执行；macOS 随后。
+真实窗口检查在 Windows 与 macOS 上执行；Windows 是首发门槛。
 
 ## 协议 conformance
 
@@ -60,7 +64,7 @@ tests/fixtures/protocol/
   invalid-frames.json
 ```
 
-Go channel 与 Node transport 共用非法帧 fixture。`resources/host/tests/protocol.test.mjs` 覆盖握手门槛、版本/能力协商、非法 JSON/帧、超长输入、未终止 EOF、输出背压、请求串行、shutdown 与错误信息隔离；`history.test.mjs`、`models.test.mjs`、`configuration.test.mjs`、`approval.test.mjs`、`question.test.mjs` 分别覆盖对应子系统的边界与预算。
+Go channel 与 Node transport 共用非法帧 fixture。`resources/host/tests/protocol.test.mjs` 覆盖握手门槛、版本/能力协商、非法 JSON/帧、超长输入、未终止 EOF、输出背压、请求串行、shutdown 与错误信息隔离；`history.test.mjs`、`models.test.mjs`、`configuration.test.mjs`、`approval.test.mjs`、`question.test.mjs` 分别覆盖对应子系统的边界与预算。目标态还需覆盖 `$/cancel`、`subagent/*`、附件帧、`session/rename|archive|delete|fork` 与 resync。
 
 ## Fake Host
 
@@ -107,7 +111,7 @@ node --test resources/host/tests/*.test.mjs
 - 卸载保留 `$DSH_HOME`；断网、磁盘满、权限错误。
 - 任务运行中更新被拒绝或确认后中断。
 
-打包测试随打包阶段接入；命令与产物约定见 [打包与更新](packaging-updates.md)。
+打包测试的命令与产物约定见 [打包与更新](packaging-updates.md)。
 
 ## 平台矩阵
 
@@ -137,11 +141,11 @@ DSH 的会话与设置跨平台共享；测试不要写入用户真实 `$DSH_HOM
 | 真实 Host | 可选自托管 job：设置 `DSH_MYGO_DSH_DIR` 后跑真实组合组 |
 | 打包 | 平台 runner 上构建、签名、安装 smoke（发布阶段） |
 
-## 已知限制
+## 测试范围取舍
 
-- 真实付费模型 E2E 需要 key，不在默认流水线。
-- macOS 原生验收未执行。
-- 没有打包、签名、更新测试。
+- 真实付费模型 E2E 需要 key，作为可选/自托管任务，不进默认流水线。
+- macOS 真机验收与签名/公证在 macOS 发布门槛执行。
+- 打包、签名与更新测试在平台 runner 上执行，作为发布门槛。
 - 原生窗口的部分只读控件模式无法用 UI Automation 断言，相关选择/effort 由 Tester 与真实 Loader 覆盖。
 
 ## 不测试什么

@@ -54,14 +54,22 @@ DSH 核心事件（`SessionEventMap`）：
 | `user/message` | 用户消息（区分 human / synthetic / goal continuation） |
 | `developer/message` | 开发者/系统注入，按需折叠 |
 | `system/message` | 系统提示，默认不展示 |
-| `assistant/message` | 完成的 assistant 消息与 `interrupted` 标记；usage 不展示 |
+| `assistant/message` | 完成的 assistant 消息、usage 与 `interrupted` 标记 |
 | `assistant/attempt` | 未产生可见消息的尝试；用于错误/重试展示 |
 | `tool/call` | 工具调用开始（名称、原始参数 JSON） |
 | `tool/result` | 工具结果、错误、`meta`（diff 等展示数据） |
 | `request/header` / `request/context` | 请求元数据；用于诊断，不直接展示 |
 | `session/end-seed` | fork/恢复边界 |
 
-插件扩展事件（`session/title`、`compaction/*`、`goal/todo/plan/*`、`subagent/*`、telemetry）当前不投影；未知事件类型必须被容忍：忽略并记录一次诊断，不要让 UI 崩溃。
+插件扩展事件按类型投影：
+
+- `session/title`：会话标题与最近活动时间。
+- `compaction/*`：压缩开始/结束、摘要与上下文变化。
+- `goal/*`、`todo/*`、`plan/*`：目标、待办、计划面板。
+- `subagent/*`：父子会话关系、运行状态与结果入口。
+- `session/*-delivery`、telemetry：日志/诊断，默认不展示。
+
+未知事件类型必须被容忍：忽略并记录一次诊断，不要让 UI 崩溃。
 
 ## UI 数据模型
 
@@ -73,8 +81,11 @@ type SessionView struct {
     Provider  string
     Model     string
     Effort    string
-    Status    Status // idle | running | failed
+    Status    Status // idle | running | resyncing | failed
     Turns     []TurnView
+    Usage     UsageView
+    Context   ContextView
+    Pending   []QueuedInput
 }
 
 type TurnView struct {
@@ -91,6 +102,7 @@ type AssistantView struct {
     Text        string // 流式时为草稿，提交后替换
     Streaming   bool
     Interrupted bool
+    Usage       *UsageView
 }
 type ToolCallView struct {
     CallID    string
@@ -131,16 +143,17 @@ idle
 
 ### 重连
 
-- `session/resume` / `session/history` 不返回 `assistantStream` baseline；resume 恢复 agent 与会话，历史通过事件回放。
-- UI 不以 baseline 续接临时流；恢复后收到没有 `start` 的 `chunk` 时丢弃并等待 `start`。
+- `session/resume` / `session/history` 可返回 `assistantStream` baseline：`revision` + `activeAttempt`（含已累计 stream）。
+- UI 从 baseline 的 `revision` 继续接收；baseline 之前的内容不重放。
+- 没有 baseline 时按 idle 处理；如果随后收到 `chunk` 而没有 `start`，丢弃并等待 `start`。
 
 ## 历史回放
 
 Host 通过 list/resume/history 提供历史，具体参数、快照边界和资源预算以 [通道协议](channel-protocol.md#host-历史能力) 为准。回放使用现有 Transcript.Apply，UI 不持久化副本。
 
-Sessions 弹窗显式打开旧会话或新建。后台先校验 resume/create 的确切身份、idle、模型路由与 nextSeq，再从 seq 0 分页构建新的 Transcript；所有页成功并确认固定边界后，在主线程整体替换旧投影。加载失败不保留或展示部分新历史，旧会话/草稿保持原样。
+会话列表/弹窗显式打开旧会话或新建。后台先校验 resume/create 的确切身份、idle 或运行中状态、模型路由与 nextSeq，再从 seq 0 分页构建新的 Transcript；所有页成功并确认固定边界后，在主线程整体替换旧投影。加载失败不保留或展示部分新历史，旧会话/草稿保持原样。
 
-加载目标会话期间缓冲其 durable/status/交互通知，成功后以历史 nextSeq 为边界有序消费，丢弃重复事件；不回放临时流式帧。回放完成前不允许发送新 prompt。正在运行会话 attach、自动 resync 与流式 baseline 不在当前能力内。
+加载目标会话期间缓冲其 durable/status/交互通知，成功后以历史 nextSeq 为边界有序消费，丢弃重复事件；运行中会话通过 baseline 续接临时流。回放完成前不允许发送新 prompt。运行中 attach、自动 resync 与流式 baseline 是历史回放的目标能力。
 
 打开流程：
 
@@ -155,7 +168,7 @@ Sessions 弹窗显式打开旧会话或新建。后台先校验 resume/create �
 分页：
 
 - `session/history` 使用 `cursor` + `limit` + `direction`；Host 固定从 seq 0 向前分页。
-- 先完成有界全量回放，再用原生虚拟列表仅构建可见行；不提供向上滚动时增量读取更早历史。投影与原始历史不落本地文件。
+- 首屏完成有界回放后，用原生虚拟列表仅构建可见行；向上滚动时按 cursor 增量读取更早历史，不重放整段日志。投影与原始历史不落本地文件。
 - 历史页与实时事件的投影函数必须相同，避免两套渲染。
 
 ## 工具调用与 diff
@@ -170,10 +183,13 @@ Sessions 弹窗显式打开旧会话或新建。后台先校验 resume/create �
 - 原生 `editor.DiffView` 仅按需构建一个只读 hunk，禁用编辑和 Revert/Keep；前后文本合计超过 16 KiB 或 400 个换行时不在 UI 线程计算 diff，改为明确标注的只读 Before/After 文本。切换 hunk、结果更新或缓存淘汰会替换/释放旧缓冲，关闭检视器清理全部检视状态。
 - 同一 `callId` 的 call/result 必须配对；结果先到（异常）时保留占位并在结果到达后补齐。
 
-## 状态
+## 状态与使用量
 
-- `session/status` 驱动“正在工作”指示与输入禁用/发送屏障。
-- usage 与 context 不展示；不在 UI 侧重新计算 token 或上下文。
+- `session/status` 驱动“正在工作”指示、输入禁用/排队、托盘/通知。
+- `assistant/message.usage` 提供 token 统计；`request/context` 提供上下文容量。
+- `resyncing` 表示正在用历史补齐缺口，暂停发送并显示同步指示。
+- compaction 事件清除过期的上下文估算，并展示压缩摘要。
+- 不要在 UI 侧重新计算 token；只展示 Host 提供的数字。
 
 ## 交互状态
 
@@ -204,7 +220,7 @@ Sessions 弹窗显式打开旧会话或新建。后台先校验 resume/create �
 | 失败 | 处理 |
 | --- | --- |
 | 未知事件类型 | 忽略 + 一次性诊断日志 |
-| `seq` 缺口 | 连接失败并停止 Host；不自动 resync，需重启应用并从历史回放 |
+| `seq` 缺口 | 标记 `resyncing`，用 history 补齐后继续；无法安全合并时停止 Host 并提示重启 |
 | 流式帧乱序/缺口 | 丢弃当前 attempt，等待 `start` |
 | 提交事件缺失 | end 本身不成为历史；保留前缀等待提交，idle/turn 结束时清理，不伪造最终答案 |
 | 工具参数 JSON 非法 | 展示原文 + 解析错误 |

@@ -7,7 +7,7 @@ dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node H
 - 默认协议：`initialize` 协商版本与能力，随后 `session/create|list|resume|history|prompt|cancel`；通知为 `session/event`、`session/assistant-stream`、`session/status` 与交互请求。审批、提问、模型、配置各自通过 capability 协商。
 - UI 能力：原生 Markdown 流式与代码/源文复制、工具折叠与只读 diff、Sessions 弹窗、Settings（会话模型、持久默认模型、DeepSeek 凭据）。
 - 发布形态：MyGo 二进制 + `resources/`（私有 `mygo-host`、Node、DSH runtime、profile seed）；落地顺序见路线图。
-- 写代码前先确认范围：当前不做 timed/continued 提问、实时缺口自动 resync、固定侧栏与会话管理、通用命名空间设置、多 provider 凭据、账户登录、RPC 请求级取消、打包。这些只在路线图与任务里出现，不写进设计文档当现状。
+- 实现顺序看路线图：timed/continued 提问、实时缺口自动 resync、固定侧栏与会话管理、通用命名空间设置、多 provider 凭据、账户登录、RPC 请求级取消、打包按路线图推进。设计文档保留这些目标，不因尚未实现而删除；本文件不重复状态清单。
 
 ## 文档路由
 
@@ -118,9 +118,9 @@ pnpm run test
 
 ## 文档约定
 
-- **设计文档只写当前事实。** `docs/architecture.md` 与 `docs/subsystem/` 用现在时描述代码当前行为，不写“已落地/已实现/尚未实现/阶段 N 完成”等变更历史；变更历史由 git log 承担。
-- **代码事实变化时直接改写文档。** 能力、协议、UI 改动后，修改受影响的子系统文档现有段落，不新增“变更记录”。
-- **一个事实一个主页。** 架构文档管跨系统结构，子系统文档管契约；状态、缺口与里程碑只在 [docs/roadmap.md](docs/roadmap.md)；经验教训只在 [LESSONS.md](LESSONS.md)；重复 3 次的教训固化到 [docs/code-standards.md](docs/code-standards.md)。
+- **设计文档描述目标态，不是现状快照。** `docs/architecture.md` 与 `docs/subsystem/` 描述项目最终设计目标与契约；未实现的功能保留在设计中，不能因为代码还没做而删除。进度、缺口与"何时完成"只写 [docs/roadmap.md](docs/roadmap.md) 与 git log。
+- **只有实现迫使设计变更时才改设计文档。** 日常实现进度变化不改目标；当开发发现契约、结构或流程必须调整时，修改受影响的设计文档现有段落，保持描述口吻，不写"已落地/已实现/尚未实现"等变更历史。
+- **一个事实一个主页。** 架构文档管跨系统结构，子系统文档管目标契约；状态、缺口与里程碑只在 [docs/roadmap.md](docs/roadmap.md)；经验教训只在 [LESSONS.md](LESSONS.md)；重复 3 次的教训或项目所有者直接指定的规则固化到 [docs/code-standards.md](docs/code-standards.md)。
 - **提交信息记录影响面。** 每个任务完成后列出受影响的子系统、契约变化与实际跑过的检查。
 - **任务开始前通读 `docs/`。** 先读全部设计文档与路线图，确认目标不偏离整体设计。
 - `docs/research/` 回答“为什么”；不要在里面写当前实现契约。
@@ -134,7 +134,7 @@ pnpm run test
 - 改协议：跑 conformance fixture + 真实 Host 集成。
 - 改 UI：`ui.NewTester` + Windows 真实窗口检查；macOS 随后。
 - 改 Host/打包：启动 smoke、stdout 纯净、退出回收。
-- 改文档：核对链接可达、描述与代码一致（方法表、常量、UI 文案），并确认没有变更历史口吻。
+- 改文档：核对链接可达、设计契约自洽；实现与目标的差距记录在路线图，不要求逐条已实现，也不要为了对齐现状删除设计目标；设计文档中不得出现进度/变更历史口吻。
 - 提交前报告实际跑过的命令，不报告未跑的检查。
 
 ## 提交

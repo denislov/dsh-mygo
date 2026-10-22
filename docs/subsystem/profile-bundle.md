@@ -28,7 +28,7 @@ Host 历史通过 `session.history` capability 启用，使用公开 sessionPers
 
 审批通过 `approval` capability 启用，等待原生 UI 允许一次或拒绝；`maxPendingApprovals` 默认 32，范围 1–64，超限返回 unavailable。提问通过 `question` capability 启用，`maxPendingQuestions` 默认 32，范围 1–64；未协商或超限返回 NO_PROVIDER，不悬挂。
 
-base 只提供提问服务；自有 patch 增加稳定行 `tool-ask-user`，绑定 `@deepseek-ai/dsh-tool-ask-user` 同版本并显式配置 `mode: legacy`，注册阻塞式 `ask_user_question`。阻塞模式不支持 timed foreground claim、continued 与迟到回复，不通过隐式改配置冒充支持。
+base 只提供提问服务；自有 patch 增加稳定行 `tool-ask-user`，绑定 `@deepseek-ai/dsh-tool-ask-user` 同版本。阻塞提问使用 `mode: legacy`；timed/continued 需要 Host 侧 provider seat，未提供时明确返回 NO_PROVIDER，不通过隐式改配置冒充支持。
 
 ## 包形态
 
@@ -158,7 +158,7 @@ export function apply(ctx: Context, config: Config) {
 
 ## Profile 初始化
 
-### 当前开发初始化
+### 开发初始化
 
 ```sh
 node resources/host/setup-profile.mjs --dsh-home D:/Temp/dsh-mygo-dev
@@ -170,7 +170,7 @@ node resources/host/setup-profile.mjs --dsh-home D:/Temp/dsh-mygo-dev
 2. 将本仓库 bundle 链接到 profile 的 `node_modules/@dsh-mygo/host`；Windows 使用 junction，不修改 DSH checkout。
 3. 写入 `dsh.profile.bundles: ["@deepseek-ai/dsh-base", "@dsh-mygo/host"]` 和空用户 patch；不运行包安装器。
 
-该 profile 通过 DSH 的正式 CLI 和 Loader 启动，并复用安装侧公开 peer 包。发布时改为安装/携带完整 bundle 和 runtime，不能依赖开发机的仓库链接。
+该 profile 通过 DSH 的正式 CLI 和 Loader 启动，并复用安装侧公开 peer 包。发布时由安装器携带完整 bundle 与 runtime，不依赖开发机的仓库链接。
 
 ### 首启校验（发布构建）
 
@@ -180,7 +180,7 @@ node resources/host/setup-profile.mjs --dsh-home D:/Temp/dsh-mygo-dev
 - bundle 版本与 UI 版本匹配（同一发布单元）。
 - 兼容性检查失败时显示修复命令，不自动改写用户 profile。
 
-开发初始化脚本只创建并链接 profile，不做这些校验。
+开发初始化脚本只创建并链接 profile；发布构建才执行上述校验。
 
 ### 包管理器
 

@@ -43,7 +43,7 @@ DSH 的 outcome 是封闭集合：`allowed-once`、`rejected`、`cancelled`、`u
 - 同一 `callId` 的重复审批是异常：标记为 `external`，不要用一个回答去翻转另一个请求。
 - 被取消的会话/工具调用要清掉对应队列项；迟到的 `approval/respond` 返回 `stale-request`，不改变已决结果。
 - Host 默认最多等待 32 个审批，`maxPendingApprovals` 可配置为 1–64，超限返回 `unavailable`。Go 最多保留 64 个待处理请求，并拒绝已关闭身份复用。
-- UI 只显示当前会话的审批；合法的外来会话通知被忽略。多会话/后台审批不呈现。
+- UI 显示当前会话的审批，并按会话隔离；后台会话的审批进入队列，在侧栏/通知中提示，切换会话后处理。
 
 ### UI
 
@@ -62,7 +62,7 @@ DSH 的 outcome 是封闭集合：`allowed-once`、`rejected`、`cancelled`、`u
 
 精确绑定的 DSH 使用 `user-questions/request` waterfall，不探测或抢占旧版 provider seat。Host 只回答自己创建的确切 agent；外来 agent 调用 `next()` 委托。无 agent 的 Host 请求也支持，通知使用 `sessionId: ""`，原生面板明确标注未关联会话。
 
-`dsh-base` 只提供 `userQuestions` 服务，不注册模型工具；自有 bundle 通过稳定行 `tool-ask-user` 注册 `@deepseek-ai/dsh-tool-ask-user`，配置 `mode: legacy`（阻塞等待，不是旧版 provider API）。带 foreground claim 的 `wait.timed` 请求明确返回 `NO_PROVIDER`；自动超时、continued 与迟到回复不在支持范围内。
+`dsh-base` 只提供 `userQuestions` 服务，不注册模型工具；自有 bundle 通过稳定行 `tool-ask-user` 注册 `@deepseek-ai/dsh-tool-ask-user`。提问支持阻塞与 timed/continued 两种模式：阻塞等待用户一次提交；timed 请求在截止时间返回，迟到的回答按 `question/respond` 规则结算。`wait.timed` 在没有对应 provider 时返回 `NO_PROVIDER`，不伪装支持。
 
 ### 请求内容
 
@@ -87,7 +87,9 @@ Host `maxPendingQuestions` 默认 32，范围 1–64；Go 最多 64 个待处理
 - 权限模式由 `@deepseek-ai/dsh-permission-presets` 与 `DSH_PERMISSION_MODE` 决定。
 - 常用值：`workspace-write`、`danger-full-access`。
 - `danger-full-access` 时 approval policy 为 `never`；其余默认 `ask`。
-- 当前 UI 不提供模式切换入口，也不在本地改环境变量或把 `ask` 降级为 `never`。
+- 模式切换经 Host 写入，不能只在本地改环境变量。
+- `danger-full-access` 的确认文案明确风险；不要默认选中。
+- UI 不自行把 `ask` 降级为 `never`。
 - sandbox 策略由 DSH 配置决定；UI 不提供绕过入口。
 
 ## 协议映射

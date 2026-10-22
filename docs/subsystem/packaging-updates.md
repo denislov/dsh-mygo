@@ -25,7 +25,7 @@ dsh-mygo.app / dsh-mygo/            # MyGo 产物
    └─ icons/                        # 托盘、窗口、安装器素材
 ```
 
-`resources/` 的布局由构建脚本生成；运行时只通过 `mygo.App.Path(mygo.PathResources)` 读取，不依赖工作目录。当前 `go tool mygo build` 只产出 Go 二进制与安装器；`resources/runtime`、profile seed 与私有 `mygo-host` 由发布构建补充，见 [路线图](../roadmap.md)。
+`resources/` 的布局由构建脚本生成；运行时只通过 `mygo.App.Path(mygo.PathResources)` 读取，不依赖工作目录。`resources/runtime`、profile seed 与私有 `mygo-host` 是发布包的一部分。
 
 ## 构建
 
@@ -63,7 +63,7 @@ UI、Host、bundle 作为一个发布单元验证；不允许只升级其中一�
 3. 校验 profile 的 `dsh.profile.bundles` 包含 base 与 mygo bundle；缺失时提示修复命令。
 4. 校验 bundle 版本与 app 版本；不匹配时拒绝启动并给出修复建议。
 5. 启动 Host；首启不运行 pnpm。
-6. 第三方插件由用户通过 `dsh plugin --profile mygo add` 安装；安装时使用 bundled pnpm 与 profile 锁。UI 内安装入口不在当前范围。
+6. 第三方插件由用户通过 `dsh plugin --profile mygo add` 或 UI 插件管理页安装；安装时使用 bundled pnpm 与 profile 锁。
 
 ## 打包内容
 
@@ -159,7 +159,7 @@ UI、Host、bundle 作为一个发布单元验证；不允许只升级其中一�
 | 崩溃报告 | `PathLogs/crash-<UTC>-<source>.log` |
 | 更新日志 | `PathLogs/update-*.log` |
 
-报告包含版本、平台、Host 退出码/信号、最后错误、当前会话 id；不包含 secret。当前运行期只有 stderr 内存缓冲，文件日志与崩溃报告随打包阶段落地。
+报告包含版本、平台、Host 退出码/信号、最后错误、当前会话 id；不包含 secret。崩溃报告写入 `PathLogs`，与 Go 应用日志同目录。
 
 ## 测试
 
