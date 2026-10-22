@@ -48,6 +48,10 @@ type Model struct {
 	ApprovalOpen    bool
 	Approvals       []interaction.Approval
 	RespondApproval func(requestID, decision string)
+	CanQuestion     bool
+	QuestionOpen    bool
+	Questions       []*interaction.QuestionRequest
+	RespondQuestion func(requestID string, cancel bool)
 	List            mgo.ListState
 }
 
@@ -72,6 +76,7 @@ func View(c *mgo.Context, model *Model) {
 		composer(c, model)
 	})
 	approvalModal(c, model)
+	questionModal(c, model)
 }
 
 func header(c *mgo.Context, model *Model) {
@@ -197,7 +202,7 @@ func toolCard(c *mgo.Context, item projection.Item) {
 func composer(c *mgo.Context, model *Model) {
 	theme := c.Theme()
 	stopped := model.Phase == PhaseStopped || model.Phase == PhaseFailed
-	canSend := model.Phase == PhaseIdle && model.Send != nil
+	canSend := model.Phase == PhaseIdle && model.Send != nil && len(model.Questions) == 0
 	mgo.Column(c).Padding(12, 20, 16, 20).Gap(8).Children(func() {
 		mgo.TextArea(c.Key("composer"), &model.Draft).Lines(1, 8).
 			Label("Message").Placeholder("Message DeepSeek…").AutoFocus().Disabled(stopped).

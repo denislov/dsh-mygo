@@ -71,6 +71,7 @@ type App struct {
 	model      *view.Model
 	transcript projection.Transcript
 	approvals  interaction.ApprovalQueue
+	questions  interaction.QuestionQueue
 
 	mu         sync.Mutex
 	supervisor *host.Supervisor
@@ -104,6 +105,7 @@ func New(options Options) *App {
 	app.model.Dismiss = app.DismissError
 	app.model.Cancel = app.Cancel
 	app.model.RespondApproval = app.RespondApproval
+	app.model.RespondQuestion = app.RespondQuestion
 	return app
 }
 
@@ -179,6 +181,7 @@ func (a *App) Start() {
 		a.nextSeq = initialized.nextSeq
 		a.model.CanCancel = initialized.canCancel
 		a.model.CanApprove = initialized.canApprove
+		a.model.CanQuestion = initialized.canQuestion
 		a.model.Detail = initialized.detail
 		if a.model.Phase == view.PhaseStarting {
 			a.model.Phase = view.PhaseIdle
@@ -187,11 +190,12 @@ func (a *App) Start() {
 }
 
 type initializedSession struct {
-	sessionID  string
-	nextSeq    uint64
-	detail     string
-	canCancel  bool
-	canApprove bool
+	sessionID   string
+	nextSeq     uint64
+	detail      string
+	canCancel   bool
+	canApprove  bool
+	canQuestion bool
 }
 
 func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSession, error) {
@@ -218,7 +222,7 @@ func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSess
 	result, err := client.Call(ctx, "initialize", map[string]any{
 		"protocolVersion": channel.ProtocolVersion,
 		"client":          map[string]string{"name": "dsh-mygo", "version": channel.ReleaseVersion, "platform": runtime.GOOS, "locale": "zh-CN"},
-		"capabilities":    []string{"session.cancel", "approval"},
+		"capabilities":    []string{"session.cancel", "approval", "question"},
 	})
 	if err != nil {
 		return initializedSession{}, err
@@ -247,9 +251,10 @@ func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSess
 	}
 	return initializedSession{
 		sessionID: created.Session.ID, nextSeq: *created.Session.NextSeq,
-		detail:     initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
-		canCancel:  slices.Contains(initialized.Capabilities, "session.cancel"),
-		canApprove: slices.Contains(initialized.Capabilities, "approval"),
+		detail:      initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
+		canCancel:   slices.Contains(initialized.Capabilities, "session.cancel"),
+		canApprove:  slices.Contains(initialized.Capabilities, "approval"),
+		canQuestion: slices.Contains(initialized.Capabilities, "question"),
 	}, nil
 }
 
@@ -269,7 +274,7 @@ func validSessionID(value string) bool {
 // while the host is busy or not ready.
 func (a *App) Send(text string) {
 	text = strings.TrimSpace(text)
-	if text == "" || a.shuttingDown.Load() || a.model.Phase != view.PhaseIdle {
+	if text == "" || a.shuttingDown.Load() || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 {
 		return
 	}
 	client := a.currentClient()
@@ -407,6 +412,9 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 	}
 	if !a.options.SDKProtocol {
 		switch method {
+		case "question/request", "question/closed":
+			a.handleQuestionNotification(method, params)
+			return
 		case "approval/request", "approval/closed":
 			a.handleApprovalNotification(method, params)
 			return
@@ -505,6 +513,8 @@ func (a *App) applyStatus(status string) {
 			a.awaitingTurn = false
 			a.sawActivity = false
 		}
+		a.questions.RemoveSession(a.sessionID)
+		a.publishQuestions()
 		if a.model.CancelPending {
 			a.clearApprovals()
 			a.cancelIdle = true
@@ -524,6 +534,7 @@ func (a *App) Shutdown(timeout time.Duration) {
 	}
 	close(a.stopped)
 	a.post(a.clearApprovals)
+	a.post(a.clearQuestions)
 	a.mu.Lock()
 	client := a.client
 	supervisor := a.supervisor
@@ -571,6 +582,7 @@ func (a *App) setFailure(summary string, err error) {
 	a.model.Phase = view.PhaseFailed
 	a.model.CancelPending = false
 	a.clearApprovals()
+	a.clearQuestions()
 	a.model.Error = summary
 	detail := ""
 	if err != nil {

@@ -29,6 +29,7 @@
 - 旧 SDK 回归模式仍消费 `session.event`；两种 envelope 共用相同提交事件投影，UI 不生成或持久化会话历史。
 - Stop 不直接修改 transcript；DSH 提交的 `turn/end.reason.kind == "aborted"` 投影为取消 notice。若取消发生在回合完成之后，按实际提交结果展示，不补造取消行。取消后的同一 session 继续从原有 `nextSeq` 接收下一回合。
 - `approval/request` / `approval/closed` 是连接内临时交互，由 `internal/interaction` 管理，不进入 transcript。审批结果只通过 Host 提交的工具结果体现；弹窗展示原始关联参数，不使用下述截断后的工具行。idle、失败和退出清理临时队列，不伪造审批历史。
+- `question/request` / `question/closed` 同样由交互层管理，不把本地表单或取消动作写成历史。结构化答案通过真实 `ask_user_question` 工具结果进入 Host 日志；当前仅支持阻塞等待，尚不投影 timed/continued 问题或迟到回复。会话 idle 清理本会话提问，无 agent 请求不随会话 idle 消失。
 - 文本按 rune 截断：消息 8000、工具内容 4000；完整历史与展开查看留给 P2。
 - 无逐字流式、无 history、无 usage/context 展示、无 diff。
 

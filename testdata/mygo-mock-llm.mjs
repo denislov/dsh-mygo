@@ -12,19 +12,25 @@ class MygoMockAdapter extends LlmAdapter {
 
   async *stream(options) {
     let reply = 'pong'
-    if (options.model === 'approval-probe') {
+    if (options.model === 'approval-probe' || options.model === 'question-probe') {
       if (!this.probeStarted) {
         this.probeStarted = true
-        const argumentsText = '{"file_path":"approval-marker.txt"}'
-        const callId = ToolCallId('approval-probe-call')
+        const isQuestion = options.model === 'question-probe'
+        const toolName = isQuestion ? 'ask_user_question' : 'mygo_approval_probe'
+        const argumentsText = isQuestion ? JSON.stringify({ questions: [
+          { id: 'mode', question: 'Choose mode', options: [{ label: 'Safe', description: 'Recommended mode' }, { label: 'Fast' }] },
+          { id: 'features', question: 'Choose features', multi_select: true, options: [{ label: 'Logs' }, { label: 'Tests' }] },
+          { id: 'note', question: 'Add a note' },
+        ] }) : '{"file_path":"approval-marker.txt"}'
+        const callId = ToolCallId(isQuestion ? 'question-probe-call' : 'approval-probe-call')
         yield { type: 'block-start', index: 0, blockType: 'tool-call' }
-        yield { type: 'tool-call-delta', index: 0, id: callId, name: 'mygo_approval_probe', argumentsDelta: argumentsText }
-        yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: callId, name: 'mygo_approval_probe', arguments: argumentsText } }
+        yield { type: 'tool-call-delta', index: 0, id: callId, name: toolName, argumentsDelta: argumentsText }
+        yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: callId, name: toolName, arguments: argumentsText } }
         yield { type: 'finish', reason: { kind: 'tool-calls' } }
         return
       }
       const last = options.messages.at(-1)
-      if (last?.role === 'tool') reply = `Approval result: ${last.content.filter((block) => block.type === 'text').map((block) => block.text).join('')}`
+      if (last?.role === 'tool') reply = `${options.model === 'question-probe' ? 'Question' : 'Approval'} result: ${last.content.filter((block) => block.type === 'text').map((block) => block.text).join('')}`
     }
     if (options.model === 'wait-for-cancel' && !this.waited) {
       this.waited = true

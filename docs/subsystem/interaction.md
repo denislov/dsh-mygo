@@ -2,7 +2,7 @@
 
 ## 职责
 
-当前已实现 `approval` capability、Host answerer、有界审批队列与原生审批面板。未协商审批时返回 `unavailable`；用户提问仍明确失败，不声明 question capability。本页“用户提问”部分是后续设计，不是当前实现。
+当前已实现 `approval` / `question` capability、Host answerer、有界队列与原生审批/问答面板。未协商审批时返回 `unavailable`，未协商提问时返回 `UserQuestionError/NO_PROVIDER`，不会悬挂等待。
 
 `interaction` 子系统把 DSH 的两类人机交互桥接到原生 UI：
 
@@ -60,34 +60,27 @@ DSH 的 outcome 是封闭集合：`allowed-once`、`rejected`、`cancelled`、`u
 
 模型调用 `ask_user_question` → `ctx.userQuestions.ask(request)` → 注册的 provider/answerer。
 
-DSH 有两代接口：
+当前精确绑定的 DSH 使用 `user-questions/request` waterfall，不探测或抢占旧版 provider seat。Host 只回答自己创建的确切 agent；外来 agent 调用 `next()` 委托。无 agent 的 Host 请求也支持，通知使用 `sessionId: ""`，原生面板明确标注未关联会话。
 
-- 旧版：`service.registerProvider(provider)` 的单一 provider seat。
-- 新版：`user-questions/request` waterfall，按 agent scope 过滤。
-
-Host 插件应探测当前接口并注册，类似 dsh-TUI 的 `prepareQuestionAnswerer`：
-
-- waterfall：监听 `user-questions/request`；只处理当前 agent 的请求，其他 `next()` 委托。
-- legacy：`registerProvider`；处理 `DUPLICATE_PROVIDER`，不要抢其他插件的 seat。
-- agentless 请求（例如 `/auth` 向导）也要处理，不能因为找不到 agent 就丢弃。
+`dsh-base` 只提供 `userQuestions` 服务，不注册模型工具；自有 bundle 通过稳定行 `tool-ask-user` 注册 `@deepseek-ai/dsh-tool-ask-user`，配置 `mode: legacy`（阻塞等待，不是旧版 provider API）。带 foreground claim 的 `wait.timed` 请求明确返回 `NO_PROVIDER`；自动超时、continued/迟到回复未实现，不冒充支持。
 
 ### 请求内容
 
-`AskUserQuestionRequest` 可以包含：
+通知为 `{ requestId, sessionId, questions }`。每题包含 `id`、`question`，可选 `header`、`detail`、`options: [{ label, description? }]`、`multiSelect`。问题 id 和选项 label 不得重复。详情完整展示；plan-review intent 在 Host 校验后按通用题型呈现，不隐藏所审阅的 detail，不推断选项审批语义。
 
-- 一个或多个问题。
-- 单选/多选选项。
-- 是否允许自由文本。
-- 默认值/推荐值。
-- 与当前 agent/session 的关联。
+所有题目均可填写自由文本，不自动选择首项或替用户提交推荐值。一次提交全部答案：`{ requestId, answers: [{ id, selected: string[], custom? }] }`。每题至少一个选项或非空自定义文本；单选只能二者选一，多选允许选项与文本并存。选项必须属于原请求，禁止重复、缺题或未知题目。Host 再次完整校验，不信任 UI。
 
-UI 应支持多问题表单；一次提交全部答案。答案形状以 DSH 的 `AskUserQuestionAnswer` 为准。
+边界：每请求 1–8 题，每题最多 16 个选项；id 128、题目 4096、header 256、detail 32768、label 256、description 2048、自定义回答 8192 UTF-8 字节；整批规范化问题/答案各最多 64 KiB。超限明确失败，不截断。
+
+Host `maxPendingQuestions` 默认 32，范围 1–64；Go 最多 64 个待处理请求，并以有界身份指纹拒绝复用/修改。各类型内部 FIFO；审批优先于提问，绝不叠加两个 Modal，等待期间保留问答草稿。每请求独立稳定 key；每题单选、多选、自由文本和错误状态跨帧保存，提交期间禁用重复操作，失败可重试。
 
 ### 取消
 
 - 用户关闭表单 / 按 Esc：返回 `UserQuestionError`，code 为 `ASK_CANCELLED`（与 plan mode 的“用户想插话”语义一致）。
-- 工具调用被取消、Host 关闭、插件卸载：同样返回取消错误；不要让 promise 悬挂。
+- 工具 abort 返回 `ASK_ABORTED`；停止回合、Host 关闭或插件卸载返回 `ASK_CANCELLED`，每个 promise 都结算。
 - 不要用空答案冒充取消。
+- `question/cancel` 只关闭该提问，不等于停止回合；`Stop turn` 使用现有回合取消路径。请求结算时发送 `question/closed`，可先于 RPC 响应到达；迟到回答返回 `question/stale-request`。
+- 会话 idle/取消只撤销该会话提问，不撤销无 agent 请求；连接失败/退出清空全部。无 agent 请求等待时禁用新 prompt，但保留 composer 草稿；无 agent 面板不提供 Stop turn。
 
 ## 权限模式
 
@@ -104,8 +97,10 @@ UI 应支持多问题表单；一次提交全部答案。答案形状以 DSH 的
 | Host → UI | `approval/request` | `requestId` + 上述字段 |
 | UI → Host | `approval/respond` | `{ requestId, decision: allow\|deny }` |
 | Host → UI | `approval/closed` | `{ requestId, sessionId }`；回答、abort、取消或退出后发送 |
-| Host → UI | `question/request`（未实现） | `requestId` + questions |
-| UI → Host | `question/respond`（未实现） | `{ requestId, answers }` |
+| Host → UI | `question/request` | `{ requestId, sessionId, questions }` |
+| UI → Host | `question/respond` | `{ requestId, answers }` |
+| UI → Host | `question/cancel` | `{ requestId }` |
+| Host → UI | `question/closed` | `{ requestId, sessionId }` |
 
 规则：
 
@@ -129,7 +124,7 @@ UI 应支持多问题表单；一次提交全部答案。答案形状以 DSH 的
 | UI 关闭/崩溃 | Host 取消未决请求；工具收到 cancelled |
 | 回答过期 | `stale-request`；UI 移除该项 |
 | 重复 `callId` | 标记 external 警告；不合并回答 |
-| legacy provider 冲突 | `DUPLICATE_PROVIDER`；让出 seat，不抢 |
+| 未协商提问、队列超限或 timed wait | `UserQuestionError/NO_PROVIDER` |
 | 提问被取消 | `UserQuestionError` / `ASK_CANCELLED` |
 | Host 退出 | 所有未决请求取消；UI 显示恢复 |
 
@@ -140,6 +135,7 @@ UI 应支持多问题表单；一次提交全部答案。答案形状以 DSH 的
 - 并发：同会话多个审批、跨会话审批、后台会话。
 - 权限模式：workspace-write 与 danger-full-access 的行为差异。
 - 真实 Host 集成：mock adapter 驱动真实 agent loop 和 approval 服务，fixture 工具仅在允许后写临时工作区标记；拒绝/取消不写，之后同会话继续 pong，不调用付费模型。
+- `TestAgainstMygoQuestions/real` 使用真实 `ask_user_question` 工具和服务，验证整批单选/多选/自由文本回答、取消、停止、待回答退出与同会话继续发送；不调用付费模型。
 
 ## 相关文档
 

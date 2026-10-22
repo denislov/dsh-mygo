@@ -79,6 +79,8 @@ go test ./internal/channel ./internal/app
 
 审批已有 Node 队列、Go 状态、App 和 ui.NewTester 覆盖：一次性回答、撤销、重复/过期身份、队列上限、参数超限、关联与 external 警告、FIFO、防重复点击、失败重试、Escape 拒绝和草稿保留。RPC 请求取消、流式等尚未实现的协议随功能落地增加对应 fixture。完整目标断言：
 
+提问覆盖整批答案校验、空答案拒绝、单选互斥、多选混合文本、无 agent/外来 agent、capability、FIFO/队列上限、abort/停止/退出、重复/过期回答、失败重试保留表单、连续表单身份和审批优先不叠加 Modal。`TestAgainstMygoQuestions` 包含 fake 与真实 Loader 两组，各验证 answer/cancel/stop/shutdown；真实组调用正式 `ask_user_question` 工具，不需要 API key。
+
 断言：
 
 - 每个请求都有响应或明确超时。

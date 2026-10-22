@@ -9,16 +9,16 @@
 
 协议只描述消息、顺序与错误，不描述 UI 布局，也不复制 DSH 的业务方法。
 
-## 当前实现（自定义 channel 阶段 1 + 回合取消 + 审批）
+## 当前实现（自定义 channel 阶段 1 + 回合取消 + 人机交互）
 
 - UI/Host 发布版本 `0.1.0`、`protocolVersion: 1`、DSH `0.2.1-rc.2` 精确绑定；不匹配时拒绝进入 ready。
-- 已实现 `initialize`、`session/create`、`session/prompt`、`session/cancel`、`approval/respond`、`shutdown`；通知为 `session/event`、`session/status`、`approval/request`、`approval/closed`、`host/fatal`。
+- 已实现 `initialize`、`session/create`、`session/prompt`、`session/cancel`、`approval/respond`、`question/respond`、`question/cancel`、`shutdown`；通知为 `session/event`、`session/status`、`approval/request`、`approval/closed`、`question/request`、`question/closed`、`host/fatal`。
 - UI 声明 `session.cancel`，Host 仅在双方支持时返回该 capability；未协商时调用取消返回 `protocol/capability-unavailable`。旧 Host 不声明时，UI 不展示 Stop。下文其余方法、流式、附件、RPC 请求取消和 history 恢复仍是后续契约。
 - `session/create` 当前要求已有绝对目录 `cwd`、`provider`、`model`，可选 `effort`；Host 验证模型路由后创建并拥有 session id。只接受自己创建的会话和 text content，忙碌时拒绝新 prompt。
 - 创建结果中的 `session.nextSeq` 是创建完成时 DSH 的下一事件 offset。初始会话元数据不重放；后续完整提交事件从此 offset 开始转发。`session/event` 同时携带外层 `seq` 和原始 `event.seq`，两者必须相同。
 - Go 忽略重复事件；缺口或无效载荷使连接失败并停止 Host。当前没有 `session.history` capability，因此不能自动补齐。
 - 旧 SDK 的 `contentBlocks`、点分隔通知和隐式会话创建只在显式 `-sdk-protocol` 模式下启用，不自动降级。
-- UI 声明 `approval`，Host 返回双方交集；未协商时审批不可用，不能调用回答方法。用户提问仍 fail-closed，不声明 question capability。
+- UI 声明 `approval` / `question`，Host 返回双方交集；未协商时对应交互不可用，不能调用回答/取消提问方法。无 agent 提问使用空 `sessionId`，不冒用当前会话身份。当前仅支持阻塞提问，不声明 timed/continued 回复能力。
 
 ## 传输
 
@@ -107,11 +107,12 @@
 | 方法 | 参数 | 结果 |
 | --- | --- | --- |
 | `approval/respond` | `{ requestId, decision: "allow"|"deny" }`（需 `approval` capability） | `{}` |
-| `question/respond` | `{ requestId, answers: Answer[] }` | `{}` |
+| `question/respond` | `{ requestId, answers: { id, selected: string[], custom? }[] }`（需 `question` capability） | `{}` |
+| `question/cancel` | `{ requestId }`（需 `question` capability） | `{}` |
 
 `approval/respond` 与 `question/respond` 必须幂等：重复回答同一个 `requestId` 返回 `stale-request`，不改变已决结果。
 
-审批已实现且不支持 `remember`；提问仍是后续契约。审批请求只由 Host 生成，回答只接受当前连接待处理的身份。迟到/重复回答返回 `approval/stale-request`。队列、大小和工具调用关联约束见 [交互](interaction.md)。
+审批和提问请求身份只由 Host 生成，回答只接受当前连接待处理的身份。审批不支持 `remember`。迟到/重复回答或取消返回 `approval/stale-request` / `question/stale-request`，不改变已决结果。问题/答案的校验、有界队列与作用域见 [交互](interaction.md)。
 
 ### 生命周期
 
@@ -129,6 +130,7 @@
 | `approval/request` | `{ requestId, sessionId, agentId, toolName, reason, external, callId?, arguments? }` | 需要用户决定；参数只来自活跃提交工具调用 |
 | `approval/closed` | `{ requestId, sessionId }` | 请求已决或撤销；可能先于回答 RPC 响应到达 |
 | `question/request` | `{ requestId, sessionId, questions }` | 需要用户回答 |
+| `question/closed` | `{ requestId, sessionId }` | 已回答或撤销；可能先于 RPC 响应到达 |
 | `subagent/started` | `{ parentSessionId, childSessionId }` | 子代理创建 |
 | `subagent/finished` | `{ parentSessionId, childSessionId, reason }` | 子代理结束 |
 | `host/notice` | `{ level, message }` | 非致命提示 |

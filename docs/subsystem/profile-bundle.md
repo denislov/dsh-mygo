@@ -18,7 +18,9 @@ profile 由 `dsh-base` + `@dsh-mygo/host` 组成。channel 依赖 launcher 的 `
 
 回合取消通过 `session.cancel` capability 启用；channel 的 `cancelTimeoutMs` 默认 5000，控制等待 Agent idle 的上限，不通过杀进程实现取消。
 
-审批已通过 `approval` capability 启用：Host 注册 answerer，等待原生 UI 允许一次或拒绝；`maxPendingApprovals` 默认 32，范围 1–64，超限返回 unavailable。未协商审批和用户提问仍 fail-closed。后文私有 Host、发布安装和包管理描述后续设计。
+审批通过 `approval` capability 启用，等待原生 UI 允许一次或拒绝；`maxPendingApprovals` 默认 32，范围 1–64，超限返回 unavailable。提问通过 `question` capability 启用，`maxPendingQuestions` 默认 32，范围 1–64；未协商或超限返回 NO_PROVIDER，不悬挂。
+
+base 只提供提问服务；自有 patch 增加稳定行 `tool-ask-user`，绑定 `@deepseek-ai/dsh-tool-ask-user` 同版本并显式配置 `mode: legacy`，注册阻塞式 `ask_user_question`。当前不支持 timed foreground claim、continued/迟到回复，不通过隐式改配置冒充支持。后文私有 Host、发布安装和包管理描述后续设计。
 
 ## 包形态
 

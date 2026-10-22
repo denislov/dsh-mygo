@@ -14,6 +14,7 @@ export const Config = Schema.object({
   maxSessions: Schema.natural().min(1).max(64).default(8),
   cancelTimeoutMs: Schema.natural().min(1).max(60000).default(5000),
   maxPendingApprovals: Schema.natural().min(1).max(64).default(32),
+  maxPendingQuestions: Schema.natural().min(1).max(64).default(32),
 })
 
 export function apply(ctx, config) {
@@ -29,6 +30,7 @@ export function apply(ctx, config) {
     maxSessions: config.maxSessions,
     cancelTimeoutMs: config.cancelTimeoutMs,
     maxPendingApprovals: config.maxPendingApprovals,
+    maxPendingQuestions: config.maxPendingQuestions,
     ensureProvider: async (provider) => {
       if (ctx.llm.listProviders().some((entry) => entry.id === provider)) return
       if (provider !== 'deepseek-official') throw new Error('Model provider is unavailable')
@@ -36,7 +38,7 @@ export function apply(ctx, config) {
     },
   })
   ctx.on('approval/request', (request, next) => server.requestApproval(request, next))
-  ctx.on('user-questions/request', async () => { throw new Error('User questions are unavailable in this host version') })
+  ctx.on('user-questions/request', (request, next) => server.requestQuestion(request, next))
   ctx.effect(() => ctx.appReady.onReady(() => {
     channel.start(async (method, params) => {
       if (method === 'initialize') await ctx.loader.await()

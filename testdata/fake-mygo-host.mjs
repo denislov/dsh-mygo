@@ -28,8 +28,8 @@ const ctx = {
               work.finished = true
               if (!aborted) {
                 const callId = `fake-${turn}`
-                if (!work.approval) event('tool/call', { callId, name: 'read_file', arguments: '{"path":"README.md"}' })
-                const reply = work.approval ? approvalOutcome === 'allowed-once' ? 'Approved write' : 'Denied write' : `Echo: ${message.content.map((block) => block.text).join('\n')}`
+                if (!work.approval && !work.question) event('tool/call', { callId, name: 'read_file', arguments: '{"path":"README.md"}' })
+                const reply = work.question ? approvalOutcome : work.approval ? approvalOutcome === 'allowed-once' ? 'Approved write' : 'Denied write' : `Echo: ${message.content.map((block) => block.text).join('\n')}`
                 event('tool/result', { message: { toolCallId: callId, content: [{ type: 'text', text: work.approval ? reply : '# dsh-mygo' }] } })
                 event('assistant/message', { message: { content: [{ type: 'text', text: reply }] } })
               }
@@ -40,6 +40,17 @@ const ctx = {
               work.resolve()
             }
             if (work.cancelled) work.finish(true)
+            else if ((process.argv.includes('--question') && turn === 1) || (process.argv.includes('--question-twice') && turn <= 2)) {
+              work.question = true
+              const questions = [
+                { id: 'mode', question: 'Choose mode', detail: 'Choose how the next task should run.', options: [{ label: 'Safe', description: 'Recommended mode' }, { label: 'Fast' }] },
+                { id: 'features', question: 'Choose features', multiSelect: true, options: [{ label: 'Logs' }, { label: 'Tests' }] },
+                { id: 'note', question: 'Add a note' },
+              ]
+              event('tool/call', { callId: `fake-${turn}`, name: 'ask_user_question', arguments: JSON.stringify({ questions }) })
+              void server.requestQuestion({ agent, questions, signal: work.abort.signal })
+                .then((answer) => work.finish(false, `Question answered: ${JSON.stringify(answer)}`), () => work.finish(false, 'Question cancelled'))
+            }
             else if (process.argv.includes('--approval') && turn === 1) {
               work.approval = true
               const callId = `fake-${turn}`

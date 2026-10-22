@@ -192,6 +192,28 @@ test('host cancellation and shutdown resolve approvals even without a request si
   assert.equal(await next, 'cancelled')
 })
 
+test('questions negotiate capability, delegate foreign agents, and accept agentless requests', async () => {
+  const { server, handles, notifications } = runtime()
+  await server.handle('initialize', { ...handshake, capabilities: ['question', 'session.cancel'] })
+  const { session } = await server.handle('session/create', { cwd: process.cwd(), provider: 'test', model: 'echo' })
+  const questions = [{ id: 'q', question: 'Choose' }]
+  const waiting = server.requestQuestion({ agent: handles[0].agent, questions })
+  const pending = notifications.at(-1).params
+  assert.equal(pending.sessionId, session.id)
+  await server.handle('question/respond', { requestId: pending.requestId, answers: [{ id: 'q', selected: [], custom: 'hello' }] })
+  assert.equal((await waiting).answers[0].custom, 'hello')
+  const global = assert.rejects(server.requestQuestion({ questions }), { code: 'ASK_CANCELLED' })
+  await server.handle('session/cancel', { sessionId: session.id })
+  assert.equal(server.questions.pending.size, 1)
+  await server.handle('question/cancel', { requestId: notifications.at(-1).params.requestId })
+  await global
+  assert.equal(await server.requestQuestion({ agent: { session: { id: session.id } }, questions }, async () => 'delegated'), 'delegated')
+  server.capabilities = []
+  await assert.rejects(server.requestQuestion({ agent: handles[0].agent, questions }), { code: 'NO_PROVIDER' })
+  await assert.rejects(server.handle('question/respond', {}), { kind: 'protocol/capability-unavailable' })
+  await server.shutdown()
+})
+
 test('channel returns structured errors before EOF', async () => {
   const input = new PassThrough()
   const output = new PassThrough()

@@ -9,6 +9,11 @@
   disabled: true
 
 - insert:
+    - id: tool-ask-user
+      name: '@deepseek-ai/dsh-tool-ask-user'
+      config:
+        mode: legacy
+
     - id: mygo-app-startup
       name: '@dsh-mygo/host'
       config:
