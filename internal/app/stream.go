@@ -1,6 +1,7 @@
 package app
 
 import (
+	"dsh-mygo/internal/projection"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -116,6 +117,19 @@ func (a *App) handleStreamNotification(params json.RawMessage) {
 		a.setFailure("Invalid assistant stream", err)
 		go a.stopHost()
 		return
+	}
+	// A resync can already contain this attempt's commit before its buffered
+	// process-local end frame is replayed.
+	var settled struct {
+		Type    string `json:"type"`
+		Outcome struct {
+			Kind      string `json:"kind"`
+			EventType string `json:"eventType"`
+			Seq       uint64 `json:"seq"`
+		} `json:"outcome"`
+	}
+	if json.Unmarshal(notification.Frame, &settled) == nil && settled.Type == "end" && settled.Outcome.Kind == "committed" && settled.Outcome.Seq < a.nextSeq {
+		a.stream.Commit(projection.Event{Type: settled.Outcome.EventType, Seq: settled.Outcome.Seq})
 	}
 	a.publishTranscript()
 }

@@ -83,7 +83,7 @@ export class MygoServer {
           this.approvals.cancelSession(String(agent.session.id))
           this.questions.cancelSession(String(agent.session.id))
         }
-        this.notify('session/status', { sessionId: String(agent.session.id), status })
+        this.notifyStatus(record, String(agent.session.id), status)
       }),
       ctx.on('agent/error', ({ agent }) => {
         if (this.sessions.get(String(agent.session.id))?.handle?.agent !== agent) return
@@ -122,6 +122,10 @@ export class MygoServer {
       case 'session/resume':
       case 'session/history':
         if (!this.capabilities.includes('session.history')) throw fault('protocol/capability-unavailable', 'Session history was not negotiated')
+        if (method === 'session/history') {
+          if (params.live !== undefined && typeof params.live !== 'boolean') throw fault('protocol/invalid-params', 'Invalid live history flag', -32602)
+          if (params.live && !this.capabilities.includes('session.resync')) throw fault('protocol/capability-unavailable', 'Live history was not negotiated')
+        }
         if (method === 'session/list') return this.history.list(params)
         return method === 'session/resume' ? this.resume(params) : this.history.history(params)
       case 'session/prompt': return this.prompt(params)
@@ -154,6 +158,7 @@ export class MygoServer {
     if (params.capabilities.includes('model.selection') && typeof this.installModelSelection === 'function' && ['listProviders', 'listModels', 'resolveModelInfo', 'resolveCallConfig'].every((method) => typeof this.ctx.llm[method] === 'function')) this.capabilities.push('model.selection')
     if (params.capabilities.includes('session.history') && ['list', 'stat', 'open', 'flush'].every((method) => typeof persistence?.[method] === 'function') && typeof this.ctx.agents.resume === 'function') {
       this.capabilities.push('session.history')
+      if (params.capabilities.includes('session.resync')) this.capabilities.push('session.resync')
     }
     if (['stat', 'open', 'flush'].every((method) => typeof persistence?.[method] === 'function')) {
       if (params.capabilities.includes('session.rename') && typeof this.ctx.get('sessionTitle')?.rename === 'function') this.capabilities.push('session.rename')
@@ -321,7 +326,7 @@ export class MygoServer {
         }),
       ])
       record.busy = false
-      this.notify('session/status', { sessionId, status: 'idle' })
+      this.notifyStatus(record, sessionId, 'idle')
       return { cancelled: true, status: 'idle' }
     } catch (error) {
       if (error.kind === 'session/cancel-timeout') throw error
@@ -329,6 +334,11 @@ export class MygoServer {
     } finally {
       clearTimeout(timeout)
     }
+  }
+
+  notifyStatus(record, sessionId, status) {
+    record.statusRevision = (record.statusRevision ?? 0) + 1
+    this.notify('session/status', { sessionId, status, ...(this.capabilities.includes('session.resync') ? { statusRevision: record.statusRevision } : {}) })
   }
 
   async dispose() {

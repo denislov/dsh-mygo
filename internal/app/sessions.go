@@ -198,6 +198,8 @@ func (a *App) loadSession(id string) {
 			a.model.SessionPanel.ActiveArchived = summary.Archived
 			a.upsertSession(summary.view())
 			a.nextSeq = nextSeq
+			a.statusRevision = 0
+			a.hostStatus = ""
 			a.sessionTitleSeq = 0
 			a.sessionTitle = ""
 			a.promptID++

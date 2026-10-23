@@ -7,7 +7,7 @@ import (
 )
 
 func questionModal(c *mgo.Context, model *Model) {
-	if !model.CanQuestion || len(model.Questions) == 0 || len(model.Approvals) > 0 {
+	if !model.CanQuestion || len(model.Questions) == 0 || len(model.Approvals) > 0 || model.Phase == PhaseResyncing {
 		return
 	}
 	request := model.Questions[0]

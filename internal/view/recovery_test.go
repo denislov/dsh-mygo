@@ -73,6 +73,22 @@ func TestResyncPhasePausesTheComposer(t *testing.T) {
 	}
 }
 
+func TestAutomaticResyncShowsProgressWithoutRestartDialog(t *testing.T) {
+	model := NewModel()
+	model.Phase = PhaseResyncing
+	model.CanResync = true
+	model.Draft = "keep draft"
+	tt := tester(model)
+	if !tt.HasText("Syncing history…") || tt.HasText("Restart host") {
+		t.Fatal("automatic resync requested manual recovery")
+	}
+	tt.Type("extra")
+	tt.Key(0, ui.KeyEnter)
+	if model.Draft != "keep draft" {
+		t.Fatal("resync changed the composer draft")
+	}
+}
+
 func TestRecoveryModalHiddenWhenHealthy(t *testing.T) {
 	model := NewModel()
 	model.Phase = PhaseIdle

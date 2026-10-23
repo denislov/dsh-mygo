@@ -25,7 +25,7 @@
 
 - synthetic user context（`source.kind != "user"`）、system/developer 消息、reasoning、`assistant/attempt`、请求元数据不进入 transcript。
 - 每个事件的 `seq` 去重；工具结果先到时保留稳定占位，之后仅按确切 callId 补齐，不按工具名/位置猜测。工具行身份始终是 `tool:<callId>`，补齐不覆盖已记录结果与错误状态。
-- 自定义 channel 的 `session/create.session.nextSeq` 提供实时事件起点；打开旧会话时以完整 history 的 nextSeq 为起点。App 校验外层 `seq` 与 `event.seq` 一致，重复事件忽略，实时缺口停止 Host 并报错，不自动 resync。
+- 自定义 channel 的 `session/create.session.nextSeq` 提供实时事件起点；打开旧会话时以完整 history 的 nextSeq 为起点。App 校验外层 `seq` 与 `event.seq` 一致，重复事件忽略；协商 `session.resync` 后实时缺口触发后台补齐，失败才停止 Host，旧 Host 保留手工重启恢复路径。
 - 旧 SDK 回归模式仍消费 `session.event`；两种 envelope 共用相同提交事件投影，UI 不生成或持久化会话历史。
 - Stop 不直接修改 transcript；DSH 提交的 `turn/end.reason.kind == "aborted"` 投影为取消 notice。若取消发生在回合完成之后，按实际提交结果展示，不补造取消行。取消后的同一 session 继续从原有 `nextSeq` 接收下一回合。
 - `approval/request` / `approval/closed` 是连接内临时交互，由 `internal/interaction` 管理，不进入 transcript。审批结果只通过 Host 提交的工具结果体现；弹窗展示原始关联参数，不使用下述截断后的工具行。idle、失败和退出清理临时队列，不伪造审批历史。
@@ -138,6 +138,7 @@ idle
 - `chunk.index` 必须密集递增；缺口时丢弃草稿（不要拼接不连续内容）。
 - 提交事件（`assistant/message` / `assistant/attempt`）到达后，用其 `stream` 或 `message` 替换草稿；提交事件是权威。
 - DSH 先提交再发 end，不能等待结束帧才去重。Go 按当前 turn/step 识别提交；end 先到时按 seq 等待提交。assistant/attempt 不伪造可见历史。临时行使用 `stream:<attemptId>`，提交行使用 durable seq；最终界面只有一份答案。
+- history 补齐可以先包含某个 assistant 提交，再回放它的临时帧；迟到 `end.committed.seq` 小于当前 nextSeq 时清除对应临时 attempt，最终 idle 清理预览，不能在完整答案后重复显示一条 Streaming 行。
 - `end.abandoned` 没有提交事件；丢弃草稿，必要时展示一次“已取消/已中断”提示。
 - 流式期间不要重新解析整个 Markdown；用 `markdown.Stream` 的增量能力。
 
@@ -189,7 +190,7 @@ Host 通过 list/resume/history 提供历史，具体参数、快照边界和资
 
 - `session/status` 驱动“正在工作”指示、输入禁用/排队、托盘/通知。
 - `assistant/message.usage` 提供 token 统计；`request/context` 提供上下文容量。
-- `resyncing` 表示事件流出现缺口，暂停发送并显示同步指示；本版本通过重启 Host 后回放 history 恢复。
+- `resyncing` 表示事件流出现缺口，暂停发送并显示同步指示；可协商时自动用固定历史前缀与有界实时缓冲重建投影。读回失败、载荷非法或旧 Host 不支持时提供手工恢复；运行状态通过 statusRevision 校准，不用旧 idle 或 RPC 回调解锁仍在运行的会话。
 - compaction 事件清除过期的上下文估算，并展示压缩摘要。
 - 不要在 UI 侧重新计算 token；只展示 Host 提供的数字。
 
@@ -222,7 +223,7 @@ Host 通过 list/resume/history 提供历史，具体参数、快照边界和资
 | 失败 | 处理 |
 | --- | --- |
 | 未知事件类型 | 忽略 + 一次性诊断日志 |
-| `seq` 缺口 | 标记 `resyncing`，暂停发送并显示恢复对话框；重启 Host 后用 history 回放恢复 |
+| `seq` 缺口 | 协商后标记 `resyncing` 并自动补齐；无法安全恢复或旧 Host 不支持时显示恢复对话框 |
 | 流式帧乱序/缺口 | 丢弃当前 attempt，等待 `start` |
 | 提交事件缺失 | end 本身不成为历史；保留前缀等待提交，idle/turn 结束时清理，不伪造最终答案 |
 | 工具参数 JSON 非法 | 展示原文 + 解析错误 |

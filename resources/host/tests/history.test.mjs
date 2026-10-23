@@ -66,6 +66,40 @@ function runtime(management = false) {
 
 const resume = { sessionId: 'stored-1', provider: 'test', model: 'echo' }
 
+test('live history is negotiated and holds one sequence and status cut while the agent runs', async () => {
+  const { server, stored, handles } = runtime()
+  await server.handle('initialize', { ...handshake, capabilities: ['session.history', 'session.resync'] })
+  assert.ok(server.capabilities.includes('session.resync'))
+  await server.handle('session/resume', resume)
+  const record = server.sessions.get(resume.sessionId)
+  handles[0].agent.status = 'running'
+  record.statusRevision = 3
+  const first = await server.handle('session/history', { ...resume, live: true, limit: 2 })
+  assert.equal(first.status, 'running')
+  assert.equal(first.statusRevision, 3)
+  stored.get(resume.sessionId).events.push({ seq: 5, time: 6, type: 'turn/end', data: {} })
+  handles[0].agent.session.seq = 6
+  handles[0].agent.status = 'idle'
+  record.statusRevision = 4
+  const second = await server.handle('session/history', { ...resume, live: true, limit: 2, cursor: first.nextCursor })
+  const last = await server.handle('session/history', { ...resume, live: true, limit: 2, cursor: second.nextCursor })
+  assert.equal(last.nextSeq, 5)
+  assert.equal(last.status, 'running')
+  assert.equal(last.statusRevision, 3)
+  assert.deepEqual(last.events.map(({ seq }) => seq), [4])
+  await assert.rejects(server.handle('session/history', { ...resume, cursor: first.nextCursor }), { kind: 'session/invalid-cursor' })
+  await server.shutdown()
+})
+
+test('legacy history keeps its busy rule and cannot request an unnegotiated live snapshot', async () => {
+  const { server } = runtime()
+  await server.handle('initialize', handshake)
+  await server.handle('session/resume', resume)
+  await assert.rejects(server.handle('session/history', { ...resume, live: true }), { kind: 'protocol/capability-unavailable' })
+  for (const live of [null, 1, 'true']) await assert.rejects(server.handle('session/history', { ...resume, live }), { code: -32602 })
+  await server.shutdown()
+})
+
 test('history requires negotiated persistence and an owned resumed session', async () => {
   const { server } = runtime()
   await server.handle('initialize', { ...handshake, capabilities: [] })

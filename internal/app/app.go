@@ -112,6 +112,9 @@ type App struct {
 	sessionTitle        string
 	sessionNeedsHistory bool
 	sessionCatalogDirty bool
+	resync              *resyncState
+	statusRevision      uint64
+	hostStatus          string
 	drafts              map[string]string
 	settingsOperation   uint64
 	settingsCancel      context.CancelFunc
@@ -303,6 +306,9 @@ func (a *App) startHost(recover bool, resumeID string) {
 		a.model.SessionID = initialized.sessionID
 		a.model.SessionCWD = initialized.cwd
 		a.model.CanHistory = initialized.canHistory
+		a.model.CanResync = initialized.canResync
+		a.statusRevision = 0
+		a.hostStatus = ""
 		a.model.SessionPanel.CanRename = initialized.canRename
 		a.model.SessionPanel.CanArchive = initialized.canArchive
 		a.model.SessionPanel.Uncertain = false
@@ -343,6 +349,7 @@ func (a *App) Restart() {
 		return
 	}
 	a.restarting = true
+	a.cancelResync()
 	// Invalidate the old watchers before stopping so their exit cannot
 	// overwrite the new host state.
 	a.hostGeneration.Add(1)
@@ -400,6 +407,7 @@ type initializedSession struct {
 	canQuestion  bool
 	canStream    bool
 	canHistory   bool
+	canResync    bool
 	canRename    bool
 	canArchive   bool
 	canModels    bool
@@ -431,7 +439,7 @@ func (a *App) initialize(ctx context.Context, client rpcClient, resumeID string)
 	result, err := client.Call(ctx, "initialize", map[string]any{
 		"protocolVersion": channel.ProtocolVersion,
 		"client":          map[string]string{"name": "dsh-mygo", "version": channel.ReleaseVersion, "platform": runtime.GOOS, "locale": "zh-CN"},
-		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history", "session.rename", "session.archive", "model.selection", "settings.configuration"},
+		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history", "session.resync", "session.rename", "session.archive", "model.selection", "settings.configuration"},
 	})
 	if err != nil {
 		return initializedSession{}, err
@@ -479,6 +487,7 @@ func (a *App) initialize(ctx context.Context, client rpcClient, resumeID string)
 		canQuestion:  slices.Contains(initialized.Capabilities, "question"),
 		canStream:    slices.Contains(initialized.Capabilities, "session.assistant-stream"),
 		canHistory:   slices.Contains(initialized.Capabilities, "session.history"),
+		canResync:    slices.Contains(initialized.Capabilities, "session.resync"),
 		canRename:    slices.Contains(initialized.Capabilities, "session.rename"),
 		canArchive:   slices.Contains(initialized.Capabilities, "session.archive"),
 		canModels:    slices.Contains(initialized.Capabilities, "model.selection"),
@@ -541,6 +550,7 @@ func (a *App) resumeSession(ctx context.Context, client rpcClient, id string, in
 		canQuestion:  slices.Contains(initialized.Capabilities, "question"),
 		canStream:    slices.Contains(initialized.Capabilities, "session.assistant-stream"),
 		canHistory:   true,
+		canResync:    slices.Contains(initialized.Capabilities, "session.resync"),
 		canRename:    slices.Contains(initialized.Capabilities, "session.rename"),
 		canArchive:   slices.Contains(initialized.Capabilities, "session.archive"),
 		canModels:    slices.Contains(initialized.Capabilities, "model.selection"),
@@ -603,7 +613,7 @@ func (a *App) prompt(client rpcClient, text string, promptID uint64, sessionID s
 			{"type": "text", "text": text},
 		},
 	})
-	a.post(func() {
+	a.postAfterResync(func() {
 		if a.shuttingDown.Load() || err == nil || a.model.Phase == view.PhaseFailed || a.promptID != promptID {
 			return
 		}
@@ -655,7 +665,7 @@ func (a *App) cancelTurn(client rpcClient, promptID uint64, sessionID string, de
 	if err == nil {
 		result, err = client.Call(ctx, "session/cancel", map[string]any{"sessionId": sessionID})
 	}
-	a.post(func() {
+	a.postAfterResync(func() {
 		if a.shuttingDown.Load() || a.promptID != promptID || a.model.Phase != view.PhaseRunning || !a.model.CancelPending {
 			return
 		}
@@ -704,8 +714,13 @@ func (a *App) DismissError() {
 
 // handleNotification runs on the main thread.
 func (a *App) handleNotification(method string, params json.RawMessage) {
-	if a.shuttingDown.Load() || a.model.Phase == view.PhaseFailed || a.model.Phase == view.PhaseResyncing {
+	if a.shuttingDown.Load() || a.model.Phase == view.PhaseFailed {
 		return
+	}
+	if a.model.Phase == view.PhaseResyncing {
+		if a.resync == nil || a.bufferResyncNotification(method, params) {
+			return
+		}
 	}
 	if !a.options.SDKProtocol {
 		if a.bufferSessionNotification(method, params) {
@@ -765,6 +780,9 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 			}
 			if *envelope.Seq > a.nextSeq {
 				a.requireResync(errors.New("The host event sequence skipped a frame"))
+				if a.resync != nil {
+					a.bufferResyncNotification("session/event", params)
+				}
 				return
 			}
 			a.nextSeq++
@@ -792,8 +810,9 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 		a.publishTranscript()
 	case "session.status":
 		var notification struct {
-			SessionID string `json:"sessionId"`
-			Status    string `json:"status"`
+			SessionID      string  `json:"sessionId"`
+			Status         string  `json:"status"`
+			StatusRevision *uint64 `json:"statusRevision"`
 		}
 		if json.Unmarshal(params, &notification) != nil {
 			if !a.options.SDKProtocol {
@@ -810,6 +829,18 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 			go a.stopHost()
 			return
 		}
+		if a.model.CanResync {
+			if notification.StatusRevision == nil || *notification.StatusRevision > maxSafeInteger {
+				a.setFailure("Invalid host status revision", errors.New("The host sent an invalid status revision"))
+				go a.stopHost()
+				return
+			}
+			if *notification.StatusRevision <= a.statusRevision {
+				return
+			}
+			a.statusRevision = *notification.StatusRevision
+		}
+		a.hostStatus = notification.Status
 		a.applyStatus(notification.Status)
 	}
 }
@@ -846,7 +877,7 @@ func (a *App) applyStatus(status string) {
 		a.model.Phase = view.PhaseIdle
 		a.model.CancelPending = false
 		a.clearApprovals()
-		if a.sessionCatalogDirty && a.model.CanRefreshSessions() && !a.model.SessionPanel.Uncertain {
+		if a.resync == nil && a.sessionCatalogDirty && a.model.CanRefreshSessions() && !a.model.SessionPanel.Uncertain {
 			a.sessionCatalogDirty = false
 			a.refreshSessions(true)
 		}
@@ -861,6 +892,7 @@ func (a *App) Shutdown(timeout time.Duration) {
 	}
 	a.logf("shutdown requested")
 	close(a.stopped)
+	a.post(a.cancelResync)
 	a.post(a.clearApprovals)
 	a.post(a.clearQuestions)
 	a.post(a.clearStream)
@@ -913,6 +945,7 @@ func (a *App) setFailure(summary string, err error) {
 	if a.model.Phase == view.PhaseFailed {
 		return
 	}
+	a.cancelResync()
 	a.model.Phase = view.PhaseFailed
 	a.cancelSessionOperation()
 	a.model.SessionsOpen = false
@@ -943,10 +976,14 @@ func (a *App) setFailure(summary string, err error) {
 	a.captureCrash(summary, err)
 }
 
-// requireResync pauses the stream after a forward sequence gap. Restarting
-// reparses the durable log; automatic resynchronization is a later milestone.
+// requireResync negotiates automatic recovery and retains the restart fallback
+// for older hosts.
 func (a *App) requireResync(err error) {
 	if a.model.Phase == view.PhaseFailed || a.model.Phase == view.PhaseResyncing {
+		return
+	}
+	if a.model.CanResync && a.currentClient() != nil && !a.shuttingDown.Load() {
+		a.startResync()
 		return
 	}
 	a.model.Phase = view.PhaseResyncing

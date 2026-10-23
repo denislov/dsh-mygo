@@ -81,7 +81,7 @@
 | `session/archive` | `{ sessionId, archived? }`（需 `session.archive`；默认 true，false 取消归档） | `{}` |
 | `session/delete` | `{ sessionId }` | `{}`（需要 capability `session.delete`） |
 | `session/fork` | `{ sessionId, messageId? }` | `{ session: SessionSummary }` |
-| `session/history` | `{ sessionId, cursor?, limit?, direction? }` | `{ events: SessionEvent[], nextCursor?, hasMore, nextSeq }` |
+| `session/history` | `{ sessionId, cursor?, limit?, direction?, live? }`（live:true 需 `session.resync`） | `{ events: SessionEvent[], nextCursor?, hasMore, nextSeq, status?, statusRevision? }` |
 | `session/prompt` | `{ sessionId, content: ContentBlock[] }` | `{ messageId }` |
 | `session/cancel` | `{ sessionId }`（需 capability `session.cancel`） | `{ cancelled: boolean, status: "idle" }` |
 | `session/queue` | `{ sessionId, action: "list"|"edit"|"remove"|"steer", ... }` | `{ queue: QueuedInput[] }` |
@@ -107,7 +107,7 @@
 - 列表标题取日志中最后一个 `session/title`；没有标题时回退 session id 的前 8 个字符。`updatedAt` 取创建时间与已读持久事件时间的最大值；归档本身不伪造会话事件或推进该时间。列表先 flush，再通过公开 persistence read handle 分批读取元数据；每会话预算 20000 事件/32 MiB，超限明确报错，不截断日志或返回半份列表。元数据缓存最多 1000 条，以 persistence revision 和已拥有会话的 seq 校验新鲜度，关闭连接即释放。`archived` 来自 registry，默认列表隐藏归档会话。冷会话 status 为 `stored`，provider/model/effort 为空，不推断历史路由或宣称其未被其他进程占用。已拥有会话补充本连接模型路由、实时 status 和 nextSeq。
 - 冷恢复要求显式 provider/model（可选 effort），或协商后的 useDefaultModel:true；继续使用持久 header.cwd（必须仍为已有绝对目录）。通过 agents.resume 获取单写者句柄，恢复/修复由 DSH 完成，不自行补造事件或扫描私有 JSONL。外来进程占用、未知会话、迁移或路由失败不暴露底层错误。subagent 不可恢复。
 - 已拥有且 idle 的 resume 幂等返回原有路由，不重新配置模型；正在恢复/运行返回 session/busy。恢复预占 maxSessions 名额（与 create 共用，默认 8）；失败释放，退出中止待恢复任务并回收迟到句柄。
-- history 可读本 Host 拥有的会话：idle 会话按完整日志分页回放；运行中的会话通过 `assistantStream` baseline 接着读，不重放完整临时流。每次使用公开 persistence.flush 建立可读屏障，read handle 在成功/失败均关闭；不调用已弃用的同步 session 事件读取方法。
+- history 可读本 Host 拥有的会话：普通请求要求 idle；双方协商 `session.resync` 后，`session/history` 可传 `live:true` 读取运行中会话的持久日志。首页同步捕获 `nextSeq`、`status`（包含已接受但未被 driver 领取的 prompt）及 `statusRevision`，游标固定这三个值和 live 模式；后续分页不得混用模式。模型/元数据写入期间仍拒绝读取。每次使用公开 persistence.flush 建立可读屏障，read handle 在成功/失败均关闭；不调用已弃用的同步 session 事件读取方法。运行中的临时流通过可选 `assistantStream` baseline 续接，不把临时帧当历史。
 - 首页捕获 agent.session.seq 为 nextSeq；整次分页固定读取 `[0,nextSeq)`，之后追加不进入此快照。每页严格检查数量和连续 seq，缺失/损坏返回 session/history-failed，不跳过事件。下一实时事件 offset 应由完整历史页的 nextSeq 确认。
 - list/history 的 limit 默认为 64，合法范围 1–256（null 不是默认值）；history direction 仅支持 forward，默认 forward。单页 JSON 数组预算为配置 maxFrameBytes 的一半；可缩小实际页长，单条超限返回 session/page-too-large，不截断原始日志。响应 envelope 留有空间。
 - 游标是连接内不透明 UUID，绑定方法/会话/快照边界；最多保留 32 个，5 分钟失效，重启全部失效；过期/淘汰/伪造返回 session/invalid-cursor，客户端须重新开始分页。列表快照最多 1000 条且 256 KiB，超出返回 session/catalog-too-large，不静默漏项。
@@ -166,6 +166,8 @@ ConfigurationSnapshot 为 `{revision,defaults:{provider,model,effort},credential
 | `host/notice` | `{ level, message }` | 非致命提示 |
 | `host/fatal` | `{ message, diagnostic? }` | 致命错误，随后退出 |
 
+协商 `session.resync` 后，`session/status` 额外携带非负安全整数 `statusRevision`：每个被拥有 Agent 的状态通知使其单调递增，显式取消返回 idle 时同样递增。`live:true` 的每个历史页返回同一快照的 `status/statusRevision`；客户端以此作为状态基线，丢弃 revision 不高于基线的迟到通知。新连接/新 Agent 的版本空间独立，不跨 Host 比较；未协商不要求该字段。
+
 ### `session/assistant-stream`
 
 ```ts
@@ -192,6 +194,9 @@ type AssistantStreamFrame =
   1. 标记该 session 为 `resyncing`，暂停发送；
   2. 调用 `session/history` 拉取缺口范围并校验边界；
   3. 合并后继续消费实时事件；失败则停止连接并提示重启。
+- `session.resync` 依赖 `session.history`；旧 Host 未协商时保留手工重启恢复，不发送 live 请求。自动补齐期间保持当前投影、草稿和交互队列，暂停发送/导航/设置，隐藏交互弹窗，后台从 seq 0 回放固定前缀；后续 durable/status/stream/交互通知及未完成取消的 UI 确认在同一有界队列中按接收顺序保留（1024 项/8 MiB）。未知会话通知不混入当前会话。
+- 全部历史页成功且缓冲持久事件能够连续衔接后，整体替换投影并回放通知；重复 durable 事件丢弃，状态仅接受更新的 revision，旧 RPC 确认不能覆盖最新 Host 状态。新缺口使客户端重新捕获快照，最多 3 次，共用 60 秒预算；非法页/通知、缓冲溢出或预算耗尽停止 Host 并显示恢复。模型/配置/会话元数据写入交叉时走失败恢复，不冒充已撤销写入。
+- 临时流在补齐开始时清除；缓冲帧缺少完整 start 时等待下一 start 或持久提交。已被快照包含的 assistant 提交不能因迟到 end/临时帧重新显示第二份答案；最终 idle 不保留临时行。完整 `revision/activeAttempt` baseline 的交付独立于持久事件补齐能力。
 - 禁止把不连续的事件拼成“当前状态”。
 
 ## 取消与超时

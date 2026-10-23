@@ -119,39 +119,65 @@ func (summary sessionSummary) view() view.SessionSummary {
 	return view.SessionSummary{ID: summary.ID, Title: summary.Title, CWD: summary.CWD, CreatedAt: summary.CreatedAt, UpdatedAt: summary.UpdatedAt, Status: summary.Status, Archived: summary.Archived}
 }
 
+type historySnapshot struct {
+	Transcript     projection.Transcript
+	NextSeq        uint64
+	Status         string
+	StatusRevision uint64
+}
+
 func readSessionHistory(ctx context.Context, client rpcClient, id string, minimumSeq uint64) (projection.Transcript, uint64, error) {
+	snapshot, err := readHistorySnapshot(ctx, client, id, minimumSeq, false)
+	return snapshot.Transcript, snapshot.NextSeq, err
+}
+
+func readHistorySnapshot(ctx context.Context, client rpcClient, id string, minimumSeq uint64, live bool) (historySnapshot, error) {
 	var transcript projection.Transcript
 	if !validSessionID(id) || minimumSeq > maxSessionEvents {
-		return transcript, 0, errors.New("Session history exceeds the supported event budget")
+		return historySnapshot{}, errors.New("Session history exceeds the supported event budget")
 	}
 	cursor := ""
 	cursors := make(map[string]bool)
 	var offset, boundary uint64
+	var status string
+	var statusRevision uint64
 	totalBytes := 0
 	for pageCount := 0; pageCount < 1024; pageCount++ {
 		params := map[string]any{"sessionId": id, "limit": 64, "direction": "forward"}
+		if live {
+			params["live"] = true
+		}
 		if cursor != "" {
 			params["cursor"] = cursor
 		}
 		raw, err := client.Call(ctx, "session/history", params)
 		if err != nil {
-			return projection.Transcript{}, 0, errors.New("Could not load history. Wait for the session to be idle and retry")
+			return historySnapshot{}, errors.New("Could not load history. Wait for the session to be idle and retry")
 		}
 		totalBytes += len(raw)
 		var page struct {
-			Events     []json.RawMessage `json:"events"`
-			NextSeq    *uint64           `json:"nextSeq"`
-			HasMore    *bool             `json:"hasMore"`
-			NextCursor json.RawMessage   `json:"nextCursor"`
+			Events         []json.RawMessage `json:"events"`
+			NextSeq        *uint64           `json:"nextSeq"`
+			HasMore        *bool             `json:"hasMore"`
+			NextCursor     json.RawMessage   `json:"nextCursor"`
+			Status         string            `json:"status"`
+			StatusRevision *uint64           `json:"statusRevision"`
 		}
 		if totalBytes > maxSessionHistoryBytes || json.Unmarshal(raw, &page) != nil || page.Events == nil || len(page.Events) > 64 || page.NextSeq == nil || *page.NextSeq > maxSessionEvents || page.HasMore == nil {
-			return projection.Transcript{}, 0, errors.New("Invalid history page or history exceeds the supported budget")
+			return historySnapshot{}, errors.New("Invalid history page or history exceeds the supported budget")
 		}
 		if pageCount == 0 {
 			boundary = *page.NextSeq
+			status = page.Status
+			if page.StatusRevision != nil {
+				statusRevision = *page.StatusRevision
+			}
+		}
+		if live && (page.Status != "idle" && page.Status != "running" || page.StatusRevision == nil || *page.StatusRevision > maxSafeInteger || page.Status != status || *page.StatusRevision != statusRevision) {
+			return historySnapshot{}, errors.New("Invalid live history status boundary")
 		}
 		if *page.NextSeq != boundary || boundary < minimumSeq || offset+uint64(len(page.Events)) > boundary {
-			return projection.Transcript{}, 0, errors.New("History sequence boundary changed")
+			return historySnapshot{}, errors.New("History sequence boundary changed")
 		}
 		for _, rawEvent := range page.Events {
 			var event projection.Event
@@ -160,19 +186,19 @@ func readSessionHistory(ctx context.Context, client rpcClient, id string, minimu
 				Time *int64  `json:"time"`
 			}
 			if json.Unmarshal(rawEvent, &event) != nil || json.Unmarshal(rawEvent, &required) != nil || required.Seq == nil || required.Time == nil || *required.Time < 0 || *required.Time > maxSafeInteger || event.Seq != offset || len(event.Type) == 0 || len(event.Type) > 256 || strings.ContainsRune(event.Type, '\x00') || len(event.Data) == 0 || event.Data[0] != '{' {
-				return projection.Transcript{}, 0, errors.New("Invalid or noncontiguous history event")
+				return historySnapshot{}, errors.New("Invalid or noncontiguous history event")
 			}
 			transcript.Apply(event)
 			offset++
 		}
 		cursor, err = pageCursor(page.NextCursor)
 		if err != nil || *page.HasMore != (offset < boundary) || *page.HasMore != (cursor != "") || cursor != "" && (cursors[cursor] || len(page.Events) == 0) {
-			return projection.Transcript{}, 0, errors.New("Invalid history pagination")
+			return historySnapshot{}, errors.New("Invalid history pagination")
 		}
 		if !*page.HasMore {
-			return transcript, boundary, nil
+			return historySnapshot{Transcript: transcript, NextSeq: boundary, Status: status, StatusRevision: statusRevision}, nil
 		}
 		cursors[cursor] = true
 	}
-	return projection.Transcript{}, 0, errors.New("History exceeds the page budget")
+	return historySnapshot{}, errors.New("History exceeds the page budget")
 }

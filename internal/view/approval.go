@@ -7,7 +7,7 @@ import (
 )
 
 func approvalModal(c *mgo.Context, model *Model) {
-	if !model.CanApprove || len(model.Approvals) == 0 {
+	if !model.CanApprove || len(model.Approvals) == 0 || model.Phase == PhaseResyncing {
 		return
 	}
 	request := model.Approvals[0]

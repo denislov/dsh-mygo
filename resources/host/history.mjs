@@ -159,8 +159,13 @@ export class SessionHistory {
     if (params.direction !== undefined && params.direction !== 'forward') throw fault('protocol/invalid-params', 'Only forward history is supported', -32602)
     const record = this.sessions.get(id)
     if (!record?.handle) throw fault('session/not-found', 'Session is not owned by this host')
-    if (record.busy || record.modelUpdating || record.metadataUpdating || record.handle.agent.status !== 'idle') throw fault('session/busy', 'Wait for the session to become idle before reading history')
-    const state = params.cursor === undefined ? { kind: 'history', id, offset: 0, nextSeq: record.handle.agent.session.seq } : this.cursor(params.cursor, 'history', id)
+    const live = params.live === true
+    if (record.modelUpdating || record.metadataUpdating || !live && (record.busy || record.handle.agent.status !== 'idle')) throw fault('session/busy', 'Wait for the session to become idle before reading history')
+    const state = params.cursor === undefined ? {
+      kind: 'history', id, offset: 0, nextSeq: record.handle.agent.session.seq, live,
+      ...(live ? { status: record.busy || record.handle.agent.status !== 'idle' ? 'running' : 'idle', statusRevision: record.statusRevision ?? 0 } : {}),
+    } : this.cursor(params.cursor, 'history', id)
+    if (state.live !== live) throw fault('session/invalid-cursor', 'History cursor mode does not match')
     const persistence = this.ctx.get('sessionPersistence')
     let events
     try {
@@ -179,7 +184,7 @@ export class SessionHistory {
     const page = this.page(events, limit)
     const offset = state.offset + page.length
     const hasMore = offset < state.nextSeq
-    return { events: page, nextSeq: state.nextSeq, hasMore, ...(hasMore ? { nextCursor: this.save({ ...state, offset }) } : {}) }
+    return { events: page, nextSeq: state.nextSeq, hasMore, ...(live ? { status: state.status, statusRevision: state.statusRevision } : {}), ...(hasMore ? { nextCursor: this.save({ ...state, offset }) } : {}) }
   }
 
   close() { this.cursors.clear(); this.metadata.clear() }

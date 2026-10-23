@@ -175,7 +175,13 @@ if (process.argv.includes('--configuration')) {
   }
 }
 const server = new MygoServer(ctx, {
-  notify: (method, params) => channel.notify(method, params),
+  notify: (method, params) => {
+    if (process.argv.includes('--event-gap') && method === 'session/event' && params.event.type === 'user/message' && !server.gapInjected) {
+      server.gapInjected = true
+      return
+    }
+    channel.notify(method, params)
+  },
   createUserMessage: (options) => ({ ...options, id: randomUUID() }),
   reasoningEffort: (value) => value, dshVersion: '0.2.1-rc.2',
   ...(process.argv.includes('--configuration') ? { credentialRef: (value) => value } : {}),

@@ -1,6 +1,6 @@
 # 开发进度与路线图
 
-> 统计基线：`9faa9b6`（2026-10-23 13:51）；能力进度包含本次 M2-2 会话侧栏及管理 UI 变更，决策更新于 2026-10-23。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
+> 统计基线：`9faa9b6`（2026-10-23 13:51）；能力进度包含本次 M3-1a 持久事件自动补齐变更，决策更新于 2026-10-23。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
 
 ## 1. 结论
 
@@ -8,7 +8,7 @@
 
 一句话：**能开发、能演示、能在开发机上真实跑；还不能交给普通用户安装使用。**
 
-判断依据：协议与 UI 主链路已经闭环，M0 工程基线、M1 运行时/打包/安装器 smoke、自签名发布构建与手工崩溃恢复已完成；干净机器验收、自动重同步、会话管理 UI 与 Windows 发布工程仍是主要缺口；macOS 作为后续发布单元。
+判断依据：协议与 UI 主链路已经闭环，M0 工程基线、M1 运行时/打包/安装器 smoke、自签名发布构建、手工崩溃恢复、会话管理 UI 与持久事件自动补齐已完成；干净机器验收、完整流式 baseline、大历史与 Windows 发布工程仍是主要缺口；macOS 作为后续发布单元。
 
 ## 2. 事实快照
 
@@ -63,6 +63,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 | 安装器 smoke | 静默安装、安装布局、快捷方式/卸载键、安装后 exe 与 `Uninstall.exe` 签名、静默卸载、`$DSH_HOME` 与会话保留 | `scripts/smoke-installer.mjs` |
 | 进程回收 | Windows Job Object（kill-on-close）与 POSIX 进程组；Host 退出、Stop、应用崩溃/强杀都回收 Host 与插件子进程 | `internal/host/job_windows.go`、`internal/host/supervisor.go`、`TestStopKillsProcessTree`、`TestHostExitKillsProcessTree` |
 | 崩溃恢复 | 恢复对话框、手工 Restart、`session/resume` + history 回放、`PathLogs` 日志与崩溃报告 | `internal/app/app.go`、`internal/app/crash.go`、`internal/view/recovery.go`、`TestAgainstMygoRestart` |
+| 实时缺口恢复 | `session.resync` 能力、运行中固定历史前缀、statusRevision 基线、有界通知缓冲、最多 3 次重读；原 Host/会话续接，失败降级恢复 | `resources/host/history.mjs`、`internal/app/resync.go`、`TestAgainstMygoResync` |
 | 发布签名 | 自签名证书生成与复用、MyGo `signCommand`、exe/安装器/卸载器/未签名 PE 签名、签名验证与 smoke 接入 | `scripts/self-sign.mjs`、`scripts/sign-windows.mjs`、`scripts/verify-signatures.mjs`、`scripts/smoke-packaged.mjs` |
 
 ## 4. 缺口
@@ -71,7 +72,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 - **运行时打包与分发**：`resources/runtime` 已有 bundled Node、DSH 闭包与私有 `mygo-host`，`PathResources` 解析、首启 profile seed 与 manifest 启动前版本校验可用；仍缺 profile 损坏修复与 macOS 产物。
 - **安装包与签名**：`go tool mygo build` 的产物已包含 `resources/runtime`，自签名 Authenticode 已接入构建，打包 smoke 与本机安装/卸载 smoke 均通过；已决定不购买公开 CA 证书，接受 Unknown publisher/SmartScreen 提示。仍无干净机器验收、macOS Developer ID/公证。
-- **崩溃恢复**：窗口恢复对话框、手工 Restart、`session/resume` + history 回放、`PathLogs` 日志与崩溃报告已落地；自动重启退避、崩溃循环保护、日志轮转与 `seq` 缺口自动 resync（M3）未做。
+- **恢复与诊断**：手工 Restart、持久历史回放、日志/崩溃报告与 `seq` 缺口自动补齐已落地；日志轮转和完整流式 baseline 未做，自动重启退避/崩溃循环保护继续后续评估，维持用户触发 Host 重启的决策。
 - **发布工程**：无 tag、无三平台矩阵；真实 Host 测试只能靠开发者本地环境变量，无法在 CI 常态执行（CI 已覆盖 Windows 全量与 Linux Go 测试）。
 
 ### 4.2 产品体验缺口（能用，但不像完整桌面客户端）
@@ -86,7 +87,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 ### 4.3 协议与健壮性缺口
 
-- 实时缺口自动 resync（现在暂停发送，通过恢复对话框手工重启 Host 回放，不要求重启整个应用）。
+- 同步边界：持久事件缺口已自动补齐，但仍全量回放且受 20k 事件/32 MiB 限制；混合设置/模型/元数据写入、非法载荷、溢出或重读预算耗尽时走停止 Host + 手工恢复。
 - RPC 请求级取消（`$/cancel`），超时只能丢弃结果，不能撤销请求。
 - 流式重连 baseline（`revision` + `activeAttempt`）。
 - 历史增量向上加载；现在是全量回放，受 32 MiB / 20k 事件 / 1024 页预算限制，大会话可能打不开。
@@ -146,7 +147,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 目标：长时间、大仓库、多会话下不丢真相。
 
-- 自动 resync：`seq` 缺口用 history 补齐，`resyncing` 状态，不杀 Host；流式 baseline 重连。
+- 自动 resync（持久事件部分已完成）：`seq` 缺口用 live history 固定前缀和有界缓冲补齐，版本化状态防止旧 idle 解锁，不重启 Host；完整流式 baseline 后续补齐。
 - `$/cancel` 请求级取消与超时分级。
 - 历史增量加载（向上滚动），突破全量回放预算。
 - 运行中会话 attach、多会话后台活动与跨会话审批呈现。
@@ -168,13 +169,15 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 ## 6. 建议的下一批任务（PR 粒度）
 
-1. **M3-1 实时缺口自动 resync**：优先处理持久事件缺口；明确运行中 history 的可读边界、缓冲与恢复失败路径，再补流式 baseline，减少手工重启。
+1. **M3-1b 流式 baseline**：持久缺口自动补齐已完成；下一步提供 revision/activeAttempt 的有界快照，避免恢复时等待下个 start 或最终提交，再推进运行中 attach。
 2. **M2-3 权限模式展示与切换**：沿用 Host 权限服务与独立能力协商，支持当前模式展示及危险模式确认；随后推进草稿/偏好持久化。
 3. **M1-4 干净机器验收**：项目所有者因没有干净 Windows VM，决定本轮跳过并继续 M2；未验收，不标记通过。Windows 发布前重新安排离线首启与证书提示流程检查。
 
 M2-1 会话管理后端已完成：重命名写入 `session/title` 并等待落盘；归档复用独立挂载的 DSH workspace registry，保留日志并支持取消归档。实际检查：`go test ./...`（235 项）、`go vet ./...`、Node Host/脚本回归（55/55）、`node scripts/test-real-host.mjs --runtime`、`git diff --check` 及修改文档的本地链接检查均通过。真实 `TestMygoRealHistoryAfterRestart` 验证标题/归档跨重启保留、取消归档和历史前缀不变；付费模型测试因没有 key 跳过。该批未重建安装器；侧栏与管理 UI 的验证见下述 M2-2。
 
 M2-2 会话侧栏及管理 UI 已完成：UI 协商两个管理能力，宽窄布局共享筛选和表单；冷目标重命名不切走当前会话，当前标题以提交事件确认，失败后刷新目录并在必要时重放历史。Windows 原生窗口通过 UI Automation 验证重命名、归档、恢复及最小窗口弹窗，并检查宽/窄窗口截图。归档当前会话后的 Host 恢复创建新会话，原草稿按 id 留存；真实 Host 回归覆盖恢复归档会话后取回草稿。实际检查：`CGO_ENABLED=0 go test ./...`（242 项）、`go test -race ./internal/app ./internal/view`、`go tool mygo vet .`、`go vet ./...`、Node Host/脚本测试（55/55）、bundled runtime 完整真实组合及新增归档崩溃恢复定向测试、文档链接与 diff 检查均通过。修正了历史测试上下文早于 Host cleanup 取消造成的偶发关闭报错。本轮不重建安装器，不做干净 VM 或付费模型验收。
+
+M3-1a 持久事件自动补齐已完成：运行中 history 通过新 capability 返回固定序列与状态版本，Go 后台重建投影并有序消费缓冲，保留草稿、审批/提问和取消确认。新增丢帧 fixture 验证同一 Host/会话续接、普通/流式结果不重复、审批/提问继续及下一回合；失败和上限覆盖于单元测试。实际检查：`CGO_ENABLED=0 go test ./...`（253 项）、`go test -race ./internal/app ./internal/projection ./internal/view`、MyGo vet、Go vet、Node 测试（58/58）和 bundled runtime 完整真实组合均通过。另用 Node `--env-file=.env` 仅在测试子进程中加载凭据，实际跑过 `TestAgainstMygoRealModel`，DeepSeek flash 返回精确 pong 并正常关闭；默认完整组合不加载该文件，付费组仍 skip。Windows 原生窗口注入丢帧后回到 Ready，显示唯一用户消息与答案，无 Host 重启，截图及 UI Automation 检查通过。本轮未重建安装器，干净 VM 验收继续按决定跳过。
 
 ## 7. 风险与依赖
 

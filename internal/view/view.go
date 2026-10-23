@@ -72,6 +72,7 @@ type Model struct {
 	CopiedMessageID      string
 	CopiedMessageText    string
 	CanHistory           bool
+	CanResync            bool
 	SessionPanel         SessionPanelState
 	SessionID            string
 	SessionCWD           string

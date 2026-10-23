@@ -58,6 +58,19 @@ test('handshake gates methods, rejects incompatible versions and never advertise
   await server.shutdown()
 })
 
+test('status revisions advance only for an owned agent and are gated by resync negotiation', async () => {
+  const { server, ctx, handles, listeners, notifications } = runtime()
+  ctx.sessionPersistence = { list() {}, stat() {}, open() {}, flush() {} }
+  ctx.agents.resume = async () => {}
+  await server.handle('initialize', { ...handshake, capabilities: ['session.history', 'session.resync'] })
+  await server.handle('session/create', { cwd: process.cwd(), provider: 'test', model: 'echo' })
+  listeners.get('agent/status')({ agent: handles[0].agent, status: 'running' })
+  listeners.get('agent/status')({ agent: { session: { id: 'foreign' } }, status: 'idle' })
+  listeners.get('agent/status')({ agent: handles[0].agent, status: 'idle' })
+  assert.deepEqual(notifications.filter(({ method }) => method === 'session/status').map(({ params }) => params.statusRevision), [1, 2])
+  await server.shutdown()
+})
+
 test('session/create owns identity, prompt rejects foreign ids and busy turns, events keep durable seq', async () => {
   const { server, handles, listeners, notifications } = runtime()
   await server.handle('initialize', handshake)
