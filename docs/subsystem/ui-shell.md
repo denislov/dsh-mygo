@@ -109,6 +109,7 @@ App
 - 滚动到底部跟随流式；用户向上滚动后停止自动跟随，显示“回到最新”。
 - 协商 session.history-window 后首屏只读最近事件，Load earlier messages 显式向前加载；用户已经向上阅读时保留锚点，处于最新端时滚动到新页。读取期间禁用重复操作/发送，允许保留编辑；失败在正文上方提供重试，旧内容不清空。Return to latest 重建最新窗口，清除过期检视状态但保留草稿。
 - 展示预算与淘汰由 [会话投影](session-projection.md#历史回放) 定义；浏览缓存淘汰较新行时显示 Viewing earlier history 并禁用发送，返回最新后恢复。历史控制条在最小窗口保持可达；没有可见消息的页提示 No visible messages，不冒充空会话。
+- 用户消息的附件显示元数据行（类型、尺寸、大小、可选文件名），图片未解码或读取失败时不阻塞其余正文；只有图片、没有文本的消息仍保留卡片和标题，但此时不显示复制正文动作。
 
 ### Markdown
 
@@ -139,8 +140,8 @@ App
 
 - 多行文本：`ui.TextArea` / `ui.TextAreaBuffer`；大草稿用 `ui.TextBuffer`；支持输入法、选区、撤销。
 - Enter 发送，Shift+Enter 换行；可在设置中交换。
-- 附件：粘贴/拖放/选择文件；图片走 `session/prompt` 的 image 块；路径引用走 `@path`。
-- `@` 引用：文件/目录补全；引用在发送时解析为 Host 可见的路径。
+- 附件：粘贴/拖放/选择文件；图片走 `session/prompt` 的 image 块；路径引用走 `@path`。粘贴用 `OnPaste` + `mygo.Clipboard.ReadImage`/`ReadFiles`，拖放用 `DroppedFiles`/`FileDragOver`（窗口级 `OnFileDrop` 兜底），选择用 `mygo.Dialog.Open`（在 goroutine 打开，结果经 `Window.Update` 发布）。待发图片进入当前草稿的暂存列表，发送前按协商上限校验类型、单图、总量与数量；超限或失败保留草稿与暂存图片并显示可读原因。暂存图片不写入本地草稿文件，切换会话或重启后清空。
+- `@` 引用：用 `TextSelection` 定位光标处的 `@token`，`ui.Popover` 锚定输入区列出匹配路径（MyGo 不提供 TextArea 光标矩形）；Up/Down/Tab/Escape 在 `OnTextKey` 中消费；选中后替换 token 为 `@path`。引用只是文本，发送时不复制文件内容，Host 与 UI 同机。
 - `/` 命令：提供命令补全与执行；不要伪造不存在的命令。
 - 发送失败：保留草稿，显示错误；不要丢失用户输入。
 - 独立 Preferences 面板配置主题、语言、发送键和应用命令，不依赖会话 Settings 能力。表单与已应用值分离，底部取消/重置/应用动作在最小窗口保持可达；滚动只包围表单内容。固定状态、菜单标签、无障碍名称随语言切换，原始消息/代码/提问与工具载荷保留原文。

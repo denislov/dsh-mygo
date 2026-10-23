@@ -20,6 +20,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"dsh-mygo/internal/attachment"
 	"dsh-mygo/internal/channel"
 	"dsh-mygo/internal/host"
 	"dsh-mygo/internal/interaction"
@@ -124,6 +125,7 @@ type App struct {
 	canStreamBaseline   bool
 	canHistoryWindow    bool
 	canRelease          bool
+	attachmentLimits    *attachment.Limits
 	retiredSessions     map[string]bool
 	drafts              map[string]string
 	local               *localEditingState
@@ -354,6 +356,7 @@ func (a *App) startHost(recover bool, resumeID string) {
 			a.model.Permission.Accept(*initialized.permissions)
 		}
 		a.canStreamBaseline = initialized.canStreamBaseline
+		a.acceptAttachments(initialized.attachments)
 		a.statusRevision = 0
 		a.hostStatus = ""
 		a.model.SessionPanel.CanRename = initialized.canRename
@@ -467,6 +470,7 @@ type initializedSession struct {
 	canModels         bool
 	canConfigure      bool
 	route             view.ModelRoute
+	attachments       *attachment.Limits
 }
 
 func (a *App) initialize(ctx context.Context, client rpcClient, resumeID string) (initializedSession, error) {
@@ -497,7 +501,7 @@ func (a *App) initializeSession(ctx context.Context, client rpcClient, resumeID 
 	result, err := client.Call(ctx, "initialize", map[string]any{
 		"protocolVersion": channel.ProtocolVersion,
 		"client":          map[string]string{"name": "dsh-mygo", "version": channel.ReleaseVersion, "platform": runtime.GOOS, "locale": a.currentLocale()},
-		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history", "session.history-window", "session.release", "session.resync", "session.assistant-stream-baseline", "session.rename", "session.archive", "model.selection", "settings.configuration", "session.permissions"},
+		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history", "session.history-window", "session.release", "session.resync", "session.assistant-stream-baseline", "session.rename", "session.archive", "model.selection", "settings.configuration", "session.permissions", "attachments"},
 	})
 	if err != nil {
 		return initializedSession{}, err
@@ -573,6 +577,7 @@ func (a *App) initializeSession(ctx context.Context, client rpcClient, resumeID 
 		canArchive:        slices.Contains(initialized.Capabilities, "session.archive"),
 		canModels:         slices.Contains(initialized.Capabilities, "model.selection"),
 		canConfigure:      canConfigure, route: selected,
+		attachments: attachmentLimitsOf(initialized),
 	}, nil
 }
 
@@ -656,6 +661,7 @@ func (a *App) resumeSessionWithRoute(ctx context.Context, client rpcClient, id s
 		canArchive:        slices.Contains(initialized.Capabilities, "session.archive"),
 		canModels:         slices.Contains(initialized.Capabilities, "model.selection"),
 		canConfigure:      canConfigure, route: selected,
+		attachments: attachmentLimitsOf(initialized),
 	}, nil
 }
 
@@ -679,7 +685,7 @@ func (a *App) Send(text string) {
 	}
 	original := originalSubmittedText(a.model.Draft, text)
 	text = strings.TrimSpace(text)
-	if text == "" || a.shuttingDown.Load() || a.model.LocalState.Closing || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 || a.model.SessionBusy || a.model.History.Detached || a.model.SessionPanel.BlocksInput() || a.model.SettingsBusy || a.model.SettingsOpen || a.model.ModelUncertain || a.model.ConfigurationUncertain || a.model.Permission.Uncertain {
+	if text == "" && len(a.model.Attachments.Pending) == 0 || a.shuttingDown.Load() || a.model.LocalState.Closing || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 || a.model.SessionBusy || a.model.History.Detached || a.model.SessionPanel.BlocksInput() || a.model.SettingsBusy || a.model.SettingsOpen || a.model.ModelUncertain || a.model.ConfigurationUncertain || a.model.Permission.Uncertain {
 		return
 	}
 	if a.model.SessionPanel.Refreshing {
@@ -687,6 +693,12 @@ func (a *App) Send(text string) {
 	}
 	client := a.currentClient()
 	if client == nil {
+		return
+	}
+	blocks, err := a.promptBlocks(text)
+	if err != nil {
+		a.model.Error = err.Error()
+		a.model.ErrorDetail = ""
 		return
 	}
 	a.model.Draft = ""
@@ -702,10 +714,10 @@ func (a *App) Send(text string) {
 	a.rememberSubmittedDraft(a.promptID, original)
 	delivery := make(chan error, 1)
 	a.promptDone = delivery
-	go a.prompt(client, text, a.promptID, a.sessionID, delivery)
+	go a.prompt(client, blocks, text, a.promptID, a.sessionID, delivery)
 }
 
-func (a *App) prompt(client rpcClient, text string, promptID uint64, sessionID string, delivery chan error) {
+func (a *App) prompt(client rpcClient, blocks []map[string]any, submitted string, promptID uint64, sessionID string, delivery chan error) {
 	defer close(delivery)
 	ctx, cancel := context.WithTimeout(context.Background(), promptTimeout)
 	defer cancel()
@@ -714,10 +726,8 @@ func (a *App) prompt(client rpcClient, text string, promptID uint64, sessionID s
 		contentField = "contentBlocks"
 	}
 	result, err := client.Call(ctx, "session/prompt", map[string]any{
-		"sessionId": sessionID,
-		contentField: []map[string]any{
-			{"type": "text", "text": text},
-		},
+		"sessionId":  sessionID,
+		contentField: blocks,
 	})
 	if err == nil && a.local != nil {
 		var acknowledged struct {
@@ -731,6 +741,9 @@ func (a *App) prompt(client rpcClient, text string, promptID uint64, sessionID s
 		if !a.shuttingDown.Load() {
 			a.settleSubmittedDraft(promptID, err)
 		}
+		if err == nil && !a.shuttingDown.Load() && a.promptID == promptID {
+			a.model.Attachments.Clear()
+		}
 		if a.shuttingDown.Load() || err == nil || a.model.Phase == view.PhaseFailed || a.promptID != promptID {
 			return
 		}
@@ -741,7 +754,7 @@ func (a *App) prompt(client rpcClient, text string, promptID uint64, sessionID s
 		a.model.Error = "Could not deliver the prompt"
 		a.model.ErrorDetail = clipDetail(err.Error()+"\n\nThe prompt may not have reached the host. Check before retrying.", maxErrorRunes)
 		if a.model.Draft == "" {
-			a.model.Draft = text
+			a.model.Draft = submitted
 		}
 	})
 	delivery <- err

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -40,6 +41,20 @@ type Item struct {
 	Tool        *ToolDetails
 	ToolEvicted bool
 	Truncated   bool
+	// Attachments lists durable uploads referenced by this message, in wire
+	// order. Content bytes never enter the projection.
+	Attachments []Attachment
+}
+
+// Attachment is the display-safe metadata of one durable upload. The ID is an
+// opaque storage reference; it is never a path or a bearer URL.
+type Attachment struct {
+	ID        string
+	MediaType string
+	Bytes     int64
+	Width     int
+	Height    int
+	Name      string
 }
 
 // Event is one session-log event exactly as the SDK forwards it.
@@ -122,11 +137,12 @@ func (t *Transcript) applyUser(event Event) bool {
 	if data.Source.Kind != "user" {
 		return false
 	}
-	text := blocksText(data.Content, maxMessageRunes)
-	if text == "" {
+	text := userText(data.Content, maxMessageRunes)
+	attachments := itemAttachments(data.Content)
+	if text == "" && len(attachments) == 0 {
 		return false
 	}
-	t.add(Item{Seq: event.Seq, ID: eventID(event), Kind: KindUser, Title: "You", Text: text, Truncated: utf8.RuneCountInString(text) > maxMessageRunes})
+	t.add(Item{Seq: event.Seq, ID: eventID(event), Kind: KindUser, Title: "You", Text: text, Truncated: utf8.RuneCountInString(text) > maxMessageRunes, Attachments: attachments})
 	return true
 }
 
@@ -315,27 +331,80 @@ func (t *Transcript) add(item Item) {
 }
 
 type contentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type       string         `json:"type"`
+	Text       string         `json:"text"`
+	Attachment *attachmentRef `json:"attachment"`
 }
 
-// blocksText renders the visible parts of model-facing content. Reasoning is
-// not shown in the P1 transcript; tool calls have their own event.
-func blocksText(blocks []contentBlock, limit int) string {
+// attachmentRef is the durable reference the Host records in a user event.
+type attachmentRef struct {
+	AttachmentID string `json:"attachmentId"`
+	MediaType    string `json:"mediaType"`
+	Bytes        int64  `json:"bytes"`
+	Width        int    `json:"width"`
+	Height       int    `json:"height"`
+	Name         string `json:"name"`
+}
+
+// userText renders the visible text of a user message. Uploads get their own
+// rows: the UI shows their metadata rather than a placeholder.
+func userText(blocks []contentBlock, limit int) string {
 	parts := make([]string, 0, len(blocks))
 	for _, block := range blocks {
-		switch block.Type {
-		case "text":
-			if strings.TrimSpace(block.Text) != "" {
-				parts = append(parts, block.Text)
-			}
-		case "image":
-			parts = append(parts, "[image]")
-		case "file":
-			parts = append(parts, "[file]")
+		if block.Type == "text" && strings.TrimSpace(block.Text) != "" {
+			parts = append(parts, block.Text)
 		}
 	}
 	return clip(strings.Join(parts, "\n\n"), limit)
+}
+
+// itemAttachments keeps well-formed durable image references in wire order.
+// Malformed references are dropped rather than rendered with suspicious data.
+func itemAttachments(blocks []contentBlock) []Attachment {
+	var attachments []Attachment
+	for _, block := range blocks {
+		if block.Type != "image" || block.Attachment == nil {
+			continue
+		}
+		ref := block.Attachment
+		if len(attachments) == maxAttachmentsPerMessage || !safeReference(ref.AttachmentID) || !safeImageMediaType(ref.MediaType) {
+			continue
+		}
+		attachment := Attachment{ID: ref.AttachmentID, MediaType: ref.MediaType, Bytes: ref.Bytes, Width: ref.Width, Height: ref.Height}
+		if ref.Bytes < 0 || ref.Bytes > maxAttachmentBytes || ref.Width < 0 || ref.Width > maxAttachmentDimension || ref.Height < 0 || ref.Height > maxAttachmentDimension {
+			continue
+		}
+		if ref.Name != "" && utf8.RuneCountInString(ref.Name) <= maxAttachmentNameRunes && !strings.ContainsFunc(ref.Name, unicode.IsControl) {
+			attachment.Name = ref.Name
+		}
+		attachments = append(attachments, attachment)
+	}
+	return attachments
+}
+
+// safeReference checks the opaque attachment identity: printable ASCII only,
+// bounded, never interpreted as a path.
+func safeReference(id string) bool {
+	if id == "" || len(id) > 256 {
+		return false
+	}
+	for _, character := range []byte(id) {
+		if character <= ' ' || character > '~' {
+			return false
+		}
+	}
+	return true
+}
+
+// safeImageMediaType accepts exactly the raster formats the attachment seam
+// normalizes; markup or other image media types never reach the UI.
+func safeImageMediaType(mediaType string) bool {
+	switch mediaType {
+	case "image/png", "image/jpeg", "image/webp", "image/gif":
+		return true
+	default:
+		return false
+	}
 }
 
 // prettyJSON formats tool arguments for display. Invalid JSON is shown as the
@@ -369,4 +438,10 @@ func eventID(event Event) string {
 const (
 	maxMessageRunes = 8000
 	maxToolRunes    = 4000
+	// Uploaded image references are display metadata only; bound everything a
+	// hostile event could inflate.
+	maxAttachmentsPerMessage = 8
+	maxAttachmentNameRunes   = 128
+	maxAttachmentBytes       = 200 * 1024 * 1024
+	maxAttachmentDimension   = 8192
 )

@@ -15,7 +15,7 @@
 
 | 事件 | 投影 |
 | --- | --- |
-| `user/message`（`source.kind == "user"`） | `KindUser`，文本块拼接 |
+| `user/message`（`source.kind == "user"`） | `KindUser`，文本块拼接；image 块投影为 `Attachments` 元数据行 |
 | `assistant/message` | `KindAssistant`，只取 text 块；`interrupted` 写入 `Detail` |
 | `tool/call` | `KindTool`，按 `callId` 建行，参数格式化 JSON |
 | `tool/result` | 更新同 `callId` 的工具行状态与结果；`error.reason` 优先于原始内容 |
@@ -31,6 +31,7 @@
 - `approval/request` / `approval/closed` 是连接内临时交互，由 `internal/interaction` 管理，不进入 transcript。审批结果只通过 Host 提交的工具结果体现；弹窗展示原始关联参数，不使用下述截断后的工具行。idle、失败和退出清理临时队列，不伪造审批历史。
 - `question/request` / `question/closed` 同样由交互层管理，不把本地表单或取消动作写成历史。结构化答案通过真实 `ask_user_question` 工具结果进入 Host 日志；协议只支持阻塞提问，timed/continued 问题与迟到回复不进入投影。会话 idle 清理本会话提问，无 agent 请求不随会话 idle 消失。
 - 列表预览按 rune 截断：消息 8000、工具参数/结果 4000；工具详情按下述独立字节预算保留，超限或淘汰必须提示，不冒充完整内容。打开历史也遵守相同展示上限，不承诺完整原文复制或按需加载被淘汰详情。
+- 附件只投影显示元数据：`attachmentId`（不透明标识）、`mediaType`、`bytes`、`width`、`height`、可选 `name`；不读取或缓存图片字节，不把引用解释成路径。只有 png/jpeg/webp/gif 且引用字段有界的块才进入 UI，畸形引用丢弃而不是渲染可疑内容；纯图片消息同样保留一行，不能因文本为空而消失。附件不进入本地草稿文件。
 - 助手 Markdown 增量展示及工具折叠/只读 diff；reasoning、工具参数不展示为临时正文。原生 Sessions 历史入口回放正文；usage/context 不展示。
 - model/selection 是 Host 提交的持久选择意图，参与 nextSeq 顺序与历史回放，但不增加聊天正文行。Settings 以匹配的 Host 确认更新当前模型标签；真实请求配置仍由 DSH 生成。模型变更产生的 synthetic model-selection context 不是用户输入，不进入 transcript。
 - session/title 参与持久 seq 校验，更新 Host 会话摘要而不增加聊天正文行；rename 返回的 nextSeq 包含该提交。列表更新时间来自已读持久事件时间，标题与排序以 Host 列表为准。归档状态由 DSH workspace registry 管理，不生成 transcript 行；取消归档后的历史仍按原序列恢复，不重写原日志。

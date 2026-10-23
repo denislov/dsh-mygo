@@ -96,7 +96,8 @@ test('validation rejects unsupported content and hides runtime exception text', 
   await server.handle('initialize', handshake)
   await assert.rejects(server.handle('session/create', { cwd: 'relative', provider: 'test', model: 'echo' }), { code: -32602 })
   const { session } = await server.handle('session/create', { cwd: process.cwd(), provider: 'test', model: 'echo' })
-  for (const content of [[], [{ type: 'image', data: 'private' }], [{ type: 'text', text: '' }]]) {
+  await assert.rejects(server.handle('session/prompt', { sessionId: session.id, content: [{ type: 'image', data: 'private' }] }), (error) => error.kind === 'session/attachment-invalid' && !error.message.includes('private'))
+  for (const content of [[], [{ type: 'text', text: '' }], [{ type: 'audio', data: 'private' }]]) {
     await assert.rejects(server.handle('session/prompt', { sessionId: session.id, content }), { code: -32602 })
   }
   ctx.agents.create = async () => { throw new Error('private-api-key') }

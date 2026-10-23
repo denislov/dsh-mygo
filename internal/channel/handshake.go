@@ -3,13 +3,21 @@ package channel
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 
+	"dsh-mygo/internal/attachment"
 	"dsh-mygo/internal/version"
 )
 
 const ProtocolVersion = version.Protocol
 const ReleaseVersion = version.App
 const DSHVersion = version.DSH
+
+// AttachmentPolicy is the image policy a host advertises with the attachments
+// capability. It is absent when the host does not accept uploads.
+type AttachmentPolicy struct {
+	Image attachment.Limits `json:"image"`
+}
 
 type InitializeResult struct {
 	ProtocolVersion int `json:"protocolVersion"`
@@ -18,7 +26,8 @@ type InitializeResult struct {
 		Version    string `json:"version"`
 		DSHVersion string `json:"dshVersion"`
 	} `json:"server"`
-	Capabilities []string `json:"capabilities"`
+	Capabilities []string          `json:"capabilities"`
+	Attachments  *AttachmentPolicy `json:"attachments"`
 }
 
 func DecodeInitialize(data json.RawMessage) (InitializeResult, error) {
@@ -38,6 +47,14 @@ func DecodeInitialize(data json.RawMessage) (InitializeResult, error) {
 	for _, capability := range result.Capabilities {
 		if capability == "" || len(capability) > 256 {
 			return result, fmt.Errorf("invalid host capability")
+		}
+	}
+	if advertised := slices.Contains(result.Capabilities, "attachments"); advertised != (result.Attachments != nil) {
+		return result, fmt.Errorf("inconsistent host attachment capabilities")
+	}
+	if result.Attachments != nil {
+		if err := result.Attachments.Image.ValidatePolicy(); err != nil {
+			return result, fmt.Errorf("invalid host attachment policy: %w", err)
 		}
 	}
 	return result, nil

@@ -1,6 +1,6 @@
 # 开发进度与路线图
 
-> 统计基线：`9faa9b6`（2026-10-23 13:51）；能力进度包含 M2-4a 草稿、M3-2 大历史与本次 M2-4b 界面偏好变更，更新于 2026-10-24。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
+> 统计基线：`9faa9b6`（2026-10-23 13:51）；能力进度包含 M2-4a 草稿、M3-2 大历史、M2-4b 界面偏好与本次 M2-5a 附件输入契约变更，更新于 2026-10-24。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
 
 ## 1. 结论
 
@@ -8,7 +8,7 @@
 
 一句话：**能开发、能演示、能在开发机上真实跑；还不能交给普通用户安装使用。**
 
-判断依据：协议与 UI 主链路已经闭环，M0 工程基线、M1 运行时/打包/安装器 smoke、自签名发布构建、手工崩溃恢复、会话管理、缺口恢复、权限 UI、草稿/界面偏好与有界历史窗口/句柄回收已完成；干净机器验收、附件/深度信息与 Windows 发布工程仍是主要缺口；macOS 作为后续发布单元。
+判断依据：协议与 UI 主链路已经闭环，M0 工程基线、M1 运行时/打包/安装器 smoke、自签名发布构建、手工崩溃恢复、会话管理、缺口恢复、权限 UI、草稿/界面偏好、附件输入契约与有界历史窗口/句柄回收已完成；干净机器验收、附件录入交互（粘贴/拖放/@path）与 Windows 发布工程仍是主要缺口；macOS 作为后续发布单元。
 
 ## 2. 事实快照
 
@@ -59,6 +59,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 | 会话权限 | 独立能力、当前预设和实际 sandbox/approval、危险 bundle 确认、Host 公共服务切换/持久化、失败刷新门禁 | `resources/host/permissions.mjs`、`internal/app/permissions.go`、`internal/view/permissions.go`、`TestAgainstMygoPermissions` |
 | 本机编辑状态 | 按 DSH_HOME/profile 隔离的有界草稿与最近会话、原子保存/冲突检测/损坏备份、确认发送后清除、启动恢复/失败复制与异步退出保存 | `internal/preferences`、`internal/app/local_state.go`、`TestAgainstMygoLocalEditingState` |
 | 界面偏好 | 独立面板、跟随系统/浅色/深色、中英文界面、Enter/Ctrl+Enter 与有限命令改绑/禁用、v1→v2 迁移与保存失败保护 | `internal/view/preferences.go`、`internal/i18n`、`internal/app/ui_preferences.go`、偏好/输入/重启回归 |
+| 附件输入契约 | 独立 `attachments` 能力与图片策略、canonical base64/类型/预算/路由校验、事件前持久提交、历史元数据行 | `resources/host/attachments.mjs`、`internal/attachment`、`internal/channel/handshake.go`、`internal/projection`、`TestAgainstMygoRealAttachments` |
 | 大历史与资源回收 | 反向尾页/更早页/返回最新、独立持久目录投影、缓存缺失降级、只读旧窗口和展示缓存上限、非当前句柄回收 | `resources/host/catalog.mjs`、`history.mjs`、`server.mjs`、`internal/app/history_window.go`、`TestAgainstMygoLargeHistoryAndReleasedSessions` |
 | 回归入口 | 旧 SDK 链路保留为显式 `-sdk-protocol -profile sdk` | `main.go`、`testdata/fake-sdk-host.mjs` |
 | 工程基线 | 正式 identifier、版本单点、Windows/Linux CI、构建产物重建 | `versions.json`、`internal/version`、`.github/workflows/ci.yml` |
@@ -84,7 +85,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 - **会话管理扩展**：侧栏、标题搜索、重命名/归档/恢复已接通；delete/fork 后置。独立目录检查点与退休句柄回收已接入，连续访问不再累积全部 Agent；目录仍限制 1000 条/256 KiB。冷检查点可能落后或缺失，会显示提示并在打开时由日志重建，尚无后台全库索引修复任务。
 - **权限模式扩展**：当前会话展示/切换、危险确认和冷恢复已接通；未来会话默认权限编辑仍后置，UI 不更改部署环境。
 - **UI 偏好扩展**：草稿、最近会话、主题、中英文与发送/新建/偏好/停止快捷键可配置并恢复；侧栏选择、搜索/复制等更广命令及任意按键录制后置。窗口尺寸/位置仍由 MyGo StateKey 处理。
-- **附件与引用**：图片粘贴、文件拖放、`@path` 引用、`/` 命令均未实现；协议里 `attachments` 仍是后续契约。
+- **附件与引用**：图片输入契约已接通（能力协商、类型/预算/路由校验、事件前持久提交、历史元数据行）；图片粘贴、文件拖放、`@path` 引用与 `/` 命令仍未实现。
 - **深度信息**：usage/context/compaction 不展示；`subagent/*` 协议表有定义但 Host 不发送、UI 不投影；plan/todo/goal 未投影。
 - **会话形态**：只支持单活跃会话；运行中会话不能 attach；后台会话的审批/提问不呈现。Host 同时拥有上限仍为 8，导航与冷目标管理会自动回收退休句柄；释放后重开使用冷恢复路由。
 - **本地化扩展**：应用标签/常用提示使用集中双语词表，并同步 MyGo 内建控件；用户/工具/提问载荷保留原文，技术诊断允许英文回退。Host 采用加载后的 locale，运行中更改在下次 Host 启动生效；其它语言与系统语言自动匹配后置。
@@ -142,7 +143,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 - 会话管理（已完成）：Host 与原生 UI 的重命名、归档/恢复、更新时间和最近活动排序；当前归档保留正文/草稿并禁用发送，写入失败需刷新确认，delete/fork 后置。
 - 权限模式 UI（已完成）：实际预设/sandbox/approval 展示与当前会话切换，危险 bundle 明确确认；Host 写入会话日志并等待落盘，失败必须刷新。
 - UI 偏好持久化（已完成）：草稿/最近会话与主题、双语界面和有限快捷键配置，编辑文件 v1→v2 无损迁移，保存失败保留原文/旧文件；更多侧栏和命令偏好继续扩展。
-- 附件与引用：图片（类型白名单、base64 限额）、`@path`、拖放；`/` 命令先留扩展。
+- 附件与引用（输入契约已完成）：图片类型白名单、base64/单图/总量/数量预算与 Host 事件前提交已接通；粘贴、拖放与 `@path` 继续本轮实现，`/` 命令先留扩展。
 - 深度信息：usage/context 最小展示；subagent/plan/todo 先做投影。
 
 验收：560×420 到宽屏都可用；"找会话 → 改名 → 切模型 → 发图 → 审批/提问 → 停止"全流程通过；错误恢复不丢草稿。
@@ -173,7 +174,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 ## 6. 建议的下一批任务（PR 粒度）
 
-1. **M2-5 附件与引用**：先收敛图片类型/预算及 Host 输入契约，再做粘贴/拖放与 @path。
+1. **M2-5 附件与引用**：输入契约已完成；继续图片粘贴、文件拖放与 @path 补全。
 2. **M2-6 深度信息**：先展示 Host 提供的 usage/context，再接 plan/todo 与子代理状态；运行中 attach 和后台会话交互保持 M3 后续单独推进。
 3. **M1-4 干净机器验收**：项目所有者因没有干净 Windows VM，决定本轮跳过并继续 M2；未验收，不标记通过。Windows 发布前重新安排离线首启与证书提示流程检查。
 
@@ -198,6 +199,10 @@ M3-2 大历史与句柄预算已完成：独立能力启用反向历史窗口与
 M2-4b 界面偏好已完成：独立设备级面板支持 system/light/dark、en-US/zh-CN、Enter/Ctrl+Enter 与新建/偏好/停止命令的有限改绑/禁用，重复组合拒绝；默认保持英文和 Enter。表单取消不改值，应用与重置不触碰 Host 配置，模态和审批/提问期间不执行背后命令。应用文案集中翻译，数据载荷保留原文；内建控件同步 locale，Host 在下一启动采用。v1 编辑文件迁移到包含 ui 的 v2，草稿/冲突/原子保存与退出屏障保持；非法偏好只读保护原文件。MyGo locale 镜像和窗口状态通过 ui-state-dir 一起隔离，编辑文件为偏好权威来源。下一项为附件与引用。本批未重建安装器，干净 VM 按决定继续跳过。
 
 本批实际检查：`CGO_ENABLED=0 go test ./...`（309 项通过，36 项真实 Host/付费组跳过）、`go test -race ./internal/app ./internal/view ./internal/preferences ./internal/projection`（235 项）、`go tool mygo vet .`、`go vet ./...`、Node Host/脚本（70/70）、bundled runtime 完整真实组合均通过。补齐 MyGo `zh-Hans` 词表链接后，主程序不再输出“MyGo 自身文案仍是英文”的告警，代码复制等内建控件随界面语言切换；Windows 原生窗口复验 v1→v2 迁移、深色/中文/Ctrl+Enter 重启恢复、幂等应用、560×420 弹窗、恢复默认与浅色种子，截图复核通过。文档相对链接与 diff 检查通过。本批未重建安装器、未跑打包/安装 smoke；未读取 `.env` 或调用付费模型，macOS 未验证。
+
+M2-5a 附件输入契约已完成：`attachments` 只在 Host 挂载附件存储且能校验模型模态时协商，`initialize` 返回媒体类型、base64/单图/总量/数量/像素/边长上限；`session/prompt` 接受 image 块（canonical base64、可选显示名），Host 先校验预算与当前路由模态，再经 DSH 附件服务在 user 事件前提交持久引用；任何失败不产生部分写入且不回传 payload。投影只保留 `attachmentId/mediaType/bytes/width/height/name`，畸形引用丢弃、纯图片消息保留一行；`model/list` 增加 sanitized `inputModalities`，未知模态放行、text-only 拒绝。App 发送前按协商上限校验并构造 text+image 块，成功后清空暂存，失败保留草稿与暂存图片。下一项为粘贴/拖放/`@path`（本轮尚未实现）。
+
+本批实际检查：`CGO_ENABLED=0 go test ./...`（332 项通过，37 项真实 Host/付费组跳过）、`go test -race ./internal/app ./internal/view ./internal/projection ./internal/attachment ./internal/channel`（282 项）、`go tool mygo vet .`、`go vet ./...`、Node Host/脚本（79/79）、bundled runtime 完整真实组合均通过。新增 `TestAgainstMygoFakeHostAttachments` 覆盖 fake Host 全链路；`TestAgainstMygoRealAttachments` 用真实 DSH 附件存储提交 2×2 PNG，验证事件前持久化、规范化元数据与历史只带引用。原生窗口输入交互属下一批，本批未跑；未重建安装器、未跑打包/安装 smoke；未读取 `.env` 或调用付费模型；macOS 未验证。
 
 ## 7. 风险与依赖
 

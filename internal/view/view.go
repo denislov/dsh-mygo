@@ -37,6 +37,7 @@ const (
 // keeps the transcript and draft outside the view.
 type Model struct {
 	Prefs                PreferencesState
+	Attachments          AttachmentState
 	Items                []projection.Item
 	History              HistoryState
 	Draft                string
@@ -306,13 +307,24 @@ func card(c *mgo.Context, model *Model, item projection.Item, fromUser bool) {
 				mgo.Text(c, model.T(item.Detail)).FontSize(11).TextColor(theme.TextMuted)
 			}
 			mgo.Spacer(c)
-			messageCopyButton(c, model, item, fromUser)
+			if item.Text != "" {
+				messageCopyButton(c, model, item, fromUser)
+			}
 		})
+		if len(item.Attachments) > 0 {
+			mgo.Column(c).Gap(4).Children(func() {
+				for _, attachment := range item.Attachments {
+					mgo.Text(c, attachmentLabel(model, attachment)).FontSize(11).TextColor(theme.TextMuted).SingleLine()
+				}
+			})
+		}
 		if item.Truncated {
 			mgo.Text(c, model.T("Truncated message: only the visible prefix is available.")).FontSize(11).TextColor(theme.Warning)
 		}
 		if fromUser || item.Truncated {
-			mgo.Text(c, item.Text).FontSize(13).Selectable()
+			if item.Text != "" {
+				mgo.Text(c, item.Text).FontSize(13).Selectable()
+			}
 		} else if item.State == "streaming" {
 			markdown.Stream(c.Key("assistant-markdown"), item.Text, &model.Markdown).FillWidth()
 		} else if item.State == "interrupted" {

@@ -56,7 +56,18 @@
 {
   "server": { "name": "dsh-mygo-host", "version": "0.1.0", "dshVersion": "0.2.1-rc.2" },
   "protocolVersion": 1,
-  "capabilities": ["session.cancel", "session.history", "session.assistant-stream", "approval", "question", "model.selection", "settings.read", "settings.configuration", "session.delete"],
+  "capabilities": ["session.cancel", "session.history", "session.assistant-stream", "approval", "question", "attachments", "model.selection", "settings.read", "settings.configuration", "session.delete"],
+  "attachments": {
+    "image": {
+      "mediaTypes": ["image/png", "image/jpeg", "image/webp", "image/gif"],
+      "maxBase64Bytes": 8388608,
+      "maxImageBytes": 6291456,
+      "maxImagesPerMessage": 8,
+      "maxMessageImageBytes": 6291456,
+      "maxImagePixels": 64000000,
+      "maxImageDimension": 8192
+    }
+  },
   "permissionModes": ["workspace-write", "danger-full-access"],
   "models": [ ... ]
 }
@@ -68,6 +79,7 @@
 - capability 取双方交集；UI 不调用未协商的方法。
 - `initialize` 之前只接受 `initialize` 与 `shutdown`。
 - 重复 `initialize` 返回 `already-initialized`。
+- `attachments` 能力只在 Host 确实挂载附件存储且能校验模型输入能力时协商；协商成功必须同时返回 `attachments.image`，未协商成功必须不带该字段。UI 校验上限字段为正整数、媒体类型为上述四种的子集，不合法时按握手失败处理。
 
 ## 方法
 
@@ -84,7 +96,7 @@
 | `session/delete` | `{ sessionId }` | `{}`（需要 capability `session.delete`） |
 | `session/fork` | `{ sessionId, messageId? }` | `{ session: SessionSummary }` |
 | `session/history` | `{ sessionId, cursor?, limit?, direction?, beforeSeq?, live?, assistantStream? }`（backward 需 `session.history-window`；live:true 需 `session.resync`；assistantStream:true 需流式 baseline 能力） | `{ events: SessionEvent[], startSeq?, nextCursor?, hasMore, nextSeq, status?, statusRevision?, assistantStream? }` |
-| `session/prompt` | `{ sessionId, content: ContentBlock[] }` | `{ messageId }` |
+| `session/prompt` | `{ sessionId, content: ContentBlock[] }`（image 块需 `attachments`） | `{ messageId }` |
 | `session/cancel` | `{ sessionId }`（需 capability `session.cancel`） | `{ cancelled: boolean, status: "idle" }` |
 | `session/queue` | `{ sessionId, action: "list"|"edit"|"remove"|"steer", ... }` | `{ queue: QueuedInput[] }` |
 | `session/wait` | `{ sessionId }` | `{}`（回合结束后返回） |
@@ -123,7 +135,7 @@
 
 | 方法 | 参数 | 结果 |
 | --- | --- | --- |
-| `model/list` | `{ sessionId, provider? }`（需 model.selection） | `{ providers: {id,name}[], provider, models: {id,name,available,efforts:{id,name}[],reason?}[], selection:{provider,model,effort}, available, reason? }` |
+| `model/list` | `{ sessionId, provider? }`（需 model.selection） | `{ providers: {id,name}[], provider, models: {id,name,available,efforts:{id,name}[],inputModalities?,reason?}[], selection:{provider,model,effort}, available, reason? }` |
 | `model/select` | `{ sessionId, provider, model, effort? }`（需 model.selection） | `{ session: SessionSummary }` |
 | `configuration/get` | `{}`（需 settings.configuration） | `ConfigurationSnapshot` |
 | `configuration/default-model` | `{revision,provider,model,effort?}`（需 settings.configuration） | `ConfigurationSnapshot` |
@@ -134,7 +146,7 @@
 | `settings/set` | `{ namespace, values }` | `{ values }` |
 | `settings/open-document` | `{ namespace }` | `{}`（由 Host 打开原生编辑器） |
 
-模型目录和当前会话选择通过 model.selection 协商；独立的 settings.configuration 保护固定范围的持久默认模型与凭据配置；通用设置走 settings/get/set 的命名空间白名单，不接受未声明命名空间写入。目录、范围、资源限制和凭据边界见 [设置与凭据](settings-credentials.md)。model/select 的 effort 省略或空字符串均代表清除显式 override；成功提交一个 model/selection 事件并返回新的 nextSeq，不修改历史消息或全局默认值。
+模型目录和当前会话选择通过 model.selection 协商；独立的 settings.configuration 保护固定范围的持久默认模型与凭据配置；通用设置走 settings/get/set 的命名空间白名单，不接受未声明命名空间写入。目录、范围、资源限制和凭据边界见 [设置与凭据](settings-credentials.md)。model/select 的 effort 省略或空字符串均代表清除显式 override；成功提交一个 model/selection 事件并返回新的 nextSeq，不修改历史消息或全局默认值。`inputModalities` 只在模型元数据声明时出现，取值为 `text`/`image` 的子集并去重；缺少该字段表示输入模态未知，UI 不据此禁用发送，Host 也不预先拒绝图片，仍由模型适配器在调用时决定。
 
 ConfigurationSnapshot 为 `{revision,defaults:{provider,model,effort},credential:{available,reference,configured,writable,source}}`，只包含安全白名单字段，Go 输入预算 8 KiB。revision 为非负安全整数；路由/引用最多 256 UTF-8 bytes；引用必须为 POSIX identifier；source 仅 none/managed/environment/fallback。凭据值仅出现在 set 请求（1–8192 bytes、无 ASCII 空白/控制字符），任何结果或错误都不能回传。默认模型写入使用 revision 乐观冲突检查；凭据 reference 必须等于 Host 当前官方 provider 的配置绑定。写入失败后必须 configuration/get 确认，未结束的写入不被读操作或下一写入越过；不承诺 RPC 超时取消底层持久化。
 
@@ -255,7 +267,7 @@ type AssistantStreamFrame =
 | `data.kind` 前缀 | 含义 |
 | --- | --- |
 | `protocol/*` | 帧、版本、未知方法、参数 |
-| `session/*` | 会话不存在、忙、恢复失败 |
+| `session/*` | 会话不存在、忙、恢复失败、附件无效 |
 | `model/*` | 模型/effort 不可用 |
 | `approval/*` | 请求过期、已决、未知 |
 | `question/*` | 同上 |
@@ -271,10 +283,21 @@ type AssistantStreamFrame =
 
 ## 附件
 
-- 图片：`ContentBlock` 的 image 块，`data` 为 base64，`mimeType` 限定 png/jpeg/webp/gif。
-- 文件：路径引用（Host 与 UI 同机）或 base64 小文件；路径由 UI 显式选择/拖放，Host 侧再次校验存在性与可读性。
-- 单帧上限：base64 后不超过 `8 MiB`；总附件大小由 Host 的 attachment 服务再校验。
-- 不在日志中打印附件内容或路径中的敏感片段。
+图片随 `session/prompt` 的 content 块发送；Host 在追加 user 事件前把字节提交为持久附件，会话日志只保存引用与元数据。
+
+```json
+{ "type": "image", "mimeType": "image/png", "data": "<canonical base64>", "name": "shot.png" }
+```
+
+- `type` 只有 `text` 与 `image`，未知类型返回 `protocol/invalid-params`；`text` 最多 1 MiB、允许空串，但整条消息至少要有一个非空 text 块或一个 image 块；单条消息最多 64 个块。
+- `mimeType` 必须属于握手公布的媒体类型；`data` 必须是 canonical base64（无空白、无 URL-safe 变体、填充只在末尾），长度不超过 `maxBase64Bytes`。
+- 图片按顺序提交：单图编码字节数 ≤ `maxImageBytes`，全部图片编码字节数 ≤ `maxMessageImageBytes`，数量 ≤ `maxImagesPerMessage`；任何一项超限返回 `session/attachment-invalid`，不产生部分写入。
+- `name` 可选，最多 128 个字符，不含路径分隔符和控制字符；只作显示名，不解释为路径。
+- Host 先校验当前路由的输入模态（`inputModalities` 未声明视为未知并放行，声明为 text-only 时拒绝），再把图片交给 DSH 附件服务提交；提交失败返回 `session/attachment-invalid`，消息不含 base64、存储路径或原始异常。
+- 会话日志与投影只出现 `attachment.attachmentId / mediaType / bytes / width / height / name?`；UI 不通过历史读取 base64，也不把附件写入本地草稿文件。
+- 帧预算：单帧仍受 `maxFrameBytes` 约束，图片以 base64 计数；UI 发送前按协商上限校验并保留草稿，Host 再按部署限制收紧。
+- 文件引用（`@path`）走 text 块的路径引用，不新增协议方法；Host 与 UI 同机，路径由 UI 显式选择。
+- 不在日志、崩溃报告或错误文本中打印图片字节、base64 或文件路径中的敏感片段。
 
 ## 背压
 

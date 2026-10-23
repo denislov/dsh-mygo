@@ -221,7 +221,7 @@ func TestMygoInitializeCreatesSessionAfterValidHandshake(t *testing.T) {
 			if test.valid {
 				params := client.params[0].(map[string]any)
 				capabilities := params["capabilities"].([]string)
-				if strings.Join(capabilities, ",") != "session.cancel,approval,question,session.assistant-stream,session.history,session.history-window,session.release,session.resync,session.assistant-stream-baseline,session.rename,session.archive,model.selection,settings.configuration,session.permissions" {
+				if strings.Join(capabilities, ",") != "session.cancel,approval,question,session.assistant-stream,session.history,session.history-window,session.release,session.resync,session.assistant-stream-baseline,session.rename,session.archive,model.selection,settings.configuration,session.permissions,attachments" {
 					t.Fatal("unimplemented capabilities advertised")
 				}
 			}

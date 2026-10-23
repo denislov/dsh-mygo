@@ -46,7 +46,9 @@ const ctx = {
                 if (!work.approval && !work.question && !work.streaming) event('tool/call', diffFixture
                   ? { callId, name: 'edit', arguments: '{"file_path":"demo.txt","old_string":"before","new_string":"after"}' }
                   : { callId, name: 'read_file', arguments: '{"path":"README.md"}' })
-                let reply = work.streaming ? work.markdown ? markdownReply : 'Live prefix complete' : work.question ? approvalOutcome : work.approval ? approvalOutcome === 'allowed-once' ? 'Approved write' : 'Denied write' : `Echo: ${message.content.map((block) => block.text).join('\n')}`
+                const text = message.content.filter((block) => block.type === 'text').map((block) => block.text).join('\n')
+                const images = message.content.filter((block) => block.type === 'image').length
+                let reply = work.streaming ? work.markdown ? markdownReply : 'Live prefix complete' : work.question ? approvalOutcome : work.approval ? approvalOutcome === 'allowed-once' ? 'Approved write' : 'Denied write' : `Echo: ${text || '(no text)'}${images ? ` [${images} image${images === 1 ? '' : 's'}]` : ''}`
                 const selected = agentScope.selection?.current ?? agentOptions
                 if (selected?.model === 'route-probe') reply = `Selected ${selected.provider}/${selected.model}/${selected.reasoningEffort ?? 'default'}`
                 if (work.streaming) {
@@ -111,6 +113,14 @@ const ctx = {
       setup?.(agentScope, agent)
       return { agent, async dispose() { agent.cancel(); await agent.whenIdle() } }
     },
+  },
+}
+ctx.attachments = {
+  imageLimits: { mediaTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'], maxImageBytes: 6 * 1024 * 1024, maxImagesPerMessage: 8, maxMessageImageBytes: 6 * 1024 * 1024, maxImagePixels: 64000000, maxImageDimension: 8192 },
+  async admitPromptContent(parts) {
+    return parts.map((part) => part.type === 'image'
+      ? { type: 'image', attachment: { attachmentId: 'sha256:fake-image', mediaType: part.mediaType, bytes: Buffer.from(part.data, 'base64').length, width: 1, height: 1, ...(part.name === undefined ? {} : { name: part.name }) } }
+      : part)
   },
 }
 if (process.argv.includes('--sessions')) {

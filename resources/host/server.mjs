@@ -10,6 +10,7 @@ import { Configuration } from './configuration.mjs'
 import { SessionManagement } from './sessions.mjs'
 import { AssistantStreamBaseline } from './stream-baseline.mjs'
 import { Permissions } from './permissions.mjs'
+import { admitPrompt, assertImageRoute, imagePolicy, promptContent } from './attachments.mjs'
 
 const identity = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 if (!Number.isSafeInteger(identity.dshMygo?.protocolVersion)) {
@@ -50,6 +51,7 @@ export class MygoServer {
     this.configuration = new Configuration(this, credentialRef)
     this.management = new SessionManagement(this)
     this.permissions = new Permissions(this, Math.floor(maxFrameBytes / 2))
+    this.attachmentsPolicy = undefined
     this.initialized = false
     this.stopping = false
     this.disposers = [
@@ -183,15 +185,24 @@ export class MygoServer {
       if (params.capabilities.includes('session.resync')) this.capabilities.push('session.resync')
     }
     if (params.capabilities.includes('session.assistant-stream-baseline') && this.capabilities.includes('session.resync') && this.capabilities.includes('session.assistant-stream')) this.capabilities.push('session.assistant-stream-baseline')
+    if (params.capabilities.includes('attachments')) {
+      const policy = imagePolicy(this.ctx.get('attachments'))
+      if (policy !== undefined && typeof this.ctx.get('llm')?.resolveModelInfo === 'function') {
+        this.capabilities.push('attachments')
+        this.attachmentsPolicy = policy
+      }
+    }
     if (['stat', 'open', 'flush'].every((method) => typeof persistence?.[method] === 'function')) {
       if (params.capabilities.includes('session.rename') && typeof this.ctx.get('sessionTitle')?.rename === 'function') this.capabilities.push('session.rename')
       const registry = this.ctx.get('workspaceRegistry')
       if (params.capabilities.includes('session.archive') && typeof registry?.archiveSession === 'function' && typeof registry?.unarchiveSession === 'function') this.capabilities.push('session.archive')
     }
-    return {
+    const result = {
       server: { name: 'dsh-mygo-host', version: releaseVersion, dshVersion: this.dshVersion },
       protocolVersion, capabilities: this.capabilities,
     }
+    if (this.attachmentsPolicy !== undefined) result.attachments = { image: this.attachmentsPolicy }
+    return result
   }
 
   async create(params) {
@@ -282,25 +293,27 @@ export class MygoServer {
     return task
   }
 
-  prompt(params) {
+  async prompt(params) {
     const sessionId = text(params.sessionId, 'sessionId', 128)
     if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) throw fault('protocol/invalid-params', 'Invalid sessionId', -32602)
     const record = this.sessions.get(sessionId)
     if (!record?.handle) throw fault('session/not-found', 'Session is not owned by this host')
     if (this.ctx.get('workspaceRegistry')?.archivedSessionIds.includes(sessionId)) throw fault('session/archived', 'Unarchive the session before sending a prompt')
-    if (!Array.isArray(params.content) || params.content.length === 0 || params.content.length > 64) throw fault('protocol/invalid-params', 'Invalid content', -32602)
-    const content = params.content.map((block) => {
-      if (block === null || typeof block !== 'object' || Array.isArray(block) || block.type !== 'text') throw fault('protocol/invalid-params', 'Only text content is supported', -32602)
-      return { type: 'text', text: text(block.text, 'content text', 1024 * 1024) }
-    })
+    const { parts, hasImage } = promptContent(params.content, this.attachmentsPolicy)
     if (record.busy || record.modelUpdating || record.metadataUpdating || record.handle.agent.status !== 'idle') throw fault('session/busy', 'Session is running')
     record.busy = true
     try {
+      let content = parts
+      if (hasImage) {
+        await assertImageRoute(this.ctx, record.route)
+        content = await admitPrompt(this.ctx, parts)
+      }
       const message = this.createUserMessage({ content, source: { kind: 'user' } })
       record.handle.agent.followup(message)
       return { messageId: message.id }
-    } catch {
+    } catch (error) {
       record.busy = false
+      if (typeof error?.kind === 'string') throw error
       throw fault('session/prompt-failed', 'Could not deliver the prompt')
     }
   }

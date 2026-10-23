@@ -17,6 +17,11 @@ func TestDecodeInitialize(t *testing.T) {
 		{"sdk response", `{"serverInfo":{"name":"sdk"}}`, false},
 		{"null", `null`, false},
 		{"invalid capability", `{"protocolVersion":1,"server":{"name":"host","version":"0.1.0","dshVersion":"0.2.1-rc.2"},"capabilities":[1]}`, false},
+		{"attachments", `{"protocolVersion":1,"server":{"name":"dsh-mygo-host","version":"0.1.0","dshVersion":"0.2.1-rc.2"},"capabilities":["attachments"],"attachments":{"image":{"mediaTypes":["image/png","image/jpeg"],"maxBase64Bytes":8388608,"maxImageBytes":6291456,"maxImagesPerMessage":8,"maxMessageImageBytes":6291456,"maxImagePixels":64000000,"maxImageDimension":8192}}}`, true},
+		{"attachment without policy", `{"protocolVersion":1,"server":{"name":"dsh-mygo-host","version":"0.1.0","dshVersion":"0.2.1-rc.2"},"capabilities":["attachments"]}`, false},
+		{"policy without capability", `{"protocolVersion":1,"server":{"name":"dsh-mygo-host","version":"0.1.0","dshVersion":"0.2.1-rc.2"},"capabilities":[],"attachments":{"image":{"mediaTypes":["image/png"],"maxBase64Bytes":8388608,"maxImageBytes":6291456,"maxImagesPerMessage":8,"maxMessageImageBytes":6291456,"maxImagePixels":64000000,"maxImageDimension":8192}}}`, false},
+		{"unknown attachment type", `{"protocolVersion":1,"server":{"name":"dsh-mygo-host","version":"0.1.0","dshVersion":"0.2.1-rc.2"},"capabilities":["attachments"],"attachments":{"image":{"mediaTypes":["image/bmp"],"maxBase64Bytes":8388608,"maxImageBytes":6291456,"maxImagesPerMessage":8,"maxMessageImageBytes":6291456,"maxImagePixels":64000000,"maxImageDimension":8192}}}`, false},
+		{"implausible attachment limit", `{"protocolVersion":1,"server":{"name":"dsh-mygo-host","version":"0.1.0","dshVersion":"0.2.1-rc.2"},"capabilities":["attachments"],"attachments":{"image":{"mediaTypes":["image/png"],"maxBase64Bytes":8388608,"maxImageBytes":0,"maxImagesPerMessage":8,"maxMessageImageBytes":6291456,"maxImagePixels":64000000,"maxImageDimension":8192}}}`, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := DecodeInitialize(json.RawMessage(test.wire))

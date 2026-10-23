@@ -73,6 +73,21 @@ test('model requests validate ids, route fields and idle ownership', async () =>
   await server.shutdown()
 })
 
+test('model catalog exposes sanitized input modalities', async () => {
+  const { ctx, server, session } = await runtime()
+  ctx.llm.resolveModelInfo = async () => ({ reasoning: { efforts: [] }, inputModalities: ['text', 'image', 'image'] })
+  const catalog = await server.handle('model/list', { sessionId: session.id })
+  assert.deepEqual(catalog.models[0].inputModalities, ['text', 'image'])
+  ctx.llm.resolveModelInfo = async () => ({ reasoning: { efforts: [] }, inputModalities: ['video'] })
+  const invalid = await server.handle('model/list', { sessionId: session.id })
+  assert.equal(invalid.models[0].available, false)
+  assert.equal(invalid.models[0].inputModalities, undefined)
+  ctx.llm.resolveModelInfo = async () => ({ reasoning: { efforts: [] } })
+  const unknown = await server.handle('model/list', { sessionId: session.id })
+  assert.equal(unknown.models[0].inputModalities, undefined)
+  await server.shutdown()
+})
+
 test('catalog failures are explicit and bounded without exposing adapter errors', async () => {
   const { ctx, server, session } = await runtime()
   ctx.llm.listModels = async () => { throw new Error('private-token') }

@@ -75,6 +75,11 @@ export class ModelSettings {
             if (efforts.length > 32) throw new Error('Too many efforts')
             model.efforts = efforts.map((effort) => ({ id: label(effort.id), name: label(effort.name) }))
             if (new Set(model.efforts.map((effort) => effort.id)).size !== model.efforts.length) throw new Error('Duplicate effort')
+            if (metadata.inputModalities !== undefined) {
+              const modalities = metadata.inputModalities
+              if (!Array.isArray(modalities) || modalities.length > 8 || modalities.some((value) => !['text', 'image'].includes(value))) throw new Error('Invalid model modalities')
+              model.inputModalities = [...new Set(modalities)]
+            }
           } catch {
             if (signal.aborted) throw new Error('Cancelled catalog')
             model.efforts = []
