@@ -81,6 +81,14 @@ Go channel 与 Node transport 共用非法帧 fixture。`resources/host/tests/pr
 
 `testdata/fake-sdk-host.mjs` 是最小 SDK 协议 host，用于显式回归模式。fake host 只验证 UI/协议适配，不验证真实模型行为。
 
+## Host 进程回收
+
+```sh
+go test ./internal/host -run 'TestStopKillsProcessTree|TestHostExitKillsProcessTree' -v
+```
+
+Windows 上，helper Host 在收到指令后再派生一个长期运行的 helper 子进程；测试分别验证 Stop 杀死 Host、Host 自行退出两种路径都会让 Job Object 回收子进程。非 Windows 上这两个测试不编译，进程组回收由 POSIX 路径覆盖。
+
 ## Host 集成
 
 真实 Loader 测试使用临时 `DSH_HOME`，不会写入用户数据：

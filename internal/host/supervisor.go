@@ -51,6 +51,8 @@ type Supervisor struct {
 
 	stopOnce sync.Once
 	stopErr  error
+
+	job *processJob
 }
 
 // Start starts the host. It returns after the process is spawned; protocol
@@ -79,8 +81,27 @@ func Start(ctx context.Context, config Config) (*Supervisor, error) {
 	if err != nil {
 		return nil, fmt.Errorf("host: stderr pipe: %w", err)
 	}
+	closePipes := func() {
+		_ = stdin.Close()
+		_ = stdout.Close()
+		_ = stderr.Close()
+	}
+	jobs, err := newProcessJob()
+	if err != nil {
+		closePipes()
+		return nil, err
+	}
 	if err := cmd.Start(); err != nil {
+		jobs.close()
+		closePipes()
 		return nil, fmt.Errorf("host: start %q: %w", config.Command, err)
+	}
+	if err := jobs.assign(cmd.Process); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		jobs.close()
+		closePipes()
+		return nil, err
 	}
 
 	supervisor := &Supervisor{
@@ -90,10 +111,14 @@ func Start(ctx context.Context, config Config) (*Supervisor, error) {
 		stdout: stdout,
 		stderr: stderr,
 		done:   make(chan struct{}),
+		job:    jobs,
 	}
 	go supervisor.readStderr()
 	go func() {
 		supervisor.waitErr = cmd.Wait()
+		// The host is gone; close the job so any descendants it left behind
+		// cannot outlive this supervisor.
+		supervisor.job.close()
 		close(supervisor.done)
 	}()
 	go func() {
@@ -145,6 +170,9 @@ func (s *Supervisor) StderrTail() string {
 // process and waits up to postKillWait for it to disappear. It is idempotent.
 func (s *Supervisor) Stop(ctx context.Context) error {
 	s.stopOnce.Do(func() {
+		// Closing the job is the final guarantee that neither the host nor any
+		// plugin process survives this supervisor.
+		defer s.job.close()
 		_ = s.stdin.Close()
 		select {
 		case <-s.done:
@@ -157,6 +185,7 @@ func (s *Supervisor) Stop(ctx context.Context) error {
 		select {
 		case <-s.done:
 		case <-timer.C:
+			s.job.close()
 			s.stopErr = errors.New("host: process did not exit after kill")
 		}
 	})

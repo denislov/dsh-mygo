@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -23,11 +24,22 @@ func TestMain(m *testing.M) {
 func TestHelperProcess(t *testing.T) {}
 
 func helperProcess() {
+	if os.Getenv("GO_WANT_JOB_GRANDCHILD") == "1" {
+		select {}
+	}
 	fmt.Fprintln(os.Stderr, "helper-ready")
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch line {
+		case "spawn-child":
+			child := exec.Command(os.Args[0], "-test.run=TestHelperProcess")
+			child.Env = append(os.Environ(), "GO_WANT_HELPER_PROCESS=1", "GO_WANT_JOB_GRANDCHILD=1")
+			if err := child.Start(); err != nil {
+				fmt.Fprintf(os.Stderr, "spawn-child: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("child=%d\n", child.Process.Pid)
 		case "kill":
 			select {}
 		case "exit":

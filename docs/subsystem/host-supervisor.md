@@ -18,6 +18,7 @@
 - `ResolveLaunch`：入口按 `-host-command` 覆盖、`-dsh-dir` source checkout、PATH 上的 `dsh` 依次解析；`-dsh-home` 以大小写不敏感的方式替换 `DSH_HOME`。发布版优先 `resources/` 下的私有入口。
 - `Start`：建立 stdin/stdout/stderr 管道，stderr 保留最后 64 KiB；调用方通过 `Stdin` / `Stdout` 接 `ChannelClient`。
 - `Stop`：关闭 stdin，等待优雅退出；超时后杀进程。POSIX 杀进程组，Windows 用 Job Object 回收进程树。
+- Windows Job Object：`Start` 在 spawn 后立即把 Host 加入 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 的 Job；Host 启动的子进程继承 Job。Host 退出、`Stop` 完成或应用崩溃/被强杀时关闭 Job 句柄，内核回收 Host 与插件子进程。Job 创建或分配失败时启动失败，不运行无 Job 的 Host。
 - `App` 在初始化失败、Host 意外退出、协议读循环失败时进入 `Host error`；自定义 channel 不把原始 stderr 放入错误横幅。显式 SDK 回归模式保留有界 stderr 详情。
 
 Host 入口在启动前完成版本校验、`mygo` profile 选择与会话创建；SDK 模式由 `-sdk-protocol -profile sdk` 显式选择。
@@ -103,7 +104,7 @@ Idle → Starting → Initializing → Ready → Stopping → Stopped
 3. 关闭 stdin（EOF 是 Host 的兜底退出信号）。
 4. 等待优雅退出（例如 10 秒）。
 5. 超时则 `SIGTERM`，再超时则 `SIGKILL`。
-6. 在 POSIX 上杀死整个进程组；Windows 使用 Job Object，确保插件子进程一并回收。
+6. 在 POSIX 上杀死整个进程组；Windows 关闭 Job 句柄，确保 Host 与插件子进程一并回收。
 
 ### 崩溃与重启
 
@@ -143,6 +144,7 @@ Idle → Starting → Initializing → Ready → Stopping → Stopped
 | 版本不兼容 | 显示双方版本与修复建议；不继续 |
 | stdout 出现非协议文本 | 视为致命协议错误；关闭连接 |
 | 子进程无法杀死 | 记录 PID 与平台信息；提示重启系统 |
+| Job Object 创建/分配失败 | 启动失败；不静默运行无 Job 的 Host |
 | 磁盘满/权限错误 | 保留 UI；显示可操作错误 |
 
 ## 测试
@@ -150,7 +152,7 @@ Idle → Starting → Initializing → Ready → Stopping → Stopped
 - 用 fake Host 进程验证启动/超时/崩溃/停止状态机。
 - 用真实 Host 验证 kill → Restart → `session/resume` + history 回放 → 继续发送。
 - 用真实 `dsh --profile mygo` 验证 initialize 与 shutdown。
-- Windows 上验证 Job Object 回收；POSIX 上验证进程组回收。
+- Windows 上用 helper 进程验证 Job Object 回收：Stop 杀 Host 后子进程消失；Host 自行退出后子进程也消失（`TestStopKillsProcessTree`、`TestHostExitKillsProcessTree`）。POSIX 上验证进程组回收。
 - 验证 stdout 纯净性：任何日志写入 stdout 都让测试失败。
 - 验证单实例与深链转发。
 

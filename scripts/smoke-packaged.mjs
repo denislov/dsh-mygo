@@ -97,6 +97,7 @@ child.stderr.on('data', (chunk) => {
   output += chunk
 })
 let exited = false
+let hostPid = 0
 child.on('exit', () => {
   exited = true
 })
@@ -109,6 +110,13 @@ try {
   const logPath = join(logs, 'dsh-mygo.log')
   await waitFor(() => existsSync(logPath) && readFileSync(logPath, 'utf8').includes('session ready:'), 30000, 'session-ready application log')
   pass('application log recorded the session')
+  if (exited) {
+    fail('application exited before the process-tree check')
+  } else {
+    hostPid = readHostPid(logPath)
+    if (hostPid) pass(`found the host process (pid ${hostPid})`)
+    else fail('could not read the host pid from the application log')
+  }
 } catch (error) {
   fail(error.message)
   if (output.trim()) console.error(output.trim())
@@ -116,6 +124,14 @@ try {
   if (!exited) {
     child.kill()
     await waitFor(() => exited, 10000, 'app exit').catch(() => {})
+  }
+  if (hostPid) {
+    try {
+      await waitFor(() => !processAlive(hostPid), 10000, 'host exit after app kill')
+      pass('host process tree exited with the app')
+    } catch (error) {
+      fail(error.message)
+    }
   }
   await rm(work, { recursive: true, force: true })
 }
@@ -137,4 +153,22 @@ async function waitFor(check, timeout, label) {
     await new Promise((resolve) => setTimeout(resolve, 200))
   }
   throw new Error(`Timed out waiting for ${label}`)
+}
+
+function readHostPid(logPath) {
+  try {
+    const match = readFileSync(logPath, 'utf8').match(/host started: pid=(\d+)/)
+    return match ? Number(match[1]) : 0
+  } catch {
+    return 0
+  }
+}
+
+function processAlive(pid) {
+  const result = spawnSync(
+    'powershell',
+    ['-NoProfile', '-Command', `Get-Process -Id ${pid} -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id`],
+    { encoding: 'utf8', windowsHide: true },
+  )
+  return result.status === 0 && result.stdout.trim() !== ''
 }

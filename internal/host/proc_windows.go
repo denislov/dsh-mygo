@@ -8,9 +8,9 @@ import (
 	"syscall"
 )
 
-// CREATE_NEW_PROCESS_GROUP gives the child its own console group. A full Job
-// Object teardown belongs to the packaged host supervisor; P0 keeps the
-// process handle only.
+// CREATE_NEW_PROCESS_GROUP gives the child its own console group. The
+// supervisor also assigns the host to a Job Object with kill-on-close, so
+// the host and its descendants cannot outlive the app.
 const createNewProcessGroup = 0x00000200
 
 func configureCommand(cmd *exec.Cmd) {
