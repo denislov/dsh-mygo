@@ -1,6 +1,6 @@
 # 开发进度与路线图
 
-> 代码基线：`1e54022`（2026-10-23 03:06）；决策更新于 2026-10-23。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
+> 代码基线：`ad33d76`（2026-10-23 08:58）；决策更新于 2026-10-23。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
 
 ## 1. 结论
 
@@ -14,11 +14,11 @@
 
 | 项 | 值 |
 | --- | --- |
-| 提交 | 21 个，2026-10-22 15:00 → 2026-10-23 03:06（约 12 小时） |
-| 规模 | 130 个跟踪文件；Go 生产 5.5k 行 / Go 测试 5.4k 行；Node Host 1.1k 行 / 测试 1.0k 行；`docs/` 19 篇约 3.1k 行；runtime lock 约 400 KB |
+| 提交 | 23 个，2026-10-22 15:00 → 2026-10-23 08:58（约 18 小时，含中断） |
+| 规模 | 135 个跟踪文件；Go 生产 6.1k 行 / Go 测试 5.7k 行；Node Host 1.1k 行 / 测试 1.0k 行；`docs/` 19 篇约 3.1k 行；runtime lock 约 400 KB |
 | 版本 | identifier `com.denislov.dshmygo`；app/host `0.1.0`、`protocolVersion 1`、DSH `0.2.1-rc.2`（精确绑定）、MyGo `v0.6.2`、Node >= 24、runtime Node `24.14.0` |
 | 测试 | 173 个 Go Test 入口（231 项通过、24 项因缺少真实 Host 环境跳过）+ 46 个 Node test；覆盖率 app 84%、view 89%、interaction 87%、projection 83%、channel 72%、host 70%、main 8.5% |
-| 构建产物 | `build/windows-amd64/` 重建于 2026-10-23 03:09，含 `resources/host` 与 `resources/runtime`（Node 24.14.0 + DSH 0.2.1-rc.2）；安装器 117.1 MB，应用 11.5 MB |
+| 构建产物 | `build/windows-amd64/` 重建于 2026-10-23 08:55，含 `resources/host` 与 `resources/runtime`（Node 24.14.0 + DSH 0.2.1-rc.2）；安装器 117.1 MB，应用 11.5 MB |
 | 工程基线 | CI 已建立（Windows 全量 + Linux Go）；remote 已建立（私有）；无 tag；版本单点为 `versions.json` |
 
 2026-10-23 本机（Windows）实跑结果：
@@ -36,7 +36,7 @@ node scripts/test-real-host.mjs --runtime       # bundled runtime 真实组合�
 go tool mygo build                              # 含 runtime 的安装器
 ```
 
-真实链路覆盖：composition/lifecycle、approval、question、cancellation、streaming/Markdown、history 重启回放、session switching、model settings、configuration。
+真实链路覆盖：composition/lifecycle、approval、question、cancellation、streaming/Markdown、history 重启回放、session switching、model settings、configuration、host kill/restart 与会话 resume。
 
 未跑：真实付费模型 `TestAgainstMygoRealModel`（需要 key 且产生调用费用）、macOS 全部验证、安装包/签名/更新验证。
 
