@@ -119,6 +119,9 @@ type App struct {
 	statusRevision      uint64
 	hostStatus          string
 	canStreamBaseline   bool
+	canHistoryWindow    bool
+	canRelease          bool
+	retiredSessions     map[string]bool
 	drafts              map[string]string
 	local               *localEditingState
 	quitReady           bool
@@ -157,6 +160,8 @@ func New(options Options) *App {
 	app.model.RefreshSessions = app.RefreshSessions
 	app.model.NewSession = app.NewSession
 	app.model.SwitchSession = app.SwitchSession
+	app.model.History.LoadEarlier = app.LoadEarlierHistory
+	app.model.History.Latest = app.ReturnToLatest
 	app.model.SessionPanel.OpenRename = app.OpenSessionRename
 	app.model.SessionPanel.SaveRename = app.RenameSession
 	app.model.SessionPanel.CancelEdit = app.CancelSessionEdit
@@ -330,6 +335,11 @@ func (a *App) startHost(recover bool, resumeID string) {
 		a.model.SessionID = initialized.sessionID
 		a.model.SessionCWD = initialized.cwd
 		a.model.CanHistory = initialized.canHistory
+		a.canHistoryWindow = initialized.canHistoryWindow
+		a.canRelease = initialized.canRelease
+		a.retiredSessions = nil
+		a.model.History.Available = initialized.canHistoryWindow
+		a.acceptHistoryWindow(initialized.history)
 		a.model.CanResync = initialized.canResync
 		a.model.Permission.Available = initialized.permissions != nil
 		a.model.Permission.Ready = false
@@ -430,6 +440,9 @@ func (a *App) OpenLogs() {
 }
 
 type initializedSession struct {
+	history           historySnapshot
+	canHistoryWindow  bool
+	canRelease        bool
 	sessionID         string
 	nextSeq           uint64
 	cwd               string
@@ -479,7 +492,7 @@ func (a *App) initializeSession(ctx context.Context, client rpcClient, resumeID 
 	result, err := client.Call(ctx, "initialize", map[string]any{
 		"protocolVersion": channel.ProtocolVersion,
 		"client":          map[string]string{"name": "dsh-mygo", "version": channel.ReleaseVersion, "platform": runtime.GOOS, "locale": "zh-CN"},
-		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history", "session.resync", "session.assistant-stream-baseline", "session.rename", "session.archive", "model.selection", "settings.configuration", "session.permissions"},
+		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history", "session.history-window", "session.release", "session.resync", "session.assistant-stream-baseline", "session.rename", "session.archive", "model.selection", "settings.configuration", "session.permissions"},
 	})
 	if err != nil {
 		return initializedSession{}, err
@@ -539,6 +552,8 @@ func (a *App) initializeSession(ctx context.Context, client rpcClient, resumeID 
 	}
 	return initializedSession{
 		sessionID: created.Session.ID, nextSeq: *created.Session.NextSeq, cwd: a.options.CWD,
+		canHistoryWindow:  slices.Contains(initialized.Capabilities, "session.history-window"),
+		canRelease:        slices.Contains(initialized.Capabilities, "session.release"),
 		restoreNotice:     restoreNotice,
 		permissions:       permissions,
 		detail:            initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
@@ -594,7 +609,8 @@ func (a *App) resumeSessionWithRoute(ctx context.Context, client rpcClient, id s
 	if canConfigure && (summary.Provider == "" || summary.Model == "") {
 		return initializedSession{}, errors.New("invalid restored session route")
 	}
-	transcript, nextSeq, err := readSessionHistory(ctx, client, summary.ID, *summary.NextSeq)
+	history, err := readOpenHistory(ctx, client, summary.ID, *summary.NextSeq, slices.Contains(initialized.Capabilities, "session.history-window"))
+	transcript, nextSeq := history.Transcript, history.NextSeq
 	if err != nil {
 		return initializedSession{}, err
 	}
@@ -619,6 +635,9 @@ func (a *App) resumeSessionWithRoute(ctx context.Context, client rpcClient, id s
 	}
 	return initializedSession{
 		sessionID: summary.ID, nextSeq: nextSeq, cwd: cwd, transcript: &transcript,
+		history:           history,
+		canHistoryWindow:  slices.Contains(initialized.Capabilities, "session.history-window"),
+		canRelease:        slices.Contains(initialized.Capabilities, "session.release"),
 		permissions:       permissions,
 		detail:            initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
 		canCancel:         slices.Contains(initialized.Capabilities, "session.cancel"),
@@ -652,7 +671,7 @@ func validSessionID(value string) bool {
 func (a *App) Send(text string) {
 	original := originalSubmittedText(a.model.Draft, text)
 	text = strings.TrimSpace(text)
-	if text == "" || a.shuttingDown.Load() || a.model.LocalState.Closing || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 || a.model.SessionBusy || a.model.SessionPanel.BlocksInput() || a.model.SettingsBusy || a.model.SettingsOpen || a.model.ModelUncertain || a.model.ConfigurationUncertain || a.model.Permission.Uncertain {
+	if text == "" || a.shuttingDown.Load() || a.model.LocalState.Closing || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 || a.model.SessionBusy || a.model.History.Detached || a.model.SessionPanel.BlocksInput() || a.model.SettingsBusy || a.model.SettingsOpen || a.model.ModelUncertain || a.model.ConfigurationUncertain || a.model.Permission.Uncertain {
 		return
 	}
 	if a.model.SessionPanel.Refreshing {
@@ -901,6 +920,12 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 		}
 		a.stream.Commit(notification.Event)
 		a.transcript.Apply(notification.Event)
+		if a.canHistoryWindow {
+			if start, trimmed := a.transcript.TrimRecent(); trimmed {
+				a.model.History.Start = start
+				a.model.PruneTranscriptState(a.transcript.Items())
+			}
+		}
 		a.publishTranscript()
 	case "session.status":
 		var notification struct {

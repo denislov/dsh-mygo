@@ -10,13 +10,14 @@ import (
 )
 
 type SessionSummary struct {
-	ID        string
-	Title     string
-	CWD       string
-	CreatedAt int64
-	UpdatedAt int64
-	Archived  bool
-	Status    string
+	MetadataIncomplete, MetadataCached bool
+	ID                                 string
+	Title                              string
+	CWD                                string
+	CreatedAt                          int64
+	UpdatedAt                          int64
+	Archived                           bool
+	Status                             string
 }
 
 // SessionPanelState groups transient navigation and management form state.
@@ -128,6 +129,11 @@ func sessionPanel(c *mgo.Context, model *Model, modal bool) {
 				status = "archived"
 			}
 			mgo.Text(c, time.UnixMilli(updated).Format("2006-01-02 15:04")+" · "+status).FontSize(11).TextColor(c.Theme().TextMuted)
+			if session.MetadataIncomplete {
+				mgo.Text(c, "Open to rebuild metadata").FontSize(11).TextColor(c.Theme().TextMuted)
+			} else if session.MetadataCached {
+				mgo.Text(c, "Cached metadata").FontSize(11).TextColor(c.Theme().TextMuted)
+			}
 			if session.CWD != "" {
 				mgo.Text(c, session.CWD).FontSize(11).TextColor(c.Theme().TextMuted).SingleLine()
 			}

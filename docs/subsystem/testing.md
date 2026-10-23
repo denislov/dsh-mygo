@@ -118,6 +118,8 @@ node --test resources/host/tests/*.test.mjs
 - `TestAgainstMygoResync`：fake Host 与真实 Host 传输过滤器丢弃持久通知或文本块起始帧，不修改日志；验证同一 Host/会话自动补齐、用户消息唯一、流式提交不重复、草稿保留、后续回合、审批/提问继续。baseline-complete/cancel 在真实模型 adapter 暂停时验证无需新 start 就恢复文本，并续流或取消。`resync_test.go`、`stream_baseline_test.go` 覆盖状态基线、流式续接/重放、分页变化、连续性重试上限、溢出、失败后迟到结果及取消确认屏障；Node 历史与 baseline 测试覆盖同步捕获、固定分页、能力隔离、资源限制和私有块内容排除。
 - `TestAgainstMygoRestart`：完成一个回合后 kill Host，等待恢复对话框，Restart 后 resume 同一会话、回放 transcript 并继续发送。
 - `TestAgainstMygoLocalEditingState`：三个真实 Host 实例共享临时 DSH_HOME 与本机编辑文件，验证两会话草稿、最近会话自动恢复、确认发送后只清除对应草稿，以及历史仍来自 Host。单元测试覆盖无效最近会话回退/显式复制、未确认提交与后续编辑、退出最终保存及失败不关闭。
+- `TestAgainstMygoLargeHistoryAndReleasedSessions`：通过公开 persistence 写入 35001 条合法标题事件并确认物理大小超过 32 MiB；真实 Agent 冷恢复、尾部窗口、更早页、返回最新、连续 12 次新建、释放后恢复/继续回合和第二 Host 的目录检查点/持久尾部。fixture 不读写私有 JSONL 布局，不调用付费模型。
+- 历史窗口单元与 Tester：非法/变化边界、连续 seq、超过旧事件上限、页字节预算、方向/能力/游标绑定、跨页工具配对、去重区间、4096 行/16 MiB 展示缓存和 4 MiB 详情预算、旧窗口禁发、读失败保留草稿、失败释放重试及淘汰控件缓冲。Windows 原生窗口用 25001 条可见消息验证尾页/加载/返回、草稿与宽窄布局。
 - `internal/preferences`：严格 schema/UTF-8/上限、scope 隔离、完整损坏备份、新版本保护、原子替换、OS 文件锁和内容冲突、失败后重试，以及合并保存/不可变快照。Tester 验证原生绑定回调、关闭期间禁用编辑、最小窗口保存错误动作及 Host 恢复对话框的放弃入口。
 - `TestAgainstMygoPermissions`：fake/真实 Host 的初始化快照、会话权限切换、草稿保持、新建默认不变和切回；真实组 kill/Restart 后冷恢复确认权限持久化。`TestAgainstMygoPermissionEnforcement` 以真实 approval-probe 对比 ask 弹出审批与 never 拒绝显式审批，均不执行被拒绝的临时标记写入。
 - 权限单元与 Tester：白名单载荷/实际 knobs/危险确认/seq 冲突/写入屏障/失败刷新/旧 Host 隐藏/独立于模型能力/最小窗口。Windows 原生检查验证未勾选时禁用、勾选后幂等保存、当前权限和宽窄布局；完整选项切换使用 Tester 与真实 Host 验证。

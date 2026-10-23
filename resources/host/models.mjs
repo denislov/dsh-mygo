@@ -35,6 +35,13 @@ export class ModelSettings {
 
   async list(params) {
     const record = this.record(params.sessionId)
+    if (record.metadataUpdating) throw fault('session/busy', 'Session metadata is being updated')
+    record.catalogReaders = (record.catalogReaders ?? 0) + 1
+    try { return await this.readCatalog(params, record) }
+    finally { record.catalogReaders-- }
+  }
+
+  async readCatalog(params, record) {
     const provider = params.provider === undefined ? record.route.provider : label(params.provider)
     const llm = this.server.ctx.llm
     let entries

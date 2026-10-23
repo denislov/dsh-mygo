@@ -36,6 +36,7 @@ const (
 // keeps the transcript and draft outside the view.
 type Model struct {
 	Items                []projection.Item
+	History              HistoryState
 	Draft                string
 	DraftChanged         func()
 	LocalState           LocalStateStatus
@@ -156,6 +157,7 @@ func View(c *mgo.Context, model *Model) {
 			if model.Error != "" && !model.RecoveryOpen {
 				errorBanner(c, model)
 			}
+			historyControls(c, model)
 			transcript(c, model)
 			composer(c, model)
 		})
@@ -237,6 +239,10 @@ func transcript(c *mgo.Context, model *Model) {
 		if len(model.Items) == 0 {
 			theme := c.Theme()
 			mgo.Column(c).Gap(4).Children(func() {
+				if model.History.Start > 0 {
+					mgo.Text(c, "No visible messages in this history window.").FontSize(13)
+					return
+				}
 				mgo.Text(c, "Start a conversation").FontSize(14).Bold()
 				mgo.Text(c, "Enter sends, Shift+Enter adds a line.").FontSize(12).TextColor(theme.TextMuted)
 			})
@@ -337,7 +343,7 @@ func toolCard(c *mgo.Context, model *Model, item projection.Item) {
 func composer(c *mgo.Context, model *Model) {
 	theme := c.Theme()
 	stopped := model.Phase == PhaseStopped || model.Phase == PhaseFailed || model.Phase == PhaseResyncing || model.SessionSwitching || model.RecoveryOpen || model.LocalState.Closing
-	canSend := model.Phase == PhaseIdle && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy && !model.SessionPanel.BlocksInput() && !model.SettingsOpen && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain && !model.Permission.Uncertain && !model.LocalState.Closing
+	canSend := model.Phase == PhaseIdle && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy && !model.History.Detached && !model.SessionPanel.BlocksInput() && !model.SettingsOpen && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain && !model.Permission.Uncertain && !model.LocalState.Closing
 	mgo.Column(c).Padding(12, 20, 16, 20).Gap(8).Children(func() {
 		mgo.TextArea(c.Key("composer-"+model.SessionID), &model.Draft).Lines(1, 8).
 			Label("Message").Placeholder("Message DeepSeek…").AutoFocus().Disabled(stopped).

@@ -18,6 +18,7 @@ export class SessionManagement {
       if (!record?.handle) throw fault('session/not-found', 'Resume the session before renaming it')
       this.server.ctx.get('sessionTitle').rename(record.handle.agent.session, title)
       await this.server.ctx.get('sessionPersistence').flush()
+      await this.server.ctx.get('sessionProjectionCache')?.write?.(record.handle.agent.session).catch(() => {})
       return { session: await this.server.history.describe(record.handle.agent.session.header, record) }
     })
   }

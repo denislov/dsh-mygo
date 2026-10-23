@@ -16,17 +16,19 @@ const maxSessionHistoryBytes = 32 * 1024 * 1024
 const maxSafeInteger = 1<<53 - 1
 
 type sessionSummary struct {
-	ID        string  `json:"id"`
-	Title     string  `json:"title"`
-	CWD       string  `json:"cwd"`
-	Provider  string  `json:"provider"`
-	Model     string  `json:"model"`
-	Effort    string  `json:"effort"`
-	CreatedAt int64   `json:"createdAt"`
-	UpdatedAt int64   `json:"updatedAt"`
-	Status    string  `json:"status"`
-	Archived  bool    `json:"archived"`
-	NextSeq   *uint64 `json:"nextSeq"`
+	MetadataIncomplete bool    `json:"metadataIncomplete"`
+	MetadataCached     bool    `json:"metadataCached"`
+	ID                 string  `json:"id"`
+	Title              string  `json:"title"`
+	CWD                string  `json:"cwd"`
+	Provider           string  `json:"provider"`
+	Model              string  `json:"model"`
+	Effort             string  `json:"effort"`
+	CreatedAt          int64   `json:"createdAt"`
+	UpdatedAt          int64   `json:"updatedAt"`
+	Status             string  `json:"status"`
+	Archived           bool    `json:"archived"`
+	NextSeq            *uint64 `json:"nextSeq"`
 }
 
 func decodeSessionSummary(raw json.RawMessage) (sessionSummary, error) {
@@ -35,6 +37,11 @@ func decodeSessionSummary(raw json.RawMessage) (sessionSummary, error) {
 	invalid := errors.New("Invalid session summary")
 	if json.Unmarshal(raw, &fields) != nil || json.Unmarshal(raw, &summary) != nil {
 		return summary, invalid
+	}
+	for _, key := range []string{"metadataIncomplete", "metadataCached"} {
+		if value, present := fields[key]; present && !bytes.Equal(value, []byte("true")) && !bytes.Equal(value, []byte("false")) {
+			return summary, invalid
+		}
 	}
 	for _, key := range []string{"id", "title", "cwd", "provider", "model", "effort", "createdAt", "updatedAt", "status", "archived"} {
 		if len(fields[key]) == 0 || bytes.Equal(fields[key], []byte("null")) {
@@ -116,10 +123,11 @@ func readSessionList(ctx context.Context, client rpcClient, includeArchived ...b
 }
 
 func (summary sessionSummary) view() view.SessionSummary {
-	return view.SessionSummary{ID: summary.ID, Title: summary.Title, CWD: summary.CWD, CreatedAt: summary.CreatedAt, UpdatedAt: summary.UpdatedAt, Status: summary.Status, Archived: summary.Archived}
+	return view.SessionSummary{ID: summary.ID, Title: summary.Title, CWD: summary.CWD, CreatedAt: summary.CreatedAt, UpdatedAt: summary.UpdatedAt, Status: summary.Status, Archived: summary.Archived, MetadataIncomplete: summary.MetadataIncomplete, MetadataCached: summary.MetadataCached}
 }
 
 type historySnapshot struct {
+	StartSeq       uint64
 	Transcript     projection.Transcript
 	NextSeq        uint64
 	Status         string

@@ -1,6 +1,6 @@
 # 开发进度与路线图
 
-> 统计基线：`9faa9b6`（2026-10-23 13:51）；能力进度包含本次 M2-4a 草稿/最近会话持久化变更，决策更新于 2026-10-23。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
+> 统计基线：`9faa9b6`（2026-10-23 13:51）；能力进度包含 M2-4a 草稿/最近会话与本次 M3-2 大历史/句柄预算变更，更新于 2026-10-24。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
 
 ## 1. 结论
 
@@ -8,7 +8,7 @@
 
 一句话：**能开发、能演示、能在开发机上真实跑；还不能交给普通用户安装使用。**
 
-判断依据：协议与 UI 主链路已经闭环，M0 工程基线、M1 运行时/打包/安装器 smoke、自签名发布构建、手工崩溃恢复、会话管理、缺口恢复、权限 UI 与草稿/最近会话持久化已完成；干净机器验收、大历史、主题/语言/快捷键与 Windows 发布工程仍是主要缺口；macOS 作为后续发布单元。
+判断依据：协议与 UI 主链路已经闭环，M0 工程基线、M1 运行时/打包/安装器 smoke、自签名发布构建、手工崩溃恢复、会话管理、缺口恢复、权限 UI、草稿/最近会话持久化与有界历史窗口/句柄回收已完成；干净机器验收、主题/语言/快捷键与 Windows 发布工程仍是主要缺口；macOS 作为后续发布单元。
 
 ## 2. 事实快照
 
@@ -58,6 +58,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 | 模型与设置 | `model.selection` 目录与 effort、`settings.configuration` 默认模型（revision）、DeepSeek 凭据只写 | `internal/app/settings.go`、`configuration.go`、`TestAgainstMygoConfiguration` |
 | 会话权限 | 独立能力、当前预设和实际 sandbox/approval、危险 bundle 确认、Host 公共服务切换/持久化、失败刷新门禁 | `resources/host/permissions.mjs`、`internal/app/permissions.go`、`internal/view/permissions.go`、`TestAgainstMygoPermissions` |
 | 本机编辑状态 | 按 DSH_HOME/profile 隔离的有界草稿与最近会话、原子保存/冲突检测/损坏备份、确认发送后清除、启动恢复/失败复制与异步退出保存 | `internal/preferences`、`internal/app/local_state.go`、`TestAgainstMygoLocalEditingState` |
+| 大历史与资源回收 | 反向尾页/更早页/返回最新、独立持久目录投影、缓存缺失降级、只读旧窗口和展示缓存上限、非当前句柄回收 | `resources/host/catalog.mjs`、`history.mjs`、`server.mjs`、`internal/app/history_window.go`、`TestAgainstMygoLargeHistoryAndReleasedSessions` |
 | 回归入口 | 旧 SDK 链路保留为显式 `-sdk-protocol -profile sdk` | `main.go`、`testdata/fake-sdk-host.mjs` |
 | 工程基线 | 正式 identifier、版本单点、Windows/Linux CI、构建产物重建 | `versions.json`、`internal/version`、`.github/workflows/ci.yml` |
 | 运行时打包 | bundled Node + DSH 闭包 + 私有 `mygo-host` + 首启 profile seed + manifest 版本校验 | `resources/runtime/`、`scripts/build-runtime.mjs`、`internal/host/profile.go`、`internal/host/launch.go` |
@@ -79,20 +80,20 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 ### 4.2 产品体验缺口（能用，但不像完整桌面客户端）
 
-- **会话管理扩展**：侧栏、标题搜索、重命名/归档/恢复已接通；delete/fork 后置。冷目标重命名会先 resume 并占用 Host 的会话名额（当前最多 8 个）；冷元数据读取需要扫描有界日志，超出 20000 事件/32 MiB 的单会话会使目录查询明确失败，后续需独立投影索引、大历史和句柄释放方案。
+- **会话管理扩展**：侧栏、标题搜索、重命名/归档/恢复已接通；delete/fork 后置。独立目录检查点与退休句柄回收已接入，连续访问不再累积全部 Agent；目录仍限制 1000 条/256 KiB。冷检查点可能落后或缺失，会显示提示并在打开时由日志重建，尚无后台全库索引修复任务。
 - **权限模式扩展**：当前会话展示/切换、危险确认和冷恢复已接通；未来会话默认权限编辑仍后置，UI 不更改部署环境。
 - **UI 偏好扩展**：有界草稿和最近会话已持久化并支持启动恢复；主题、语言、快捷键与侧栏选择仍待接入（窗口尺寸/位置由 MyGo `StateKey` 处理）。
 - **附件与引用**：图片粘贴、文件拖放、`@path` 引用、`/` 命令均未实现；协议里 `attachments` 仍是后续契约。
 - **深度信息**：usage/context/compaction 不展示；`subagent/*` 协议表有定义但 Host 不发送、UI 不投影；plan/todo/goal 未投影。
-- **会话形态**：只支持单活跃会话；运行中会话不能 attach；后台会话的审批/提问不呈现；最多 8 个已拥有会话。
+- **会话形态**：只支持单活跃会话；运行中会话不能 attach；后台会话的审批/提问不呈现。Host 同时拥有上限仍为 8，导航与冷目标管理会自动回收退休句柄；释放后重开使用冷恢复路由。
 - **本地化**：UI 文案硬编码英文（约 75 处 label 引用），握手却固定 `zh-CN`，没有 i18n 层。
 
 ### 4.3 协议与健壮性缺口
 
-- 同步边界：持久事件缺口已自动补齐，但仍全量回放且受 20k 事件/32 MiB 限制；混合设置/模型/元数据写入、非法载荷、溢出或重读预算耗尽时走停止 Host + 手工恢复。
+- 同步边界：协商历史窗口后 resync 只重建尾部，旧展示可再加载；混合设置/模型/元数据写入、非法载荷、溢出或重读预算耗尽时走停止 Host + 手工恢复。旧 Host 的兼容全量回放仍受原预算约束。
 - RPC 请求级取消（`$/cancel`），超时只能丢弃结果，不能撤销请求。
 - 流式 baseline 已有独立能力和有界文本快照；运行中 attach 仍未开放，超出块上限的 attempt 等待新 start 或最终提交。
-- 历史增量向上加载；现在是全量回放，受 32 MiB / 20k 事件 / 1024 页预算限制，大会话可能打不开。
+- 历史窗口与显式加载更早页已接入并突破 UI 全量回放预算；自动滚动触发、按消息/turn 定位仍后置。DSH Agent 冷恢复仍会重放完整日志，不承诺任意大小日志的 Host 内存和首启时延；单条事件的帧/页预算继续生效。
 - `session/queue`、`session/wait`、`session/working-directory/*`、`settings/get|set`、任意命名空间设置。
 - timed/continued 提问（当前 `tool-ask-user` 只有 `mode: legacy` 阻塞模式）。
 - 大附件方案（16 MiB 单帧上限下的分片/路径引用）。
@@ -151,7 +152,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 - 自动 resync（已完成）：持久或流式序列缺口用 live history 固定前缀、状态/流式 baseline 与有界缓冲补齐，不重启 Host；版本化状态防止旧 idle 解锁，恢复流式文本不等待新 start。
 - `$/cancel` 请求级取消与超时分级。
-- 历史增量加载（向上滚动），突破全量回放预算。
+- 历史窗口（基础已完成）：最近尾页、显式更早页、返回最新、目录独立检查点和安全句柄回收；自动滚动加载与定位继续扩展。
 - 运行中会话 attach、多会话后台活动与跨会话审批呈现。
 - 通用 `settings/get|set`（命名空间白名单）、多 provider 凭据、账户登录。
 - timed/continued 提问（依赖 DSH 侧 provider API 放开）。
@@ -171,8 +172,8 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 ## 6. 建议的下一批任务（PR 粒度）
 
-1. **M3-2 大历史与句柄预算**：增量历史加载及独立元数据索引，避免单个超预算会话阻塞整个目录；随后复用 baseline 推进运行中 attach。
-2. **M2-4b UI 偏好界面**：在编辑状态基础上分批加入主题选择、语言与快捷键配置；保留 MyGo 的窗口状态管理。
+1. **M2-4b UI 偏好界面**：在编辑状态基础上分批加入主题选择、语言与快捷键配置；保留 MyGo 的窗口状态管理。
+2. **M2-5 附件与引用**：先收敛图片类型/预算及 Host 输入契约，再做粘贴/拖放与 @path；运行中 attach 和后台会话交互保持 M3 后续单独推进。
 3. **M1-4 干净机器验收**：项目所有者因没有干净 Windows VM，决定本轮跳过并继续 M2；未验收，不标记通过。Windows 发布前重新安排离线首启与证书提示流程检查。
 
 M2-1 会话管理后端已完成：重命名写入 `session/title` 并等待落盘；归档复用独立挂载的 DSH workspace registry，保留日志并支持取消归档。实际检查：`go test ./...`（235 项）、`go vet ./...`、Node Host/脚本回归（55/55）、`node scripts/test-real-host.mjs --runtime`、`git diff --check` 及修改文档的本地链接检查均通过。真实 `TestMygoRealHistoryAfterRestart` 验证标题/归档跨重启保留、取消归档和历史前缀不变；付费模型测试因没有 key 跳过。该批未重建安装器；侧栏与管理 UI 的验证见下述 M2-2。
@@ -189,6 +190,10 @@ M2-4a 草稿与最近会话持久化已完成：本机编辑文件按 DSH_HOME/p
 
 本批实际检查：`CGO_ENABLED=0 go test ./...`（290 项）、`go test -race ./internal/preferences ./internal/app ./internal/view`（193 项）、MyGo vet、Go vet、Node Host/脚本（64/64）、两个 smoke 脚本语法检查、bundled runtime 完整真实组合，以及最终 `TestAgainstMygoLocalEditingState` 的真实 Host 竞态验证均通过。另交叉编译 Linux preferences 测试二进制，未在 Linux 运行；macOS 未验证。本轮未加载 `.env` 或调用付费模型。
 
+M3-2 大历史与句柄预算已完成：独立能力启用反向历史窗口与 session/release，打开/重启/resync 使用最近页；原生控制条可加载更早页和返回最新，跨页工具配对、阅读锚点与草稿保留。展示缓存有行数、预览与详情预算，旧窗口淘汰较新行后禁止发送，返回最新解锁；连续不可见事件使用区间去重。目录读取独立 mygoCatalog 持久检查点，缺失/损坏回退单会话提示并在打开时重建；冷缓存明确标记，不能声称总是最新。导航和后台重命名按退休集合回收句柄，忙碌/读取/交互/写入期间不能释放，失败保留可重试身份。真实测试通过 35001 条且物理大小超过 32 MiB 的日志、连续 12 次新建、释放后恢复/继续回合、第二 Host 的目录和历史恢复；Windows 原生检查通过 25001 条可见消息的宽窄窗口、加载/返回与草稿保留。本批不重建安装器，不跑安装 smoke；干净 VM 按决定继续跳过，不读取 `.env` 或调用付费模型。
+
+本批实际检查：`CGO_ENABLED=0 go test ./...`（297 项）、`go test -race ./internal/app ./internal/view ./internal/projection`（218 项）、MyGo vet、Go vet、Node Host/脚本（70/70）、bundled runtime 完整真实组合均通过。最终补跑大会话与立即重命名重启两项真实 Host 竞态测试，覆盖超过 32 MiB 的 fixture、冷恢复检查点预占和公开后台活动检查；Windows 原生窗口检查及截图复核通过。文档本地链接与 diff 检查通过。安装器仍为先前构建，macOS 未验证。
+
 ## 7. 风险与依赖
 
 | 风险 | 影响 | 缓解 |
@@ -196,7 +201,7 @@ M2-4a 草稿与最近会话持久化已完成：本机编辑文件按 DSH_HOME/p
 | DSH `0.2.1-rc.2` 精确 pin + 精确 peer 依赖 | 上游任何 patch 都可能破坏 Host | 保持握手版本展示；补 conformance 与升级 runbook；DSH stable 后评估放宽版本范围 |
 | 打包复杂度（Node runtime 体积、原生模块 ABI、签名、公证、更新源） | M1/M4 延期，首发不可控 | 先做 Windows 最小可分发包，再补 macOS 与更新；签名已定为自签名，更新源提前确认 |
 | `app.go` / `view.Model` 集中式状态 | 设置、会话、交互交叉越权，回归难定位 | 继续用状态机测试守边界；M2 前拆 controller/子模型 |
-| 资源上限（16 MiB 帧、32 MiB 历史、4 MiB 工具详情、8 会话） | 长会话/大仓库不可用 | M3 增量加载与更细预算；用真实大会话做基准 |
+| 资源上限（16 MiB 帧、窗口展示/详情预算、8 个同时拥有句柄、目录总预算） | 单事件过大或极大目录仍会拒绝；DSH 冷恢复完整日志可能较慢 | 历史窗口与退休句柄回收控制 UI/Agent 累积；大日志真实回归，后续补定位与上游恢复基准 |
 | macOS 零验证 | 不影响 Windows 首发，但 macOS 发布单元有风险 | macOS 发布前接 CI 与真机验收清单 |
 | 无 tag / 三平台矩阵 | 发布不可追溯、平台覆盖不足 | M0 已建立远端与 CI；补 tag 与矩阵 |
 | 单窗口 + 后台交互不可见 | 多会话体验受限 | M3 支持后台审批/提问呈现 |

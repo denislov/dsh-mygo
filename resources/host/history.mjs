@@ -18,6 +18,8 @@ export function sessionSummary(header, record, metadata = record?.metadata ?? {}
     createdAt: header.createdAt, updatedAt: metadata.updatedAt ?? header.createdAt,
     status: record?.handle ? (record.busy ? 'running' : record.handle.agent.status) : 'stored',
     archived: metadata.archived ?? false,
+    ...(metadata.incomplete ? { metadataIncomplete: true } : {}),
+    ...(metadata.cached ? { metadataCached: true } : {}),
     ...(header.parentSession === undefined ? {} : { parentId: header.parentSession }),
     ...(record?.handle ? { nextSeq: record.handle.agent.session.seq } : {}),
   }
@@ -35,6 +37,17 @@ export class SessionHistory {
   async describe(header, record, snapshot) {
     const persistence = this.ctx.get('sessionPersistence')
     if (!persistence) return sessionSummary(header, record)
+    const projections = this.ctx.get('sessionProjections')
+    const cache = this.ctx.get('sessionProjectionCache')
+    if (projections && cache) {
+      const live = record?.handle?.agent.session
+      let block
+      try { block = live ? projections.snapshot(live, ['mygoCatalog']) : cache.cachedSnapshot(header, ['mygoCatalog']) } catch { /* A corrupt derived row must not hide the catalog. */ }
+      const value = block?.values?.mygoCatalog
+      const valid = value && typeof value.title === 'string' && Buffer.byteLength(value.title) <= 1024 && !/[\u0000-\u001f\u007f]/.test(value.title) && Number.isSafeInteger(value.updatedAt) && value.updatedAt >= header.createdAt
+      const archived = this.ctx.get('workspaceRegistry')?.archivedSessionIds.includes(header.id) ?? false
+      return sessionSummary(header, record, { ...(valid ? value : { title: '', updatedAt: header.createdAt, incomplete: true }), cached: !live && !!valid, archived })
+    }
     snapshot ??= await persistence.stat(header.id)
     const cached = this.metadata.get(header.id)
     const seq = record?.handle?.agent.session.seq
@@ -156,39 +169,46 @@ export class SessionHistory {
   async history(params) {
     const id = sessionID(params.sessionId)
     const limit = this.limit(params)
-    if (params.direction !== undefined && params.direction !== 'forward') throw fault('protocol/invalid-params', 'Only forward history is supported', -32602)
+    const backward = params.direction === 'backward'
+    if (params.direction !== undefined && params.direction !== 'forward' && !backward) throw fault('protocol/invalid-params', 'Invalid history direction', -32602)
     const record = this.sessions.get(id)
     if (!record?.handle) throw fault('session/not-found', 'Session is not owned by this host')
     const live = params.live === true
     if (record.modelUpdating || record.metadataUpdating || !live && (record.busy || record.handle.agent.status !== 'idle')) throw fault('session/busy', 'Wait for the session to become idle before reading history')
     const state = params.cursor === undefined ? {
       kind: 'history', id, offset: 0, nextSeq: record.handle.agent.session.seq, live,
+      backward, ...(backward ? { offset: params.beforeSeq ?? record.handle.agent.session.seq } : {}),
       ...(live ? { status: record.busy || record.handle.agent.status !== 'idle' ? 'running' : 'idle', statusRevision: record.statusRevision ?? 0 } : {}),
       ...(params.assistantStream ? { assistantStream: record.assistantStream?.snapshot() ?? { revision: 0 } } : {}),
     } : this.cursor(params.cursor, 'history', id)
+    if (params.beforeSeq !== undefined && (!backward || params.cursor !== undefined || !Number.isSafeInteger(params.beforeSeq) || params.beforeSeq < 0 || params.beforeSeq > state.nextSeq)) throw fault('protocol/invalid-params', 'Invalid history boundary', -32602)
+    if (!!state.backward !== backward) throw fault('session/invalid-cursor', 'History cursor direction does not match')
     if (state.live !== live) throw fault('session/invalid-cursor', 'History cursor mode does not match')
     if ((state.assistantStream !== undefined) !== (params.assistantStream === true)) throw fault('session/invalid-cursor', 'History cursor stream mode does not match')
     const baselineBytes = state.assistantStream ? Buffer.byteLength(JSON.stringify(state.assistantStream)) : 0
     if (baselineBytes > Math.min(128 * 1024, this.maxPageBytes)) throw fault('session/page-too-large', 'Stream baseline exceeds the channel snapshot budget')
     const persistence = this.ctx.get('sessionPersistence')
     let events
+    const start = backward ? Math.max(0, state.offset - limit) : state.offset
+    const length = backward ? state.offset - start : Math.min(limit, state.nextSeq - start)
+    record.historyReaders = (record.historyReaders ?? 0) + 1
     try {
       await persistence.flush()
       const handle = await persistence.open(id, 'read')
       try {
-        events = (await handle.read(state.offset, Math.min(limit, state.nextSeq - state.offset))).events
+        events = (await handle.read(start, length)).events
       } finally { await handle.close() }
     } catch {
       throw fault('session/history-failed', 'Could not read stored history')
-    }
-    const expected = Math.min(limit, state.nextSeq - state.offset)
-    if (events.length !== expected || events.some((event, index) => event.seq !== state.offset + index)) {
+    } finally { record.historyReaders-- }
+    if (events.length !== length || events.some((event, index) => event.seq !== start + index)) {
       throw fault('session/history-failed', 'Stored history does not match the captured sequence boundary')
     }
-    const page = this.page(events, limit, this.maxPageBytes - baselineBytes)
-    const offset = state.offset + page.length
-    const hasMore = offset < state.nextSeq
-    return { events: page, nextSeq: state.nextSeq, hasMore, ...(live ? { status: state.status, statusRevision: state.statusRevision } : {}), ...(state.assistantStream ? { assistantStream: state.assistantStream } : {}), ...(hasMore ? { nextCursor: this.save({ ...state, offset }) } : {}) }
+    const page = this.page(backward ? events.toReversed() : events, limit, this.maxPageBytes - baselineBytes)
+    if (backward) page.reverse()
+    const offset = state.offset + (backward ? -page.length : page.length)
+    const hasMore = backward ? offset > 0 : offset < state.nextSeq
+    return { events: page, ...(backward ? { startSeq: offset } : {}), nextSeq: state.nextSeq, hasMore, ...(live ? { status: state.status, statusRevision: state.statusRevision } : {}), ...(state.assistantStream ? { assistantStream: state.assistantStream } : {}), ...(hasMore ? { nextCursor: this.save({ ...state, offset }) } : {}) }
   }
 
   close() { this.cursors.clear(); this.metadata.clear() }

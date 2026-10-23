@@ -18,7 +18,7 @@
 - 面板提供 provider 目录、模型目录快捷选择、实际使用的 Model ID 和 adapter 声明的 effort；允许手填模型 ID，目录成员身份不充当路由校验。空 effort 表示 provider 默认，切回默认会清除上一请求继承的显式 effort，不硬编码 low/high。
 - 目录使用公开 llm.listProviders/listModels/resolveModelInfo；仅返回 id/name、可用性与 effort 白名单，不返回完整 adapter 配置、endpoint、authorization、凭据引用或原始异常。目录可读不代表 API key 可用，也不承诺模型调用成功。不做付费生成来探测配置。
 - 会话必须由此 Host 拥有且 idle；校验路由期间禁止 prompt、重复模型写入、history/resume。Host 用公开 resolveCallConfig 校验，再向真实 session log 提交 model/selection，通过 Agent setup 中安装的公开 installModelSelection 生效；不直接改 DSH core 或仅改 UI 标签。
-- Apply model 仅影响此已拥有会话的下个回合；本次 App 内切回同一会话保留其已选模型。新建/冷恢复的启动路由由默认模型与显式 flags 决定，不自动从旧 model/selection 改写默认配置。
+- Apply model 仅影响此已拥有会话的下个回合；切回仍被 Host 拥有的会话保留已选模型。句柄释放后的重新打开与 Host 重启均属于冷恢复，启动路由由默认模型与显式 flags 决定，不自动从旧 model/selection 改写默认配置。
 - App 在后台读取/提交，以同一通知队列处理 durable event 和响应，收到匹配会话/路由/idle 的确认且序列已前进后才更新标签。提交失败保留表单、草稿与原标签，并标记结果未确认：即使关闭面板，也禁止发送、切换会话或再次 Apply，必须 Refresh 成功查询 Host 当前路由后才解除，避免超时后的迟到提交导致误用模型。没有选择事件的确认使连接失败，不能伪装成功。
 - 读取目录可 Close/Escape 取消；Apply 期间不能关闭、重复提交、发送或切换会话。审批/提问优先，不与 Settings/工具检视器叠加。元数据与校验各有 5 秒 Host 上限，Go 操作上限 15 秒；退出/过期响应不能回写新会话或失败状态。
 - 目录预算为最多 32 providers、当前 provider 最多 128 models、每模型最多 32 efforts，响应不超过 256 KiB 且不超过配置帧上限的一半；Go 再校验类型、长度、唯一身份和 512 KiB 总输入预算。未知/失败 provider、目录或模型元数据明确提示不可用，不展示底层异常；手动模型仍由 Host 独立校验。

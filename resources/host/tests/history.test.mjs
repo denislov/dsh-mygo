@@ -67,6 +67,141 @@ function runtime(management = false) {
 
 const resume = { sessionId: 'stored-1', provider: 'test', model: 'echo' }
 
+test('backward windows read a large tail, keep the cut and bind direction', async () => {
+  const { server, stored } = runtime()
+  await server.handle('initialize', { ...handshake, capabilities: ['session.history', 'session.history-window'] })
+  const source = stored.get(resume.sessionId)
+  source.events = Array.from({ length: 25001 }, (_, seq) => ({ seq, time: seq, type: 'test/event', data: {} }))
+  await server.handle('session/resume', resume)
+  const first = await server.handle('session/history', { ...resume, direction: 'backward', limit: 2 })
+  assert.equal(first.startSeq, 24999)
+  assert.equal(first.nextSeq, 25001)
+  assert.deepEqual(first.events.map(e => e.seq), [24999, 25000])
+  source.events.push({ seq: 25001, time: 25001, type: 'test/event', data: {} })
+  server.sessions.get(resume.sessionId).handle.agent.session.seq++
+  const second = await server.handle('session/history', { ...resume, direction: 'backward', cursor: first.nextCursor, limit: 2 })
+  assert.equal(second.nextSeq, 25001)
+  assert.deepEqual(second.events.map(e => e.seq), [24997, 24998])
+  const anchored = await server.handle('session/history', { ...resume, direction: 'backward', beforeSeq: 2, limit: 2 })
+  assert.deepEqual(anchored.events.map(e => e.seq), [0, 1])
+  assert.equal(anchored.hasMore, false)
+  await assert.rejects(server.handle('session/history', { ...resume, cursor: first.nextCursor }), { kind: 'session/invalid-cursor' })
+  for (const beforeSeq of [null, -1, 25003, '2', 0.5]) await assert.rejects(server.handle('session/history', { ...resume, direction: 'backward', beforeSeq }), { code: -32602 })
+  server.history.maxPageBytes = Buffer.byteLength(JSON.stringify(source.events.at(-1))) + 3
+  const small = await server.handle('session/history', { ...resume, direction: 'backward', limit: 2 })
+  assert.deepEqual(small.events.map(e => e.seq), [25001])
+  await server.shutdown()
+})
+
+test('release is negotiated, waits for disposal and reserves against concurrent use', async () => {
+  const { server, ctx, stored, handles } = runtime()
+  await server.handle('initialize', { ...handshake, capabilities: ['session.history', 'session.release'] })
+  server.maxSessions = 1
+  for (let index = 0; index < 12; index++) {
+    const id = 'many-' + index
+    stored.set(id, { header: { id, cwd: process.cwd(), createdAt: index }, events: [] })
+    await server.handle('session/resume', { ...resume, sessionId: id })
+    await server.handle('session/release', { sessionId: id })
+    assert.equal(server.sessions.size, 0)
+    assert.ok(stored.has(id))
+  }
+  await server.handle('session/resume', resume)
+  const handle = server.sessions.get(resume.sessionId).handle
+  handle.agent.status = 'running'
+  await assert.rejects(server.handle('session/release', resume), { kind: 'session/busy' })
+  handle.agent.status = 'idle'
+  let finish
+  handle.dispose = () => new Promise(resolve => { finish = resolve })
+  const releasing = server.handle('session/release', resume)
+  await new Promise(resolve => setImmediate(resolve))
+  for (const method of ['session/resume', 'session/history', 'session/prompt']) await assert.rejects(server.handle(method, { ...resume, content: [{ type: 'text', text: 'hello' }] }), { kind: 'session/busy' })
+  assert.equal(server.sessions.size, 1)
+  finish()
+  assert.deepEqual(await releasing, {})
+  assert.deepEqual(await server.handle('session/release', resume), {})
+  assert.ok(handles.every(h => h.disposed || h === handle))
+  await server.shutdown()
+})
+
+test('indexed catalog never opens bodies; missing and stale indexes are explicit hints', async () => {
+  const { server, ctx, reads } = runtime()
+  ctx.sessionProjections = { snapshot: () => ({ values: { mygoCatalog: { title: 'Live', updatedAt: 800 } } }) }
+  ctx.sessionProjectionCache = { cachedSnapshot: () => ({ asOfSeq: 2, values: { mygoCatalog: { title: 'Indexed', updatedAt: 700 } } }) }
+  await server.handle('initialize', handshake)
+  const first = await server.handle('session/list', {})
+  assert.equal(first.sessions[0].title, 'Indexed')
+  assert.equal(reads.length, 0)
+  ctx.sessionProjectionCache.cachedSnapshot = () => undefined
+  const missing = await server.handle('session/list', {})
+  assert.equal(missing.sessions[0].metadataIncomplete, true)
+  assert.equal(reads.length, 0)
+  ctx.sessionProjectionCache.cachedSnapshot = () => { throw new Error('private-token') }
+  assert.equal((await server.handle('session/list', {})).sessions[0].metadataIncomplete, true)
+  await server.shutdown()
+})
+
+test('release failures remain reserved and retryable; readers and questions block release', async () => {
+  const { server, ctx } = runtime()
+  await server.handle('initialize', { ...handshake, capabilities: ['session.history', 'session.release'] })
+  await server.handle('session/resume', resume)
+  const record = server.sessions.get(resume.sessionId)
+  for (const key of ['historyReaders', 'catalogReaders', 'modelUpdating', 'metadataUpdating', 'cancelTask']) {
+    record[key] = true
+    await assert.rejects(server.handle('session/release', resume), { kind: 'session/busy' })
+    record[key] = false
+  }
+  server.questions.pending.set('question', { sessionId: resume.sessionId })
+  await assert.rejects(server.handle('session/release', resume), { kind: 'session/busy' })
+  server.questions.pending.clear()
+  const dispose = record.handle.dispose
+  record.handle.dispose = async () => { throw new Error('private-token') }
+  await assert.rejects(server.handle('session/release', resume), error => error.kind === 'session/release-failed' && !error.message.includes('private-token'))
+  assert.equal(server.sessions.get(resume.sessionId), record)
+  await assert.rejects(server.handle('session/resume', resume), { kind: 'session/busy' })
+  record.handle.dispose = dispose
+  await server.handle('session/release', resume)
+  assert.equal(server.sessions.size, 0)
+  await server.shutdown()
+})
+
+test('cold acquisition stays reserved while its index checkpoint settles', async () => {
+  const { server, ctx } = runtime()
+  await server.handle('initialize', { ...handshake, capabilities: ['session.history', 'session.release'] })
+  let announce, finish
+  const started = new Promise(resolve => { announce = resolve })
+  ctx.sessionProjectionCache = { write: async () => { announce(); await new Promise(resolve => { finish = resolve }) } }
+  const opening = server.handle('session/resume', resume)
+  await started
+  for (const method of ['session/release', 'session/history', 'session/resume']) await assert.rejects(server.handle(method, resume), { kind: 'session/busy' })
+  finish()
+  await opening
+  ctx.sessionProjectionCache.write = async () => {}
+  await server.handle('session/release', resume)
+  await server.shutdown()
+})
+
+test('release refuses idle parents with active jobs or subagents without stopping them', async () => {
+  const { server, ctx } = runtime()
+  await server.handle('initialize', { ...handshake, capabilities: ['session.history', 'session.release'] })
+  await server.handle('session/resume', resume)
+  let drained = false
+  ctx.subagents = { async drainDescendants() { drained = true } }
+  ctx.waterfall = async (method, params, next) => {
+    assert.equal(method, 'workspace/session-activity')
+    assert.equal(params.sessionId, resume.sessionId)
+    assert.deepEqual(await next(), [])
+    return [{ kind: 'job', items: [] }]
+  }
+  await assert.rejects(server.handle('session/release', resume), { kind: 'session/busy' })
+  assert.equal(drained, false)
+  assert.equal(server.sessions.get(resume.sessionId).metadataUpdating, false)
+  assert.equal((await server.handle('session/resume', resume)).session.id, resume.sessionId)
+  ctx.waterfall = async () => []
+  await server.handle('session/release', resume)
+  assert.equal(drained, true)
+  await server.shutdown()
+})
+
 test('stream baseline shares the history cut, stays fixed across pages and requires negotiation', async () => {
   const { server, ctx } = runtime()
   const capabilities = ['session.history', 'session.resync', 'session.assistant-stream', 'session.assistant-stream-baseline']

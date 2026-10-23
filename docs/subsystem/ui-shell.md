@@ -43,7 +43,7 @@ UI 壳层是 MyGo 进程里的原生界面：
 - 检视器只保留一个 hunk 的 editor 状态；关闭、结果更新和淘汰释放旧缓冲。审批/提问优先，暂时隐藏检视器，避免两个 Modal 叠加；交互结束后可以继续查看。
 - 协商 `session.history` 后，header 提供 Sessions，当前会话 ID 与 cwd 显示在独立信息行。侧栏或选择弹窗显示当前 profile 的有界完整摘要列表、时间、状态与目录，支持 Refresh / New conversation / 选择恢复；窄窗口用弹窗降级。旧 Host/SDK 不显示入口。
 - 仅 idle 且无审批/提问时允许导航。刷新可 Close/Escape 取消；历史加载期间显示 Loading、禁用发送与编辑，不能重复新建/切换或关闭弹窗。失败保留当前 transcript/草稿，弹窗中显示可重试的安全错误；审批/提问优先，不叠加会话弹窗与工具检视器。
-- 切换成功后才整体替换 transcript，清除工具展开/检视器、复制反馈、旧 ListState 和临时流式状态；transcript 与 composer 的控件身份包含 session id。每个会话草稿仅在本 App 内存中保存，返回时恢复，重启不恢复草稿。新建使用启动 cwd；新建/冷恢复按 Host 默认或显式 flags 选择模型，冷恢复保持持久 cwd，已拥有会话保持 Host 原路由。
+- 切换成功后才整体替换 transcript，清除工具展开/检视器、复制反馈、旧 ListState 和临时流式状态；transcript 与 composer 的控件身份包含 session id。草稿按会话隔离并通过设备级编辑文件恢复。新建使用启动 cwd；新建/冷恢复按 Host 默认或显式 flags 选择模型，冷恢复保持持久 cwd，仍由 Host 持有的会话保持原路由。
 - Settings 提供当前会话模型面板：provider、模型目录建议、实际 Model ID、effort 与 Refresh/Apply model/Close。只在 idle 无交互、无会话操作时启用，Host 确认后显示新模型；读取可取消，提交期间防重复/禁止关闭，失败保留表单和草稿。面板内容可滚动，底部操作始终可达；header 将模型/Host 版本信息放在独立行，避免窄窗口挤掉 Sessions/Settings。
 - 协商 settings.configuration 后，Settings 可滚动区域增加 Save selection as default、DeepSeek 凭据状态、Password 输入与确认清除；操作范围、存储与默认 flags 优先级以 [设置与凭据](settings-credentials.md) 为准。密码提交/刷新/关闭后清空并更换稳定 key；写入期间不能关闭或重复操作，超时/失败后禁止发送/导航，必须 Refresh 确认。底部 Close/Refresh/Apply 始终可达。
 
@@ -106,6 +106,8 @@ App
 - 每个 turn 一个或多个行；稳定 key 用 turn/seq。
 - 流式 assistant 行固定在一个位置；提交后原位替换。
 - 滚动到底部跟随流式；用户向上滚动后停止自动跟随，显示“回到最新”。
+- 协商 session.history-window 后首屏只读最近事件，Load earlier messages 显式向前加载；用户已经向上阅读时保留锚点，处于最新端时滚动到新页。读取期间禁用重复操作/发送，允许保留编辑；失败在正文上方提供重试，旧内容不清空。Return to latest 重建最新窗口，清除过期检视状态但保留草稿。
+- 展示预算与淘汰由 [会话投影](session-projection.md#历史回放) 定义；浏览缓存淘汰较新行时显示 Viewing earlier history 并禁用发送，返回最新后恢复。历史控制条在最小窗口保持可达；没有可见消息的页提示 No visible messages，不冒充空会话。
 
 ### Markdown
 
@@ -151,7 +153,7 @@ App
 
 ## 会话列表
 
-- 会话列表读取 `session/list` 的固定快照并加载全部有界摘要，遵守 Host 的排序，不自行按 UI 活动时间重排；没有标题时显示短 session id。目录只用于显示，不通过 UI 读取文件或改写持久 cwd。
+- 会话列表读取 `session/list` 的固定快照并加载全部有界摘要，遵守 Host 的排序，不自行按 UI 活动时间重排；没有标题时显示短 session id。冷检查点显示 Cached metadata；缺失或损坏显示 Open to rebuild metadata，不能将回退创建时间称为精确最近活动。目录只用于显示，不通过 UI 读取文件或改写持久 cwd。
 - 启动从设备级编辑状态选择最近会话，握手后尝试恢复并回放历史；没有最近会话或恢复失败时新建，失败保留旧草稿并提示重试或显式复制到当前编辑框。正文来自 Host，分页完成后才允许发送。后台加载摘要不阻塞发送，新导航或发送取消过期列表操作。
 - 列表包含 profile persistence 可见的根/分叉会话，不按工作目录筛选，不展示 subagent；不同目录明确显示。冷会话 stored 不代表未被其他进程占用，恢复失败可重试，不能绕过单写者约束。
 - 支持新建、刷新、恢复与空/错误/加载状态；最多加载 1000 条摘要。Host 数量与资源限制见 [通道协议](channel-protocol.md#host-历史能力)。
@@ -159,6 +161,7 @@ App
 - 窗口宽度至少 820 时显示宽 260 的固定侧栏；窄窗口通过 Sessions 打开弹窗，操作区保持可达。两种布局共用搜索、筛选、表单草稿与按 session id 绑定的列表身份，切换布局不提交表单或丢失输入。标题搜索在有界摘要上做大小写不敏感匹配，不搜索正文；列表按 Host 顺序展示更新时间、状态和目录。
 - UI 分别协商 `session.rename` 与 `session.archive`，入口随能力显示。取消归档通过同一归档方法的 `archived:false`；目录请求在支持归档时携带 `includeArchived:true`，由 Show archived 本地筛选。归档会话的打开按钮禁用，先恢复再打开；重命名表单按目标会话 id 绑定，冷目标在后台 resume 取得 Host 单写者句柄后再 rename，不切换当前正文、模型或草稿。
 - 归档前提供目标操作确认，写入中不能关闭、切换、新建或重复提交。当前会话归档后保留可读正文及草稿，显示归档提示并禁用发送，允许新建、切换或恢复。Host 重启遇到已知归档的当前会话时新建会话，旧草稿留在原 id 下，不自动取消归档；恢复旧会话后取回该草稿。
+- 协商 session.release 时，下一次导航/管理操作前释放非当前和非目标的退休句柄，不把所有访问过的会话长期保活。目标验证失败保留当前 Agent，目标句柄待后续回收；后台重命名同样纳入回收。已释放会话重新打开采用冷恢复路由；紧邻返回、仍被拥有的会话保持原路由。释放不删除日志/草稿，也不改变归档状态。
 - 管理成功以 Host 摘要与新列表的目标身份、标题/归档状态为准；当前会话重命名还需匹配有序到达的 `session/title` 提交及 nextSeq。失败或超时保留表单与草稿，禁止发送、导航和设置写入，要求 Refresh sessions；重命名涉及当前会话时刷新还需回放 history 校准序列。失败、关闭和新操作通过 operation 身份丢弃迟到结果，不让旧响应覆盖新会话。
 
 ## 设置

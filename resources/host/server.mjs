@@ -111,6 +111,9 @@ export class MygoServer {
     if (this.configuration.pending && ['session/create', 'session/resume', 'session/prompt', 'session/rename', 'session/archive', 'model/select', 'permission/select'].includes(method)) throw fault('settings/busy', 'A configuration write is still pending')
     if (['session/resume', 'session/prompt', 'session/rename', 'session/archive', 'model/select'].includes(method) && this.sessions.get(params.sessionId)?.permissionUncertain) throw fault('permission/refresh-required', 'Refresh permissions before continuing')
     switch (method) {
+      case 'session/release':
+        if (!this.capabilities.includes('session.release')) throw fault('protocol/capability-unavailable', 'Session release was not negotiated')
+        return this.release(params)
       case 'permission/get':
       case 'permission/select':
         if (!this.capabilities.includes('session.permissions')) throw fault('protocol/capability-unavailable', 'Session permissions were not negotiated')
@@ -137,6 +140,7 @@ export class MygoServer {
       case 'session/history':
         if (!this.capabilities.includes('session.history')) throw fault('protocol/capability-unavailable', 'Session history was not negotiated')
         if (method === 'session/history') {
+          if (params.direction === 'backward' && !this.capabilities.includes('session.history-window')) throw fault('protocol/invalid-params', 'Backward history was not negotiated', -32602)
           if (params.live !== undefined && typeof params.live !== 'boolean') throw fault('protocol/invalid-params', 'Invalid live history flag', -32602)
           if (params.live && !this.capabilities.includes('session.resync')) throw fault('protocol/capability-unavailable', 'Live history was not negotiated')
           if (params.assistantStream !== undefined && typeof params.assistantStream !== 'boolean') throw fault('protocol/invalid-params', 'Invalid stream baseline flag', -32602)
@@ -175,6 +179,7 @@ export class MygoServer {
     if (params.capabilities.includes('model.selection') && typeof this.installModelSelection === 'function' && ['listProviders', 'listModels', 'resolveModelInfo', 'resolveCallConfig'].every((method) => typeof this.ctx.llm[method] === 'function')) this.capabilities.push('model.selection')
     if (params.capabilities.includes('session.history') && ['list', 'stat', 'open', 'flush'].every((method) => typeof persistence?.[method] === 'function') && typeof this.ctx.agents.resume === 'function') {
       this.capabilities.push('session.history')
+      for (const capability of ['session.history-window', 'session.release']) if (params.capabilities.includes(capability)) this.capabilities.push(capability)
       if (params.capabilities.includes('session.resync')) this.capabilities.push('session.resync')
     }
     if (params.capabilities.includes('session.assistant-stream-baseline') && this.capabilities.includes('session.resync') && this.capabilities.includes('session.assistant-stream')) this.capabilities.push('session.assistant-stream-baseline')
@@ -199,7 +204,7 @@ export class MygoServer {
     const model = text(params.model, 'model')
     const effort = params.effort === undefined ? undefined : text(params.effort, 'effort')
     if (this.sessions.size >= this.maxSessions) throw fault('session/limit', 'Host session limit reached')
-    const record = { handle: undefined, busy: false, calls: new Map(), route: { provider, model, effort: effort ?? '' }, selection: { current: undefined, assembled: undefined } }
+    const record = { handle: undefined, busy: false, metadataUpdating: true, calls: new Map(), route: { provider, model, effort: effort ?? '' }, selection: { current: undefined, assembled: undefined } }
     const sessionId = randomUUID()
     this.sessions.set(sessionId, record)
     try {
@@ -220,7 +225,7 @@ export class MygoServer {
       await record.handle?.dispose().catch(() => {})
       this.sessions.delete(sessionId)
       throw fault('session/create-failed', 'Could not create the session; check the model route and host configuration')
-    }
+    } finally { record.metadataUpdating = false }
   }
 
   async resume(params) {
@@ -230,14 +235,16 @@ export class MygoServer {
     const existing = this.sessions.get(id)
     if (existing) {
       if (!existing.handle || existing.busy || existing.modelUpdating || existing.metadataUpdating || existing.handle.agent.status !== 'idle') throw fault('session/busy', 'Session is running or being restored')
-      return { session: this.ctx.get('sessionTitle') ? await this.history.describe(existing.handle.agent.session.header, existing) : sessionSummary(existing.handle.agent.session.header, existing) }
+      existing.catalogReaders = (existing.catalogReaders ?? 0) + 1
+      try { return { session: this.ctx.get('sessionTitle') ? await this.history.describe(existing.handle.agent.session.header, existing) : sessionSummary(existing.handle.agent.session.header, existing) } }
+      finally { existing.catalogReaders-- }
     }
     params = this.configuration.sessionRoute(params)
     const provider = text(params.provider, 'provider')
     const model = text(params.model, 'model')
     const effort = params.effort === undefined ? undefined : text(params.effort, 'effort')
     if (this.sessions.size >= this.maxSessions) throw fault('session/limit', 'Host session limit reached')
-    const record = { handle: undefined, busy: false, calls: new Map(), route: { provider, model, effort: effort ?? '' }, abort: new AbortController(), selection: { current: undefined, assembled: undefined } }
+    const record = { handle: undefined, busy: false, metadataUpdating: true, calls: new Map(), route: { provider, model, effort: effort ?? '' }, abort: new AbortController(), selection: { current: undefined, assembled: undefined } }
     this.sessions.set(id, record)
     const task = (async () => {
       try {
@@ -250,6 +257,7 @@ export class MygoServer {
         await this.ctx.llm.resolveCallConfig(agentOptions)
         record.abort.signal.throwIfAborted()
         record.handle = await this.ctx.agents.resume({ resumeSessionId: id, agentOptions, signal: record.abort.signal, ...(this.installModelSelection ? { setup: (agentCtx) => { this.installModelSelection(agentCtx, record.selection) } } : {}) })
+        await this.ctx.get('sessionProjectionCache')?.write?.(record.handle.agent.session).catch(() => {})
         if (this.stopping) {
           await record.handle.dispose()
           record.handle = undefined
@@ -268,7 +276,7 @@ export class MygoServer {
         this.sessions.delete(id)
         if (error.kind === 'session/unavailable' || error.kind === 'host/stopping') throw error
         throw fault('session/resume-failed', 'Could not restore the session; check ownership, model route and host configuration')
-      }
+      } finally { record.metadataUpdating = false }
     })()
     record.resumeTask = task
     return task
@@ -295,6 +303,38 @@ export class MygoServer {
       record.busy = false
       throw fault('session/prompt-failed', 'Could not deliver the prompt')
     }
+  }
+
+  release(params) {
+    const id = sessionID(params.sessionId)
+    const record = this.sessions.get(id)
+    if (!record) return {}
+    if (record.releaseTask) return record.releaseTask
+    const interacting = [...this.approvals.pending.values(), ...this.questions.pending.values()].some(entry => entry.sessionId === id)
+    if (!record.handle || record.busy || record.modelUpdating || record.metadataUpdating && !record.releaseFailed || record.cancelTask || record.historyReaders || record.catalogReaders || record.permissionUncertain || record.handle.agent.status !== 'idle' || interacting || this.management.pending.has(id) || this.configuration.pending) throw fault('session/busy', 'Wait for all session activity to finish before releasing it')
+    record.metadataUpdating = true
+    const task = (async () => {
+      try {
+        await this.ctx.get('sessionPersistence').flush()
+        await this.ctx.get('sessionProjectionCache')?.write?.(record.handle.agent.session).catch(() => {})
+        // Parent idle alone does not prove its background jobs/children are
+        // idle. Use the same public activity seam as archive admission.
+        const activity = await this.ctx.waterfall?.('workspace/session-activity', { sessionId: id }, () => Promise.resolve([])) ?? []
+        if (activity.length || record.busy || record.handle.agent.status !== 'idle') throw fault('session/busy', 'Wait for background session activity before releasing it')
+        await this.ctx.get('subagents')?.drainDescendants([record.handle.agent])
+        await record.handle.dispose()
+        record.handle = undefined
+        this.sessions.delete(id)
+        for (const [key, cursor] of this.history.cursors) if (cursor.id === id) this.history.cursors.delete(key)
+        return {}
+      } catch (error) {
+        if (error.kind === 'session/busy') { record.metadataUpdating = false; throw error }
+        record.releaseFailed = true
+        throw fault('session/release-failed', 'Could not release the session; retry release or restart the host')
+      } finally { record.releaseTask = undefined }
+    })()
+    record.releaseTask = task
+    return task
   }
 
   shutdown() {
@@ -367,6 +407,8 @@ export class MygoServer {
     for (const record of records) record.abort?.abort()
     await this.management.drain()
     await this.permissions.drain()
+    await Promise.allSettled(records.map(record => record.releaseTask))
+    await Promise.allSettled(records.filter(record => record.handle).map(record => this.ctx.get('sessionProjectionCache')?.write?.(record.handle.agent.session)))
     this.history.close()
     for (const dispose of this.disposers.splice(0)) dispose()
     await Promise.allSettled(records.map((record) => record.resumeTask))

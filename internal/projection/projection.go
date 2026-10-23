@@ -29,6 +29,7 @@ const (
 // Item is one row the transcript list renders. ID is stable for the lifetime
 // of the row so the list keeps its scroll position and row state.
 type Item struct {
+	Seq         uint64
 	ID          string
 	Kind        Kind
 	Title       string
@@ -74,7 +75,7 @@ func DecodeNotification(params json.RawMessage) (Notification, error) {
 // The zero value is ready to use.
 type Transcript struct {
 	items           []Item
-	seen            map[uint64]struct{}
+	seen            []sequenceRange
 	toolIndex       map[string]int
 	toolDetailBytes int
 }
@@ -86,13 +87,9 @@ func (t *Transcript) Items() []Item { return t.items }
 // Apply projects one committed event. It reports whether the transcript
 // changed, so the caller can skip redrawing for events the UI does not show.
 func (t *Transcript) Apply(event Event) bool {
-	if t.seen == nil {
-		t.seen = make(map[uint64]struct{})
-	}
-	if _, duplicate := t.seen[event.Seq]; duplicate {
+	if !t.markSeen(event.Seq, event.Seq) {
 		return false
 	}
-	t.seen[event.Seq] = struct{}{}
 
 	switch event.Type {
 	case "user/message":
@@ -129,7 +126,7 @@ func (t *Transcript) applyUser(event Event) bool {
 	if text == "" {
 		return false
 	}
-	t.add(Item{ID: eventID(event), Kind: KindUser, Title: "You", Text: text, Truncated: utf8.RuneCountInString(text) > maxMessageRunes})
+	t.add(Item{Seq: event.Seq, ID: eventID(event), Kind: KindUser, Title: "You", Text: text, Truncated: utf8.RuneCountInString(text) > maxMessageRunes})
 	return true
 }
 
@@ -147,7 +144,7 @@ func (t *Transcript) applyAssistant(event Event) bool {
 	if text == "" {
 		return false
 	}
-	item := Item{ID: eventID(event), Kind: KindAssistant, Title: "Assistant", Text: text, Truncated: truncated}
+	item := Item{Seq: event.Seq, ID: eventID(event), Kind: KindAssistant, Title: "Assistant", Text: text, Truncated: truncated}
 	if data.Interrupted {
 		item.Detail = "Interrupted"
 		item.State = "interrupted"
@@ -175,6 +172,7 @@ func (t *Transcript) applyToolCall(event Event) bool {
 	details := &ToolDetails{}
 	details.Arguments, details.ArgumentsTruncated = boundedToolText(data.Arguments, MaxToolDetailBytes)
 	item := Item{
+		Seq:   event.Seq,
 		ID:    id,
 		Kind:  KindTool,
 		Title: "Tool · " + data.Name,
@@ -251,6 +249,7 @@ func (t *Transcript) applyToolResult(event Event) bool {
 		id = eventID(event)
 	}
 	t.add(Item{
+		Seq:     event.Seq,
 		ID:      id,
 		Kind:    KindTool,
 		Title:   "Tool result",
@@ -300,6 +299,7 @@ func (t *Transcript) applyTurnEnd(event Event) bool {
 		}
 	}
 	t.add(Item{
+		Seq:     event.Seq,
 		ID:      eventID(event),
 		Kind:    KindNotice,
 		Title:   "Notice",

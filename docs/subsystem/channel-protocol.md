@@ -12,7 +12,7 @@
 ## 消息集与能力
 
 - UI/Host 发布版本 `0.1.0`、`protocolVersion: 1`、DSH `0.2.1-rc.2` 精确绑定；不匹配时拒绝进入 ready。
-- 请求方法：`initialize`、`session/create`、`session/list`、`session/resume`、`session/rename`、`session/archive`、`session/delete`、`session/fork`、`session/history`、`session/prompt`、`session/cancel`、`session/queue`、`session/wait`、`session/working-directory/get`、`session/working-directory/set`、`model/list`、`model/select`、`settings/get`、`settings/set`、`settings/open-document`、`configuration/get`、`configuration/default-model`、`configuration/credential`、`permission/get`、`permission/select`、`approval/respond`、`question/respond`、`question/cancel`、`shutdown`。
+- 请求方法：`initialize`、`session/create`、`session/list`、`session/resume`、`session/release`、`session/rename`、`session/archive`、`session/delete`、`session/fork`、`session/history`、`session/prompt`、`session/cancel`、`session/queue`、`session/wait`、`session/working-directory/get`、`session/working-directory/set`、`model/list`、`model/select`、`settings/get`、`settings/set`、`settings/open-document`、`configuration/get`、`configuration/default-model`、`configuration/credential`、`permission/get`、`permission/select`、`approval/respond`、`question/respond`、`question/cancel`、`shutdown`。
 - 通知：`session/event`、`session/assistant-stream`、`session/status`、`approval/request`、`approval/closed`、`question/request`、`question/closed`、`subagent/started`、`subagent/finished`、`host/notice`、`host/fatal`。
 - UI 声明 `session.cancel`，Host 仅在双方支持时返回该 capability；未协商时调用取消返回 `protocol/capability-unavailable`。旧 Host 不声明时，UI 不展示 Stop。UI 通过 `session.history` 协商 list/resume/history，并提供原生 Sessions 入口。
 - 文本流式通过 `session.assistant-stream` capability 启用；Host 只转发自己拥有的确切 agent 的公开流式帧。旧 Host/SDK 保持仅提交模式，不自动降级协议。Go 只展示 text，reasoning/工具参数不进入临时行。
@@ -78,11 +78,12 @@
 | `session/list` | `{ cursor?, limit?, includeArchived? }` | `{ sessions: SessionSummary[], nextCursor? }` |
 | `session/create` | `{ cwd, provider, model, effort? }` 或 `{ cwd, useDefaultModel:true }`（后者需 settings.configuration） | `{ session: SessionSummary }` |
 | `session/resume` | `{ sessionId, provider, model, effort? }` 或 `{ sessionId, useDefaultModel:true }`（后者需 settings.configuration） | `{ session: SessionSummary }` |
+| `session/release` | `{sessionId}`（需 `session.release`） | `{}`，释放所属空闲 Agent 和单写者句柄，不删除日志 |
 | `session/rename` | `{ sessionId, title }`（需 `session.rename`） | `{ session: SessionSummary }` |
 | `session/archive` | `{ sessionId, archived? }`（需 `session.archive`；默认 true，false 取消归档） | `{}` |
 | `session/delete` | `{ sessionId }` | `{}`（需要 capability `session.delete`） |
 | `session/fork` | `{ sessionId, messageId? }` | `{ session: SessionSummary }` |
-| `session/history` | `{ sessionId, cursor?, limit?, direction?, live?, assistantStream? }`（live:true 需 `session.resync`；assistantStream:true 需流式 baseline 能力） | `{ events: SessionEvent[], nextCursor?, hasMore, nextSeq, status?, statusRevision?, assistantStream? }` |
+| `session/history` | `{ sessionId, cursor?, limit?, direction?, beforeSeq?, live?, assistantStream? }`（backward 需 `session.history-window`；live:true 需 `session.resync`；assistantStream:true 需流式 baseline 能力） | `{ events: SessionEvent[], startSeq?, nextCursor?, hasMore, nextSeq, status?, statusRevision?, assistantStream? }` |
 | `session/prompt` | `{ sessionId, content: ContentBlock[] }` | `{ messageId }` |
 | `session/cancel` | `{ sessionId }`（需 capability `session.cancel`） | `{ cancelled: boolean, status: "idle" }` |
 | `session/queue` | `{ sessionId, action: "list"|"edit"|"remove"|"steer", ... }` | `{ queue: QueuedInput[] }` |
@@ -90,7 +91,7 @@
 | `session/working-directory/get` | `{ sessionId }` | `{ cwd }` |
 | `session/working-directory/set` | `{ sessionId, path }` | `{ cwd }` |
 
-`SessionSummary` 包含：`id`、`title`、`cwd`、`provider`、`model`、`effort`、`createdAt`、`updatedAt`、`status`、`parentId?`、`archived`；create/resume 结果额外带 `nextSeq`。
+`SessionSummary` 包含：`id`、`title`、`cwd`、`provider`、`model`、`effort`、`createdAt`、`updatedAt`、`status`、`parentId?`、`archived`，以及可选 boolean `metadataCached` / `metadataIncomplete`；create/resume 结果额外带 `nextSeq`。缓存标志只描述目录提示的新鲜度，不构成事件边界或模型路由。
 
 ### 会话管理
 
@@ -105,14 +106,16 @@
 
 - `session.history` 同时保护 list/resume/history/fork；只有公开 sessionPersistence 的 list/stat/open/flush 和 agents.resume 可用时才协商，未协商调用返回 `protocol/capability-unavailable`。
 - list 范围为当前 DSH_HOME/profile 持久化服务可见的根/分叉会话，不按 cwd 筛选；排除 subagent 和 migration-required。仅投影白名单元数据，不转发完整 header、revision、凭据或请求配置。按 updatedAt 倒序、id 升序建立固定快照。
-- 列表标题取日志中最后一个 `session/title`；没有标题时回退 session id 的前 8 个字符。`updatedAt` 取创建时间与已读持久事件时间的最大值；归档本身不伪造会话事件或推进该时间。列表先 flush，再通过公开 persistence read handle 分批读取元数据；每会话预算 20000 事件/32 MiB，超限明确报错，不截断日志或返回半份列表。元数据缓存最多 1000 条，以 persistence revision 和已拥有会话的 seq 校验新鲜度，关闭连接即释放。`archived` 来自 registry，默认列表隐藏归档会话。冷会话 status 为 `stored`，provider/model/effort 为空，不推断历史路由或宣称其未被其他进程占用。已拥有会话补充本连接模型路由、实时 status 和 nextSeq。
+- 目录使用自有 `mygoCatalog` 纯投影，通过公开 sessionProjections/sessionProjectionCache 保存与读取独立检查点；标题折叠最后一个 `session/title`，`updatedAt` 折叠创建/事件时间的最大值。列表不打开正文，活跃会话读取实时投影，冷会话读取身份与版本校验后的检查点并标记 metadataCached。缺失、损坏或不兼容的派生行只回退该会话的短 id/创建时间并标记 metadataIncomplete；打开会话后由 DSH 重放日志并重建检查点，不用一个大会话阻塞完整目录。冷缓存可落后于日志，不宣称精确最近活动；归档取 registry，不伪造事件时间。无投影服务的兼容 Host 可保留有界日志扫描路径。冷会话 status 为 stored，路由字段为空，不宣称其未被其他进程占用。
 - 冷恢复要求显式 provider/model（可选 effort），或协商后的 useDefaultModel:true；继续使用持久 header.cwd（必须仍为已有绝对目录）。通过 agents.resume 获取单写者句柄，恢复/修复由 DSH 完成，不自行补造事件或扫描私有 JSONL。外来进程占用、未知会话、迁移或路由失败不暴露底层错误。subagent 不可恢复。
 - 已拥有且 idle 的 resume 幂等返回原有路由，不重新配置模型；正在恢复/运行返回 session/busy。恢复预占 maxSessions 名额（与 create 共用，默认 8）；失败释放，退出中止待恢复任务并回收迟到句柄。
+- `session.release` 与 `session.history-window` 独立协商，均依赖 session.history。release 幂等接受未拥有的合法 id；所属会话必须 idle、无审批/提问、取消、历史/目录/权限读取、模型/元数据/配置写入和未确认权限。释放期间持有预占，先 flush 与检查点写入，再通过公开 workspace/session-activity 检查后台工作；有活动时返回 busy 并解除预占，不停止子代理或 jobs。无活动才 drain 后代与 await dispose，成功才删除名额和本会话游标。派生检查点写入失败可降级为缓存提示，句柄释放失败保留名额和禁止其它操作的预占，只允许重试 release 或重启。shutdown 等待释放任务，不重复释放已完成句柄。
+- UI 在下次导航或管理操作前释放非当前、非目标的退休句柄，保留紧邻返回的会话；失败打开或后台重命名得到的句柄也进入退休集合。原会话在目标历史完成前保持所属，清理失败保留当前正文/草稿。释放后再次打开属于冷恢复，使用当时默认或显式启动路由，不保证保持已释放 Agent 的内存路由。
 - history 可读本 Host 拥有的会话：普通请求要求 idle；双方协商 `session.resync` 后，`session/history` 可传 `live:true` 读取运行中会话的持久日志。首页同步捕获 `nextSeq`、`status`（包含已接受但未被 driver 领取的 prompt）及 `statusRevision`，游标固定这三个值和 live 模式；后续分页不得混用模式。模型/元数据写入期间仍拒绝读取。每次使用公开 persistence.flush 建立可读屏障，read handle 在成功/失败均关闭；不调用已弃用的同步 session 事件读取方法。运行中的临时流通过可选 `assistantStream` baseline 续接，不把临时帧当历史。
-- 首页捕获 agent.session.seq 为 nextSeq；整次分页固定读取 `[0,nextSeq)`，之后追加不进入此快照。每页严格检查数量和连续 seq，缺失/损坏返回 session/history-failed，不跳过事件。下一实时事件 offset 应由完整历史页的 nextSeq 确认。
-- list/history 的 limit 默认为 64，合法范围 1–256（null 不是默认值）；history direction 仅支持 forward，默认 forward。单页 JSON 数组预算为配置 maxFrameBytes 的一半；可缩小实际页长，单条超限返回 session/page-too-large，不截断原始日志。响应 envelope 留有空间。
+- 首页捕获 agent.session.seq 为 nextSeq；forward 固定读取 `[0,nextSeq)`。backward 从捕获的 nextSeq 或显式 beforeSeq 向前读取，返回升序连续的 `[startSeq,end)`，hasMore 表示 startSeq > 0，下一游标继续更早的页并保持原 nextSeq。beforeSeq 为不超过捕获 nextSeq 的非负安全整数，仅 backward 首页可传，不能与 cursor 混用；它是持久的 append-only offset，可在游标过期后继续读取更早页。实时接续总以 nextSeq 为准，不把 startSeq 或旧页末端作为新事件边界。缺失/损坏返回 session/history-failed，不跳过事件。
+- list/history 的 limit 默认为 64，合法范围 1–256（null 不是默认值）；history 默认 forward，backward 必须协商 session.history-window。单页 JSON 数组预算为配置 maxFrameBytes 的一半；反向页优先保留靠近 end 的事件，并据实际页长推进 startSeq。单条超限返回 session/page-too-large，不截断原始日志；baseline 计入页预算。
 - 游标是连接内不透明 UUID，绑定方法/会话/快照边界；最多保留 32 个，5 分钟失效，重启全部失效；过期/淘汰/伪造返回 session/invalid-cursor，客户端须重新开始分页。列表快照最多 1000 条且 256 KiB，超出返回 session/catalog-too-large，不静默漏项。
-- Go 侧提供原生列表、新建、冷恢复和草稿隔离。切换只在 idle 无交互时开始；历史读取全部在后台，单次操作超时 60 秒。列表输入总预算 1 MiB/1000 条，历史总预算 32 MiB/20000 事件/1024 页；超限或任何页错误不发布半份历史，保留原会话并提示重试。
+- Go 在协商历史窗口时，打开、重启和 resync 仅读取最新最多 64 条事件；显式加载更早页同样最多 64 条，单次输入预算 32 MiB，不限制整份日志的事件数。读取在后台，60 秒超时；失败不发布半份页面。显示缓存与淘汰规则见 [会话投影](session-projection.md#历史回放)。列表仍限制 1 MiB/1000 条输入；旧 Host 的 forward 完整回放保留 32 MiB/20000 事件/1024 页预算。
 - Go 校验摘要字段、类型、字符串长度与安全整数；历史页需明确 events/hasMore/nextSeq，逐条验证 seq/time/type/data，禁止缺口、边界变化、重复游标、空页停滞与多余末页游标。未知事件可通过序列校验，但由投影忽略。
 - 目标会话加载期间的 durable/status/交互通知有界缓冲（1024 条/8 MiB），不从零散临时帧猜测历史或 baseline；运行中的临时流以 Host 同步快照续接。成功切换后按原顺序从历史 nextSeq 衔接，重复 durable 事件丢弃。溢出、实时缺口或无法安全处理的并发会话活动触发 resync；resync 失败才停止 Host，不猜测或静默丢失真相。
 
@@ -209,7 +212,7 @@ type AssistantStreamFrame =
   1. 标记该 session 为 `resyncing`，暂停发送；
   2. 调用 `session/history` 拉取缺口范围并校验边界；
   3. 合并后继续消费实时事件；失败则停止连接并提示重启。
-- `session.resync` 依赖 `session.history`；旧 Host 未协商时保留手工重启恢复，不发送 live 请求。自动补齐期间保持当前投影、草稿和交互队列，暂停发送/导航/设置，隐藏交互弹窗，后台从 seq 0 回放固定前缀；后续 durable/status/stream/交互通知及未完成取消的 UI 确认在同一有界队列中按接收顺序保留（1024 项/8 MiB）。未知会话通知不混入当前会话。
+- `session.resync` 依赖 `session.history`；旧 Host 未协商时保留手工重启恢复，不发送 live 请求。自动补齐期间保持当前投影、草稿和交互队列，暂停发送/导航/设置，隐藏交互弹窗；协商历史窗口后重建尾部，否则从 seq 0 回放固定前缀。后续 durable/status/stream/交互通知及未完成取消的 UI 确认在同一有界队列中按接收顺序保留（1024 项/8 MiB）。未知会话通知不混入当前会话。
 - 全部历史页成功且缓冲持久事件能够连续衔接后，整体替换投影并回放通知；重复 durable 事件丢弃，状态仅接受更新的 revision，旧 RPC 确认不能覆盖最新 Host 状态。新缺口使客户端重新捕获快照，最多 3 次，共用 60 秒预算；非法页/通知、缓冲溢出或预算耗尽停止 Host 并显示恢复。模型/配置/会话元数据写入交叉时走失败恢复，不冒充已撤销写入。
 - 临时流在补齐开始时清除，协商 baseline 后随快照整体恢复，并从快照 revision/nextIndex 衔接缓冲；未协商时缺少完整 start 就等待下一 start 或持久提交。已被快照包含的 assistant 提交不能因迟到 end/临时帧重新显示第二份答案；最终 idle 不保留临时行。
 - 禁止把不连续的事件拼成“当前状态”。

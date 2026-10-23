@@ -25,7 +25,7 @@
 
 - synthetic user context（`source.kind != "user"`）、system/developer 消息、reasoning、`assistant/attempt`、请求元数据不进入 transcript。
 - 每个事件的 `seq` 去重；工具结果先到时保留稳定占位，之后仅按确切 callId 补齐，不按工具名/位置猜测。工具行身份始终是 `tool:<callId>`，补齐不覆盖已记录结果与错误状态。
-- 自定义 channel 的 `session/create.session.nextSeq` 提供实时事件起点；打开旧会话时以完整 history 的 nextSeq 为起点。App 校验外层 `seq` 与 `event.seq` 一致，重复事件忽略；协商 `session.resync` 后实时缺口触发后台补齐，失败才停止 Host，旧 Host 保留手工重启恢复路径。
+- 自定义 channel 的 `session/create.session.nextSeq` 提供实时事件起点；打开旧会话时以已验证历史快照的 nextSeq 为起点。展示可以只是日志尾部，不能以显示行数推断事件边界。App 校验外层 `seq` 与 `event.seq` 一致，重复事件忽略；协商 `session.resync` 后实时缺口触发后台补齐，失败才停止 Host，旧 Host 保留手工重启恢复路径。
 - 旧 SDK 回归模式仍消费 `session.event`；两种 envelope 共用相同提交事件投影，UI 不生成或持久化会话历史。
 - Stop 不直接修改 transcript；DSH 提交的 `turn/end.reason.kind == "aborted"` 投影为取消 notice。若取消发生在回合完成之后，按实际提交结果展示，不补造取消行。取消后的同一 session 继续从原有 `nextSeq` 接收下一回合。
 - `approval/request` / `approval/closed` 是连接内临时交互，由 `internal/interaction` 管理，不进入 transcript。审批结果只通过 Host 提交的工具结果体现；弹窗展示原始关联参数，不使用下述截断后的工具行。idle、失败和退出清理临时队列，不伪造审批历史。
@@ -156,7 +156,7 @@ idle
 
 Host 通过 list/resume/history 提供历史，具体参数、快照边界和资源预算以 [通道协议](channel-protocol.md#host-历史能力) 为准。回放使用现有 Transcript.Apply，UI 不持久化副本。
 
-会话列表/弹窗显式打开旧会话或新建。后台先校验 resume/create 的确切身份、idle 或运行中状态、模型路由与 nextSeq，再从 seq 0 分页构建新的 Transcript；所有页成功并确认固定边界后，在主线程整体替换旧投影。加载失败不保留或展示部分新历史，旧会话/草稿保持原样。
+会话列表/弹窗显式打开旧会话或新建。后台先校验 resume/create 的确切身份、idle 或运行中状态、模型路由与 nextSeq，再构建新的 Transcript。协商 session.history-window 时读取最近的有界事件窗口；旧 Host 从 seq 0 分页。完整验证请求范围和固定边界后才在主线程替换，失败保持旧会话/草稿。
 
 加载目标会话期间缓冲其 durable/status/交互通知，成功后以历史 nextSeq 为边界有序消费，丢弃重复事件；运行中会话通过 baseline 续接临时流。回放完成前不允许发送新 prompt。运行中 attach、自动 resync 与流式 baseline 是历史回放的目标能力。
 
@@ -172,8 +172,10 @@ Host 通过 list/resume/history 提供历史，具体参数、快照边界和资
 
 分页：
 
-- `session/history` 使用 `cursor` + `limit` + `direction`；Host 固定从 seq 0 向前分页。
-- 首屏完成有界回放后，用原生虚拟列表仅构建可见行；向上滚动时按 cursor 增量读取更早历史，不重放整段日志。投影与原始历史不落本地文件。
+- `session/history` 使用 cursor/limit/direction；forward 从 seq 0，协商后的 backward 从尾部或 beforeSeq 读取，页内仍按升序应用同一 Transcript.Apply。
+- 首屏与更早页各最多 64 条事件。更早页在后台投影，再在主线程前插；工具 call/result 跨页时按 callId 合并，保留较新结果与稳定身份。分页 startSeq 与实时 nextSeq 分开保存；seq 去重用合并区间，连续的不可见事件不逐条占用 map。
+- 原生虚拟列表仅构建可见行；向上浏览时显式加载更早历史，已有阅读锚点保持，位于最新端时跳到新页。单份投影最多 4096 行、16 MiB 预览文本，工具详情仍共用 4 MiB；实时增长淘汰最旧展示，向前浏览溢出则淘汰较新展示并标为历史浏览状态，返回最新窗口前禁止发送。释放淘汰行的工具展开、检视和复制缓冲；不删除日志，任意更早 offset 都可继续加载。
+- 返回最新、重启或 resync 重建尾部窗口，较早展示可再次加载；失败保留旧窗口与草稿。投影和原始历史不落本机文件。DSH Agent 冷恢复自身仍由上游重放完整日志，本协议不承诺 Host 的冷恢复内存与时延只与窗口大小相关。
 - 历史页与实时事件的投影函数必须相同，避免两套渲染。
 
 ## 工具调用与 diff

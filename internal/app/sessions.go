@@ -42,6 +42,7 @@ func (a *App) cancelSessionOperation() {
 	a.model.SessionSwitching = false
 	a.model.SessionPanel.Refreshing = false
 	a.model.SessionPanel.Writing = false
+	a.model.History.Busy = false
 	a.loadingSession = ""
 	a.sessionBuffer = nil
 	a.sessionBufferBytes = 0
@@ -76,14 +77,16 @@ func (a *App) refreshSessions(background bool) {
 	client := a.currentClient()
 	cancel := a.sessionCancel
 	includeArchived := a.model.SessionPanel.CanArchive
-	needsHistory, id, minimumSeq := a.sessionNeedsHistory, a.sessionID, a.nextSeq
+	needsHistory, id, minimumSeq, window := a.sessionNeedsHistory, a.sessionID, a.nextSeq, a.canHistoryWindow
 	go func() {
 		defer cancel()
 		sessions, err := readSessionList(ctx, client, includeArchived)
 		var transcript projection.Transcript
 		var nextSeq uint64
+		var history historySnapshot
 		if err == nil && needsHistory {
-			transcript, nextSeq, err = readSessionHistory(ctx, client, id, minimumSeq)
+			history, err = readOpenHistory(ctx, client, id, minimumSeq, window)
+			transcript, nextSeq = history.Transcript, history.NextSeq
 		}
 		a.post(func() {
 			if !a.currentSessionOperation(operation) {
@@ -99,6 +102,7 @@ func (a *App) refreshSessions(background bool) {
 			if needsHistory && nextSeq >= a.nextSeq {
 				a.transcript = transcript
 				a.nextSeq = nextSeq
+				a.acceptHistoryWindow(history)
 				a.publishTranscript()
 			}
 			a.sessionNeedsHistory = false
@@ -132,6 +136,7 @@ func (a *App) loadSession(id string) {
 	params := a.routeParams(a.model.CanConfigure)
 	method := "session/resume"
 	canPermissions := a.model.Permission.Available
+	window, retired, currentID := a.canHistoryWindow, a.retiredSessionIDs(id), a.sessionID
 	if id == "" {
 		method = "session/create"
 		params["cwd"] = a.options.CWD
@@ -144,7 +149,14 @@ func (a *App) loadSession(id string) {
 		var transcript projection.Transcript
 		var nextSeq uint64
 		var permissions view.PermissionSnapshot
-		raw, err := client.Call(ctx, method, params)
+		err := releaseSessions(ctx, client, retired)
+		released := err == nil
+		var raw json.RawMessage
+		if err == nil {
+			raw, err = client.Call(ctx, method, params)
+		}
+		opened := err == nil
+		var history historySnapshot
 		if err != nil {
 			err = errors.New("Could not open the session. Check ownership, working directory and model route, then retry")
 		} else {
@@ -166,7 +178,8 @@ func (a *App) loadSession(id string) {
 					a.loadingSession = summary.ID
 				}
 			})
-			transcript, nextSeq, err = readSessionHistory(ctx, client, summary.ID, *summary.NextSeq)
+			history, err = readOpenHistory(ctx, client, summary.ID, *summary.NextSeq, window)
+			transcript, nextSeq = history.Transcript, history.NextSeq
 		}
 		if err == nil && canPermissions {
 			permissions, err = readPermissions(ctx, client, summary.ID)
@@ -180,7 +193,15 @@ func (a *App) loadSession(id string) {
 			}
 			buffer := a.sessionBuffer
 			a.cancelSessionOperation()
+			if released {
+				for _, id := range retired {
+					delete(a.retiredSessions, id)
+				}
+			}
 			if err != nil {
+				if opened {
+					a.retireSession(summary.ID)
+				}
 				a.model.SessionsError = err.Error()
 				if len(buffer) > 0 {
 					a.setFailure("The session changed while history was loading", errors.New("Restart the host to recover the session safely"))
@@ -201,6 +222,8 @@ func (a *App) loadSession(id string) {
 			}
 			a.drafts[a.sessionID] = a.model.Draft
 			a.sessionID = summary.ID
+			a.retireSession(currentID)
+			delete(a.retiredSessions, summary.ID)
 			a.model.SessionID = summary.ID
 			a.model.SessionCWD = summary.CWD
 			if canPermissions {
@@ -222,6 +245,7 @@ func (a *App) loadSession(id string) {
 			a.transcript = transcript
 			a.stream = projection.AssistantStream{}
 			a.model.ResetTranscript(transcript.Items())
+			a.acceptHistoryWindow(history)
 			a.model.Draft = a.drafts[summary.ID]
 			if a.local != nil {
 				a.local.lastSession = summary.ID

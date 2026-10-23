@@ -1,6 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import Schema from '@deepseek-ai/schemastery'
+import { z } from 'zod'
+import { catalogDefinition } from './catalog.mjs'
 import { createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
@@ -9,7 +11,7 @@ import { LineChannel } from './transport.mjs'
 import { MygoServer } from './server.mjs'
 
 export const name = 'mygo-channel'
-export const inject = ['agents', 'llm', 'mygoAppStartup', 'loader', 'appExit', 'appReady', 'profileContext']
+export const inject = ['agents', 'llm', 'mygoAppStartup', 'loader', 'appExit', 'appReady', 'profileContext', 'sessionProjections', 'sessionProjectionCache']
 export const Config = Schema.object({
   maxFrameBytes: Schema.natural().min(1024).max(16 * 1024 * 1024).default(16 * 1024 * 1024),
   maxQueuedBytes: Schema.natural().min(1024).max(64 * 1024 * 1024).default(32 * 1024 * 1024),
@@ -20,6 +22,7 @@ export const Config = Schema.object({
 })
 
 export function apply(ctx, config) {
+  ctx.sessionProjections.register(catalogDefinition(z))
   const profile = ctx.get('profileContext')
   if (!profile?.startedBundles.includes('@deepseek-ai/dsh-base') || !profile.startedBundles.includes('@dsh-mygo/host')) {
     throw new Error('The mygo host requires the dsh-base and @dsh-mygo/host profile bundles')
@@ -46,7 +49,7 @@ export function apply(ctx, config) {
     channel.start(async (method, params) => {
       if (method === 'initialize') await ctx.loader.await()
       if (method === 'shutdown') {
-        server.stopping = true
+        await server.shutdown()
         setImmediate(async () => { await channel.flush(); ctx.appExit(0) })
         return {}
       }

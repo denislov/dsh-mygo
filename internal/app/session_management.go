@@ -78,16 +78,19 @@ func (a *App) writeSession(id, title string, archived *bool) {
 	client, cancel, currentID, startSeq := a.currentClient(), a.sessionCancel, a.sessionID, a.nextSeq
 	canArchive := a.model.SessionPanel.CanArchive
 	route := a.routeParams(a.model.CanConfigure)
+	retired := a.retiredSessionIDs(id)
 	go func() {
 		defer cancel()
 		var summary sessionSummary
-		var err error
-		if archived == nil {
+		err := releaseSessions(ctx, client, retired)
+		opened := false
+		if err == nil && archived == nil {
 			// Cold rename takes ownership through the same public resume route as navigation.
 			if id != currentID {
 				route["sessionId"] = id
 				raw, resumeErr := client.Call(ctx, "session/resume", route)
 				err = resumeErr
+				opened = err == nil
 				if err == nil {
 					_, err = decodeManagedSession(raw, id)
 				}
@@ -99,7 +102,7 @@ func (a *App) writeSession(id, title string, archived *bool) {
 					summary, err = decodeManagedSession(raw, id)
 				}
 			}
-		} else {
+		} else if err == nil {
 			raw, archiveErr := client.Call(ctx, "session/archive", map[string]any{"sessionId": id, "archived": *archived})
 			err = archiveErr
 			var ack map[string]json.RawMessage
@@ -127,6 +130,14 @@ func (a *App) writeSession(id, title string, archived *bool) {
 				return
 			}
 			a.cancelSessionOperation()
+			if err == nil {
+				for _, released := range retired {
+					delete(a.retiredSessions, released)
+				}
+			}
+			if opened {
+				a.retireSession(id)
+			}
 			if err == nil && archived == nil && id == currentID && (*summary.NextSeq <= startSeq || *summary.NextSeq > a.nextSeq || a.sessionTitleSeq <= startSeq || a.sessionTitle != summary.Title) {
 				err = errors.New("The committed title event was not confirmed")
 			}

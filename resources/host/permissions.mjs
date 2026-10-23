@@ -46,6 +46,7 @@ export class Permissions {
     const record = this.record(params.sessionId)
     await this.pending.get(params.sessionId)?.catch(() => {})
     this.idle(record)
+    record.catalogReaders = (record.catalogReaders ?? 0) + 1
     try {
       await this.server.ctx.get('sessionPersistence').flush()
       if (this.server.stopping) throw new Error('Host is stopping')
@@ -53,6 +54,7 @@ export class Permissions {
       record.permissionUncertain = false
       return result
     } catch { throw fault('permission/unavailable', 'Could not read session permissions; refresh to retry') }
+    finally { record.catalogReaders-- }
   }
   select(params) {
     const id = sessionID(params.sessionId), record = this.record(id)

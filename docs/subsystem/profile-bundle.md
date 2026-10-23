@@ -22,6 +22,8 @@ profile 由 `dsh-base` + `@dsh-mygo/host` 组成。channel 依赖 launcher 的 `
 
 Host 历史通过 `session.history` capability 启用，使用公开 sessionPersistence 与 agents.resume，不扫描私有存储或修改 DSH core。根会话目录、冷恢复路由、分页边界和预算以 [通道协议](channel-protocol.md#host-历史能力) 为准；原生 Sessions 弹窗提供列表/新建/恢复。
 
+channel 注入公开 sessionProjections/sessionProjectionCache，注册 catalog.mjs 的版本化 mygoCatalog 纯投影，记录 title/updatedAt 并复用 DSH 身份校验和持久检查点。目录读取不打开会话正文；派生行可丢弃重建，不能反向改写日志。模型目录、权限读取与 history 读取持有短期计数，防止 session.release 在异步读取期间销毁 Agent。释放、重命名与正常 shutdown 在服务仍存活时等待检查点尝试，派生写入失败可降级，不将缓存变成会话真相。
+
 会话管理分别通过 `session.rename` 与 `session.archive` 协商，使用 base 的公开 `sessionTitle` 与自有稳定行 `mygo-workspace` 挂载的 `@deepseek-ai/dsh-workspace` registry。registry 复用 base 的 storageDomain 与 sessionPersistence，不加载 Web 控制器或客户端。标题进入会话日志，归档集合由 registry 持久化；参数、单写者、活动检查和错误边界见 [通道协议](channel-protocol.md#会话管理)。
 
 模型设置通过 model.selection capability 启用；channel 从同版本 @deepseek-ai/dsh-agent 引入公开 installModelSelection，在 create/resume 的 Agent setup 中安装作用域内选择引用。校验后向 Host 日志提交 model/selection，再由该公开适配器在下一次 prompt/request 组装时应用；不修改 Agent 内部字段、全局默认模型或 profile patch。目录及 secret 边界以 [设置与凭据](settings-credentials.md) 为准。

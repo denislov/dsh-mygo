@@ -165,9 +165,16 @@ func resyncStreamContinuous(buffer []hostNotification, snapshot *historySnapshot
 func (a *App) readResync(job *resyncState) {
 	job.attempts++
 	client, minimumSeq, wantStream := a.currentClient(), a.nextSeq, a.canStreamBaseline
+	window := a.canHistoryWindow
 	minimumRevision := a.stream.Revision()
 	go func() {
-		snapshot, err := readHistorySnapshot(job.ctx, client, job.id, minimumSeq, true, wantStream)
+		var snapshot historySnapshot
+		var err error
+		if window {
+			snapshot, err = readHistoryWindow(job.ctx, client, job.id, minimumSeq, nil, true, wantStream)
+		} else {
+			snapshot, err = readHistorySnapshot(job.ctx, client, job.id, minimumSeq, true, wantStream)
+		}
 		a.post(func() {
 			if a.resync != job || a.shuttingDown.Load() || a.sessionID != job.id || a.model.Phase == view.PhaseFailed {
 				return
@@ -193,6 +200,7 @@ func (a *App) readResync(job *resyncState) {
 				return
 			}
 			a.transcript = snapshot.Transcript
+			a.acceptHistoryWindow(snapshot)
 			if wantStream {
 				a.stream = snapshot.Stream
 			}

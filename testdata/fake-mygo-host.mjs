@@ -122,9 +122,15 @@ if (process.argv.includes('--sessions')) {
     { seq: 2, time, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Saved conversation' }] } } },
     { seq: 3, time, type: 'turn/end', data: { reason: { kind: 'completed' } } },
   ] })
-  ctx.agents.resume = async ({ resumeSessionId, setup }) => {
+  if (process.argv.includes('--large-history')) {
+    stored.get(id).events = Array.from({ length: 25001 }, (_, seq) => ({ seq, time, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: `History message ${seq}` }] } } }))
+    const block = id => ({ asOfSeq: stored.get(id).events.length - 1, values: { mygoCatalog: { title: stored.get(id).events.findLast(event => event.type === 'session/title')?.data.title ?? '', updatedAt: stored.get(id).events.at(-1)?.time ?? stored.get(id).header.createdAt } } })
+    ctx.sessionProjections = { snapshot: session => block(session.id) }
+    ctx.sessionProjectionCache = { cachedSnapshot: header => block(header.id), async write() {} }
+  }
+  ctx.agents.resume = async ({ resumeSessionId, setup, agentOptions }) => {
     if (!stored.has(resumeSessionId)) throw new Error('Unknown fixture session')
-    return ctx.agents.create({ sessionId: resumeSessionId, setup })
+    return ctx.agents.create({ sessionId: resumeSessionId, setup, agentOptions })
   }
   ctx.sessionPersistence = {
     async list() { return [...stored.values()].map(({ header }) => ({ header })) },
