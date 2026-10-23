@@ -1,6 +1,6 @@
 # 开发进度与路线图
 
-> 代码基线：`caab7d9`（2026-10-23 10:29）；决策更新于 2026-10-23。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
+> 代码基线：`c23cfd9`（2026-10-23 13:09）；决策更新于 2026-10-23。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
 
 ## 1. 结论
 
@@ -14,12 +14,12 @@
 
 | 项 | 值 |
 | --- | --- |
-| 提交 | 25 个，2026-10-22 15:00 → 2026-10-23 10:29（约 19.5 小时，含中断） |
+| 提交 | 27 个，2026-10-22 15:00 → 2026-10-23 13:09（约 22 小时，含中断） |
 | 规模 | 136 个跟踪文件；Go 生产 6.1k 行 / Go 测试 5.8k 行；Node Host 1.1k 行 / 测试 1.0k 行；`docs/` 19 篇约 3.1k 行；runtime lock 约 400 KB |
 | 版本 | identifier `com.denislov.dshmygo`；app/host `0.1.0`、`protocolVersion 1`、DSH `0.2.1-rc.2`（精确绑定）、MyGo `v0.6.2`、Node >= 24、runtime Node `24.14.0` |
 | 测试 | 175 个 Go Test 入口（233 项通过、24 项因缺少真实 Host 环境跳过）+ 49 个 Node test；覆盖率 app 84%、view 89%、interaction 87%、projection 83%、channel 72%、host 70%、main 8.5% |
 | 构建产物 | `build/windows-amd64/` 重建于 2026-10-23 13:05，含 `resources/host` 与 `resources/runtime`（Node 24.14.0 + DSH 0.2.1-rc.2）；安装器 117.2 MB，应用 11.5 MB；exe 与安装器已自签名（`.signing/` 不入库） |
-| 工程基线 | CI 已建立（Windows 全量 + Linux Go）；remote 已建立（私有）；无 tag；版本单点为 `versions.json` |
+| 工程基线 | CI 已建立（Windows 全量 + Linux Go，含签名脚本测试）；remote 已建立（私有）；无 tag；版本单点为 `versions.json` |
 
 2026-10-23 本机（Windows）实跑结果：
 
@@ -123,7 +123,7 @@ node scripts/smoke-packaged.mjs                 # 打包资源 + 干净首启 + 
 - 打包 smoke（已完成）：`scripts/smoke-packaged.mjs` 覆盖打包资源 composition/restart、干净首启、session 与应用日志。
 - 安装与签名：Windows per-user 安装器 + 自签名 Authenticode；UI/Host/bundle 版本一致校验。macOS 的 `.app`/`.dmg` + Developer ID + 公证放到 macOS 发布单元。
 - 生命周期收口（部分完成）：恢复对话框、手工重启、`PathLogs` 日志与崩溃报告已落地；Windows Job Object、自动重启退避与版本不匹配提示仍待补。
-- 验收：干净 Windows 机器安装 → 离线首启 → 完成一个 mock 回合；`kill` Host 可恢复；升级/卸载保留 `$DSH_HOME`。
+- 验收：干净 Windows 机器安装 → 离线首启 → 完成一个 mock 回合；`kill` Host 可恢复；升级/卸载保留 `$DSH_HOME`。自签名安装器在干净机器上可能需要用户确认 SmartScreen 或预先导入公钥证书。
 
 ### M2 日常可用（1–2 周）
 
@@ -207,7 +207,7 @@ node scripts/smoke-packaged.mjs                 # 打包资源 + 干净首启 + 
 - 干净 Windows 机器安装后离线启动，不要求预装 Node/DSH。
 - 完成一次真实回合；Host 崩溃可恢复；日志可导出。
 - 会话、模型、凭据闭环在安装版可复现。
-- Windows 签名通过；卸载保留 `$DSH_HOME`。
+- Windows Authenticode 签名可验证（自签名；接受 Unknown publisher/SmartScreen 提示）；卸载保留 `$DSH_HOME`。
 - Windows 手测矩阵通过。
 - CI 全绿、有 release tag 与发布说明；若带自动更新，升级与回滚 smoke 通过。
 
