@@ -176,8 +176,8 @@ UI、Host、bundle 作为一个发布单元验证；不允许只升级其中一�
 ## 测试
 
 - 打包 smoke：`node scripts/smoke-packaged.mjs` 检查 `build/windows-amd64` 的 exe、安装器、host、Node、DSH 闭包与 `runtime/manifest.json` 版本；调用 `scripts/verify-signatures.mjs` 校验 exe 与安装器签名；用空 `PATH`、临时 `DSH_HOME` 与临时日志目录启动 exe，等待 profile、session 与应用日志；随后对打包资源跑 composition + restart 真实组合测试。
-- 安装包 smoke：安装包启动、Host ready、完成一个回合（Windows 优先；安装与签名阶段）。
-- 签名校验：Windows `signtool verify`（`node scripts/verify-signatures.mjs`，可用 `--require-trusted` 要求证书链受信）；macOS `codesign --verify` 与公证。
+- 安装器 smoke：`node scripts/smoke-installer.mjs` 静默安装到 `.tmp`，校验安装布局、Start Menu 快捷方式与 HKCU 卸载键、安装后 exe 与 `Uninstall.exe` 签名；启动安装后的应用，等待 profile、session 与日志；再静默卸载，确认安装目录、快捷方式和卸载键被移除，且 `$DSH_HOME` 与会话历史保留。检测到已有 dsh-mygo 安装时拒绝运行；发布验收使用干净 Windows VM。`--keep` 保留临时目录。
+- 签名校验：Windows `signtool verify`（`node scripts/verify-signatures.mjs`，可用 `--require-trusted` 要求证书链受信）；安装器 smoke 额外校验 `Uninstall.exe`；macOS `codesign --verify` 与公证。
 - 更新 smoke：旧版本 → 新版本，保留会话/设置；delta 路径。
 - 断网/磁盘满/权限错误。
 - 任务运行中更新被拒绝/确认后中断。

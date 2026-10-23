@@ -28,6 +28,7 @@ go test ./...
 go tool mygo build          # buildCommand 先构建 resources/runtime，并自动签名
 node scripts/build-runtime.mjs
 node scripts/smoke-packaged.mjs  # 打包产物 smoke（Windows）
+node scripts/smoke-installer.mjs # 安装/卸载 smoke（需干净环境）
 ```
 
 ## 自签名发布构建
@@ -46,6 +47,8 @@ node scripts/self-sign.mjs --remove-trust
 自签名证书不会建立 SmartScreen 信誉：Windows 会显示 **Unknown publisher**，安装器可能被 SmartScreen 拦截。发布时请附上 `.signing/dsh-mygo.cer` 的 SHA-256 指纹与构建产物的校验和，让用户自行核验；不要引导用户无条件把自签名根证书加入信任库。开源项目后续可申请 [SignPath Foundation](https://signpath.io) 的免费 OSS 签名。
 
 `DSH_MYGO_SIGN=0` 可生成未签名构建；此时 MyGo 的构建日志仍会显示 `Signing`/`Signed`，但脚本实际跳过签名。`DSH_MYGO_REQUIRE_SIGNATURE=0` 可跳过打包 smoke 的签名检查。
+
+`node scripts/smoke-installer.mjs` 会把安装器静默安装到 `.tmp`，启动安装后的应用，校验安装后的 exe 与 `Uninstall.exe` 签名，再静默卸载，确认安装目录、快捷方式和卸载键被移除，同时 `$DSH_HOME` 与会话历史保留。它会写入真实的 Start Menu 快捷方式和 HKCU 卸载键，所以检测到已安装 dsh-mygo 时会拒绝运行；发布验收请使用干净 Windows VM。`--keep` 保留临时目录以便排查。
 
 原生窗口 + fake host（无需 DSH 或 API key）：
 

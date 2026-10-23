@@ -8,7 +8,7 @@
 
 一句话：**能开发、能演示、能在开发机上真实跑；还不能交给普通用户安装使用。**
 
-判断依据：协议与 UI 主链路已经闭环，M0 工程基线、M1 运行时/打包 smoke、自签名发布构建与手工崩溃恢复已完成；安装器验收、自动重同步、会话管理 UI 与 Windows 发布工程仍是主要缺口；macOS 作为后续发布单元。
+判断依据：协议与 UI 主链路已经闭环，M0 工程基线、M1 运行时/打包/安装器 smoke、自签名发布构建与手工崩溃恢复已完成；干净机器验收、自动重同步、会话管理 UI 与 Windows 发布工程仍是主要缺口；macOS 作为后续发布单元。
 
 ## 2. 事实快照
 
@@ -37,11 +37,12 @@ node scripts/test-real-host.mjs --runtime       # bundled runtime 真实组合�
 go tool mygo build                              # 含 runtime 的安装器
 node scripts/verify-signatures.mjs              # exe/安装器自签名通过
 node scripts/smoke-packaged.mjs                 # 打包资源 + 干净首启 + 日志
+node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 签名 + $DSH_HOME 保留
 ```
 
-真实链路覆盖：composition/lifecycle、approval、question、cancellation、streaming/Markdown、history 重启回放、session switching、model settings、configuration、host kill/restart 与会话 resume。
+真实链路覆盖：composition/lifecycle、approval、question、cancellation、streaming/Markdown、history 重启回放、session switching、model settings、configuration、host kill/restart、会话 resume 与安装器安装/卸载。
 
-未跑：真实付费模型 `TestAgainstMygoRealModel`（需要 key 且产生调用费用）、macOS 全部验证、安装包安装/更新验证。
+未跑：真实付费模型 `TestAgainstMygoRealModel`（需要 key 且产生调用费用）、macOS 全部验证、干净机器验收、升级/更新验证。
 
 ## 3. 已完成（按子系统）
 
@@ -58,6 +59,7 @@ node scripts/smoke-packaged.mjs                 # 打包资源 + 干净首启 + 
 | 工程基线 | 正式 identifier、版本单点、Windows/Linux CI、构建产物重建 | `versions.json`、`internal/version`、`.github/workflows/ci.yml` |
 | 运行时打包 | bundled Node + DSH 闭包 + 私有 `mygo-host` + 首启 profile seed + manifest 版本校验 | `resources/runtime/`、`scripts/build-runtime.mjs`、`internal/host/profile.go`、`internal/host/launch.go` |
 | 打包 smoke | 打包资源 composition/restart、干净首启、session 与应用日志 | `scripts/smoke-packaged.mjs` |
+| 安装器 smoke | 静默安装、安装布局、快捷方式/卸载键、安装后 exe 与 `Uninstall.exe` 签名、静默卸载、`$DSH_HOME` 与会话保留 | `scripts/smoke-installer.mjs` |
 | 崩溃恢复 | 恢复对话框、手工 Restart、`session/resume` + history 回放、`PathLogs` 日志与崩溃报告 | `internal/app/app.go`、`internal/app/crash.go`、`internal/view/recovery.go`、`TestAgainstMygoRestart` |
 | 发布签名 | 自签名证书生成与复用、MyGo `signCommand`、exe/安装器/卸载器/未签名 PE 签名、签名验证与 smoke 接入 | `scripts/self-sign.mjs`、`scripts/sign-windows.mjs`、`scripts/verify-signatures.mjs`、`scripts/smoke-packaged.mjs` |
 
@@ -66,7 +68,7 @@ node scripts/smoke-packaged.mjs                 # 打包资源 + 干净首启 + 
 ### 4.1 发布阻塞（没有它不能称为产品）
 
 - **运行时打包与分发**：`resources/runtime` 已有 bundled Node、DSH 闭包与私有 `mygo-host`，`PathResources` 解析、首启 profile seed 与 manifest 启动前版本校验可用；仍缺 profile 损坏修复与 macOS 产物。
-- **安装包与签名**：`go tool mygo build` 的产物已包含 `resources/runtime`，自签名 Authenticode 已接入构建并纳入打包 smoke；已决定不购买公开 CA 证书，接受 Unknown publisher/SmartScreen 提示。仍无 Windows 安装器安装 smoke、干净机器验收、macOS Developer ID/公证。
+- **安装包与签名**：`go tool mygo build` 的产物已包含 `resources/runtime`，自签名 Authenticode 已接入构建，打包 smoke 与本机安装/卸载 smoke 均通过；已决定不购买公开 CA 证书，接受 Unknown publisher/SmartScreen 提示。仍无干净机器验收、macOS Developer ID/公证。
 - **崩溃恢复**：窗口恢复对话框、手工 Restart、`session/resume` + history 回放、`PathLogs` 日志与崩溃报告已落地；自动重启退避、崩溃循环保护、日志轮转与 `seq` 缺口自动 resync（M3）未做。
 - **进程回收**：Windows Job Object 未落地（仅有进程句柄回收）；POSIX 进程组已实现。插件子进程泄漏风险仍在。
 - **发布工程**：无 tag、无三平台矩阵；真实 Host 测试只能靠开发者本地环境变量，无法在 CI 常态执行（CI 已覆盖 Windows 全量与 Linux Go 测试）。
@@ -95,7 +97,7 @@ node scripts/smoke-packaged.mjs                 # 打包资源 + 干净首启 + 
 
 - 并发/竞态只在本地跑过；无三平台矩阵；CI 不含真实 Host 组合（本地可用 source checkout 或 bundled runtime 跑）。
 - macOS 零验收（Metal、输入法、字体、菜单、剪贴板、签名/公证）。
-- 无打包测试、无安装/升级/卸载 smoke、无更新测试。
+- 已有打包与安装/卸载 smoke；无干净机器验收、升级/更新测试。
 - `internal/app/app.go` 约 700 行、`view.Model` 是承载 60+ 字段的扁平结构，设置/会话/交互状态交叉增长；目前靠测试守边界，继续加功能前需要拆分。
 - DSH 升级（rc 版本、精确 peer 依赖、公开 API 漂移）没有 runbook 和兼容矩阵。
 - 遗留物：`cmd/spike`、SDK 兼容链路的退役时间未定。
@@ -121,6 +123,7 @@ node scripts/smoke-packaged.mjs                 # 打包资源 + 干净首启 + 
 
 - 运行时打包（已完成）：`resources/runtime/{node,node_modules,mygo-host.mjs,manifest.json}`；私有 `mygo-host`（`runProfile`）入口；首启从 `resources/host` 创建 profile；`mygo.App.Path(PathResources)` 解析；manifest 启动前版本校验；离线可用。profile 损坏修复仍待补。
 - 打包 smoke（已完成）：`scripts/smoke-packaged.mjs` 覆盖打包资源 composition/restart、干净首启、session 与应用日志。
+- 安装器 smoke（已完成）：`scripts/smoke-installer.mjs` 覆盖静默安装、快捷方式/卸载键、安装后 exe 与 `Uninstall.exe` 签名、静默卸载与 `$DSH_HOME`/会话保留。
 - 安装与签名：Windows per-user 安装器 + 自签名 Authenticode；UI/Host/bundle 版本一致校验。macOS 的 `.app`/`.dmg` + Developer ID + 公证放到 macOS 发布单元。
 - 生命周期收口（部分完成）：恢复对话框、手工重启、`PathLogs` 日志与崩溃报告已落地；Windows Job Object、自动重启退避与版本不匹配提示仍待补。
 - 验收：干净 Windows 机器安装 → 离线首启 → 完成一个 mock 回合；`kill` Host 可恢复；升级/卸载保留 `$DSH_HOME`。自签名安装器在干净机器上可能需要用户确认 SmartScreen 或预先导入公钥证书。
@@ -164,7 +167,7 @@ node scripts/smoke-packaged.mjs                 # 打包资源 + 干净首启 + 
 
 ## 6. 建议的下一批任务（PR 粒度）
 
-1. **M1-4 安装器与进程回收**（2–3 天）：自签名 Authenticode 已接入；补 Windows per-user 安装器安装 smoke、干净机器离线首启验收与 Windows Job Object。
+1. **M1-4 进程回收与干净机器验收**（1–2 天）：自签名 Authenticode、安装/卸载 smoke 已通过；补 Windows Job Object，并在干净 Windows VM 上跑安装器 smoke 与离线首启验收。
 2. **M2-1 会话管理后端**（2–3 天）：`session/rename` + `session/archive` + 列表 `title/updatedAt`；随后接侧栏第一版。
 
 ## 7. 风险与依赖
@@ -172,7 +175,7 @@ node scripts/smoke-packaged.mjs                 # 打包资源 + 干净首启 + 
 | 风险 | 影响 | 缓解 |
 | --- | --- | --- |
 | DSH `0.2.1-rc.2` 精确 pin + 精确 peer 依赖 | 上游任何 patch 都可能破坏 Host | 保持握手版本展示；补 conformance 与升级 runbook；DSH stable 后评估放宽版本范围 |
-| 打包复杂度（Node runtime 体积、原生模块 ABI、签名、公证、更新源） | M1/M4 延期，首发不可控 | 先做 Windows 最小可分发包，再补 macOS 与更新；证书/更新源提前确认 |
+| 打包复杂度（Node runtime 体积、原生模块 ABI、签名、公证、更新源） | M1/M4 延期，首发不可控 | 先做 Windows 最小可分发包，再补 macOS 与更新；签名已定为自签名，更新源提前确认 |
 | `app.go` / `view.Model` 集中式状态 | 设置、会话、交互交叉越权，回归难定位 | 继续用状态机测试守边界；M2 前拆 controller/子模型 |
 | 资源上限（16 MiB 帧、32 MiB 历史、4 MiB 工具详情、8 会话） | 长会话/大仓库不可用 | M3 增量加载与更细预算；用真实大会话做基准 |
 | macOS 零验证 | 不影响 Windows 首发，但 macOS 发布单元有风险 | macOS 发布前接 CI 与真机验收清单 |
@@ -208,7 +211,7 @@ node scripts/smoke-packaged.mjs                 # 打包资源 + 干净首启 + 
 - 完成一次真实回合；Host 崩溃可恢复；日志可导出。
 - 会话、模型、凭据闭环在安装版可复现。
 - Windows Authenticode 签名可验证（自签名；接受 Unknown publisher/SmartScreen 提示）；卸载保留 `$DSH_HOME`。
-- Windows 手测矩阵通过。
+- Windows 安装/卸载 smoke 与手测矩阵通过。
 - CI 全绿、有 release tag 与发布说明；若带自动更新，升级与回滚 smoke 通过。
 
 macOS 不在 0.1 范围，作为后续发布单元。

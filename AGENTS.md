@@ -98,6 +98,7 @@ node scripts/self-sign.mjs          # 生成/复用自签名证书（.signing/�
 node scripts/self-sign.mjs --trust  # 本机信任证书（测试用）
 node scripts/verify-signatures.mjs  # 校验打包产物签名
 node scripts/smoke-packaged.mjs     # 打包产物 smoke（Windows）
+node scripts/smoke-installer.mjs    # 安装/卸载 smoke（需干净环境）
 go test ./...                       # 单元测试
 go test -race ./...                 # 并发改动
 CGO_ENABLED=0 go test ./...         # 纯 Go 构建
