@@ -9,6 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
+	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -20,6 +23,7 @@ import (
 	"dsh-mygo/internal/channel"
 	"dsh-mygo/internal/host"
 	"dsh-mygo/internal/interaction"
+	"dsh-mygo/internal/platform"
 	"dsh-mygo/internal/projection"
 	"dsh-mygo/internal/view"
 )
@@ -51,11 +55,15 @@ type Options struct {
 	SDKProtocol bool
 	// MaxFrame bounds one JSON-RPC frame; zero uses the channel default.
 	MaxFrame int
-	// PreflightErr is a startup prerequisite failure, such as a profile that
-	// could not be created or an unresolved host entry. Start reports it in the
-	// window without spawning; PreflightSummary overrides the banner summary.
-	PreflightErr     error
+	// Preflight checks startup prerequisites such as an unresolved host entry
+	// or a profile that could not be created. Start and Restart run it before
+	// spawning; PreflightSummary overrides the banner summary.
+	Preflight        func() error
 	PreflightSummary string
+	// LogDir receives dsh-mygo.log and crash reports. Empty disables file logs.
+	LogDir string
+	// Quit exits the application from the recovery dialog.
+	Quit func()
 	// Post runs fn on the window's main thread. A nil Post runs it inline,
 	// which tests use.
 	Post func(fn func())
@@ -103,10 +111,16 @@ type App struct {
 	drafts             map[string]string
 	settingsOperation  uint64
 	settingsCancel     context.CancelFunc
+	restarting         bool
 
-	shuttingDown atomic.Bool
-	stopped      chan struct{}
-	pendingUI    chan struct{}
+	hostGeneration atomic.Uint64
+	shuttingDown   atomic.Bool
+	stopped        chan struct{}
+	pendingUI      chan struct{}
+
+	logMu   sync.Mutex
+	logger  *log.Logger
+	logFile *os.File
 }
 
 // New creates an app. The caller starts it once the window exists.
@@ -136,7 +150,13 @@ func New(options Options) *App {
 	app.model.SaveDefaultModel = app.SaveDefaultModel
 	app.model.SaveCredential = app.SaveCredential
 	app.model.ClearCredential = app.ClearCredential
+	app.model.Restart = app.Restart
+	app.model.OpenLogs = app.OpenLogs
+	app.model.Quit = options.Quit
+	app.model.CanOpenLogs = options.LogDir != ""
 	app.model.ActiveRoute = view.ModelRoute{Provider: options.Provider, Model: options.Model, Effort: options.ReasoningEffort}
+	app.openLog()
+	app.logf("app created: version=%s protocol=%d dsh=%s", channel.ReleaseVersion, channel.ProtocolVersion, channel.DSHVersion)
 	return app
 }
 
@@ -144,20 +164,32 @@ func New(options Options) *App {
 func (a *App) Model() *view.Model { return a.model }
 
 // Start spawns the host, begins reading its protocol frames, and initializes
-// the SDK runtime. It blocks until initialization finishes, so call it on a
+// the runtime. It blocks until initialization finishes, so call it on a
 // goroutine.
 func (a *App) Start() {
-	if a.options.PreflightErr != nil {
-		summary := a.options.PreflightSummary
-		if summary == "" {
-			summary = "Could not start the DeepSeek Harness host"
+	a.startHost(false)
+}
+
+func (a *App) startHost(recover bool) {
+	generation := a.hostGeneration.Add(1)
+	if a.options.Preflight != nil {
+		if err := a.options.Preflight(); err != nil {
+			summary := a.options.PreflightSummary
+			if summary == "" {
+				summary = "Could not start the DeepSeek Harness host"
+			}
+			a.fail(summary, err)
+			return
 		}
-		a.fail(summary, a.options.PreflightErr)
-		return
 	}
+	a.logf("host start: generation=%d recover=%v command=%s", generation, recover, filepath.Base(a.options.Launch.Command))
 	supervisor, err := host.Start(context.Background(), a.options.Launch)
 	if err != nil {
-		a.fail("Could not start the DeepSeek Harness host", err)
+		summary := "Could not start the DeepSeek Harness host"
+		if recover {
+			summary = "Could not restart the DeepSeek Harness host"
+		}
+		a.fail(summary, err)
 		return
 	}
 	a.mu.Lock()
@@ -170,55 +202,95 @@ func (a *App) Start() {
 	a.mu.Unlock()
 
 	client := channel.NewClient(supervisor.Stdout(), supervisor.Stdin(), a.options.MaxFrame)
-	incoming := make(chan hostNotification)
-	go a.runNotifications(incoming)
-	client.OnNotification(func(method string, params json.RawMessage) {
-		select {
-		case incoming <- hostNotification{method: method, params: params}:
-		case <-a.stopped:
-			return
-		}
-	})
 	a.mu.Lock()
+	incoming := a.notificationInput
+	startNotifications := false
+	if incoming == nil {
+		incoming = make(chan hostNotification)
+		a.notificationInput = incoming
+		startNotifications = true
+	}
 	a.client = client
-	a.notificationInput = incoming
 	if a.shuttingDown.Load() {
 		a.mu.Unlock()
 		a.stopHost()
 		return
 	}
 	a.mu.Unlock()
+	if startNotifications {
+		go a.runNotifications(incoming)
+	}
+	client.OnNotification(func(method string, params json.RawMessage) {
+		if a.hostGeneration.Load() != generation {
+			return
+		}
+		select {
+		case incoming <- hostNotification{method: method, params: params}:
+		case <-a.stopped:
+			return
+		}
+	})
+	a.logf("host started: pid=%d generation=%d", supervisor.PID(), generation)
 
-	go a.watchHost(supervisor)
+	go a.watchHost(supervisor, generation)
 	go func() {
 		err := client.Run()
-		if errors.Is(err, io.EOF) || errors.Is(err, channel.ErrClosed) || a.shuttingDown.Load() {
+		if errors.Is(err, io.EOF) || errors.Is(err, channel.ErrClosed) || a.shuttingDown.Load() || a.hostGeneration.Load() != generation {
 			return
 		}
 		a.fail("The host connection closed", err)
 		a.stopHost()
 	}()
 
+	resumeID := ""
+	if recover {
+		resumeID = a.sessionID
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), initializeTimeout)
 	defer cancel()
-	initialized, err := a.initialize(ctx, client)
+	initialized, err := a.initialize(ctx, client, resumeID)
 	if err != nil {
-		if !a.options.SDKProtocol {
+		if !a.options.SDKProtocol && !recover {
 			err = fmt.Errorf("%w\n\nCheck that the mygo profile contains dsh-base and @dsh-mygo/host. Initialize a new development profile with resources/host/setup-profile.mjs --dsh-home <absolute-directory>", err)
 		}
-		a.fail("Could not initialize the host", err)
+		summary := "Could not initialize the host"
+		if recover {
+			summary = "Could not recover the session"
+		}
+		a.fail(summary, err)
 		a.stopHost()
 		return
 	}
+	if a.hostGeneration.Load() != generation {
+		return
+	}
 
+	a.logf("session ready: %s", initialized.sessionID)
 	a.post(func() {
-		if a.shuttingDown.Load() || a.model.Phase == view.PhaseFailed {
+		if a.shuttingDown.Load() || a.model.Phase == view.PhaseFailed || a.hostGeneration.Load() != generation {
 			return
 		}
 		a.sessionID = initialized.sessionID
 		a.nextSeq = initialized.nextSeq
+		a.promptID++
+		a.promptDone = nil
+		a.awaitingTurn = false
+		a.sawActivity = false
+		a.cancelIdle = false
+		a.model.CancelPending = false
+		a.clearApprovals()
+		a.clearQuestions()
+		a.clearStream()
+		a.model.ToolInspector = nil
+		if initialized.transcript != nil {
+			a.transcript = *initialized.transcript
+			a.model.ResetTranscript(a.transcript.Items())
+		} else if recover {
+			a.transcript = projection.Transcript{}
+			a.model.ResetTranscript(nil)
+		}
 		a.model.SessionID = initialized.sessionID
-		a.model.SessionCWD = a.options.CWD
+		a.model.SessionCWD = initialized.cwd
 		a.model.CanHistory = initialized.canHistory
 		a.model.CanModels = initialized.canModels
 		a.model.CanConfigure = initialized.canConfigure
@@ -230,15 +302,74 @@ func (a *App) Start() {
 		a.model.CanQuestion = initialized.canQuestion
 		a.model.CanStream = initialized.canStream
 		a.model.Detail = initialized.detail
-		if a.model.Phase == view.PhaseStarting {
+		a.model.Error = ""
+		a.model.ErrorDetail = ""
+		a.model.RecoveryOpen = false
+		a.model.RecoveryError = ""
+		a.model.Restarting = false
+		if a.model.Phase == view.PhaseStarting || a.model.Phase == view.PhaseResyncing {
 			a.model.Phase = view.PhaseIdle
 		}
 	})
 }
 
+// Restart stops a failed host and resumes the current session on a new one.
+// It runs on the main thread.
+func (a *App) Restart() {
+	if a.shuttingDown.Load() || a.restarting || !a.model.Recoverable {
+		return
+	}
+	if a.model.Phase != view.PhaseFailed && a.model.Phase != view.PhaseResyncing {
+		return
+	}
+	a.restarting = true
+	// Invalidate the old watchers before stopping so their exit cannot
+	// overwrite the new host state.
+	a.hostGeneration.Add(1)
+	a.model.Restarting = true
+	a.model.RecoveryOpen = false
+	a.model.RecoveryError = ""
+	a.model.Phase = view.PhaseStarting
+	a.model.Error = ""
+	a.model.ErrorDetail = ""
+	a.cancelSessionOperation()
+	a.cancelSettingsOperation()
+	a.clearApprovals()
+	a.clearQuestions()
+	a.clearStream()
+	a.model.ToolInspector = nil
+	a.awaitingTurn = false
+	a.sawActivity = false
+	a.cancelIdle = false
+	a.promptID++
+	a.promptDone = nil
+	a.logf("restart requested")
+	go func() {
+		a.stopHost()
+		a.startHost(true)
+		a.post(func() {
+			a.restarting = false
+			a.model.Restarting = false
+		})
+	}()
+}
+
+func (a *App) OpenLogs() {
+	if a.options.LogDir == "" {
+		return
+	}
+	if err := platform.Reveal(a.options.LogDir); err != nil {
+		a.model.RecoveryError = "Could not open the logs folder"
+		return
+	}
+	a.model.RecoveryError = ""
+}
+
 type initializedSession struct {
 	sessionID    string
 	nextSeq      uint64
+	cwd          string
+	transcript   *projection.Transcript
 	detail       string
 	canCancel    bool
 	canApprove   bool
@@ -250,7 +381,7 @@ type initializedSession struct {
 	route        view.ModelRoute
 }
 
-func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSession, error) {
+func (a *App) initialize(ctx context.Context, client rpcClient, resumeID string) (initializedSession, error) {
 	if a.options.SDKProtocol {
 		params := map[string]any{"cwd": a.options.CWD, "provider": a.options.Provider, "model": a.options.Model}
 		if a.options.ReasoningEffort != "" {
@@ -269,7 +400,7 @@ func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSess
 		if json.Unmarshal(result, &initialized) != nil || initialized.ServerInfo.Name == "" {
 			return initializedSession{}, errors.New("invalid SDK host handshake")
 		}
-		return initializedSession{sessionID: a.options.SessionID, detail: strings.TrimSpace(initialized.ServerInfo.Name + " " + initialized.ServerInfo.Version)}, nil
+		return initializedSession{sessionID: a.options.SessionID, cwd: a.options.CWD, detail: strings.TrimSpace(initialized.ServerInfo.Name + " " + initialized.ServerInfo.Version)}, nil
 	}
 	result, err := client.Call(ctx, "initialize", map[string]any{
 		"protocolVersion": channel.ProtocolVersion,
@@ -284,6 +415,10 @@ func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSess
 		return initializedSession{}, err
 	}
 	canConfigure := slices.Contains(initialized.Capabilities, "settings.configuration")
+	canHistory := slices.Contains(initialized.Capabilities, "session.history")
+	if resumeID != "" && canHistory {
+		return a.resumeSession(ctx, client, resumeID, initialized, canConfigure)
+	}
 	params := a.routeParams(canConfigure)
 	params["cwd"] = a.options.CWD
 	result, err = client.Call(ctx, "session/create", params)
@@ -311,13 +446,73 @@ func (a *App) initialize(ctx context.Context, client rpcClient) (initializedSess
 		selected = view.ModelRoute{Provider: *created.Session.Provider, Model: *created.Session.Model, Effort: *created.Session.Effort}
 	}
 	return initializedSession{
-		sessionID: created.Session.ID, nextSeq: *created.Session.NextSeq,
+		sessionID: created.Session.ID, nextSeq: *created.Session.NextSeq, cwd: a.options.CWD,
 		detail:       initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
 		canCancel:    slices.Contains(initialized.Capabilities, "session.cancel"),
 		canApprove:   slices.Contains(initialized.Capabilities, "approval"),
 		canQuestion:  slices.Contains(initialized.Capabilities, "question"),
 		canStream:    slices.Contains(initialized.Capabilities, "session.assistant-stream"),
 		canHistory:   slices.Contains(initialized.Capabilities, "session.history"),
+		canModels:    slices.Contains(initialized.Capabilities, "model.selection"),
+		canConfigure: canConfigure, route: selected,
+	}, nil
+}
+
+// resumeSession restores the previous session and replays its durable history
+// after a host restart. A failure leaves the previous projection untouched.
+func (a *App) resumeSession(ctx context.Context, client rpcClient, id string, initialized channel.InitializeResult, canConfigure bool) (initializedSession, error) {
+	params := map[string]any{"sessionId": id}
+	if route := a.model.ActiveRoute; route.Provider != "" && route.Model != "" {
+		params["provider"] = route.Provider
+		params["model"] = route.Model
+		if route.Effort != "" {
+			params["effort"] = route.Effort
+		}
+	} else {
+		for key, value := range a.routeParams(canConfigure) {
+			params[key] = value
+		}
+	}
+	raw, err := client.Call(ctx, "session/resume", params)
+	if err != nil {
+		return initializedSession{}, fmt.Errorf("resume session: %w", err)
+	}
+	var result struct {
+		Session json.RawMessage `json:"session"`
+	}
+	if json.Unmarshal(raw, &result) != nil {
+		return initializedSession{}, errors.New("invalid session/resume response")
+	}
+	summary, err := decodeSessionSummary(result.Session)
+	if err != nil {
+		return initializedSession{}, err
+	}
+	if summary.ID != id || summary.Status != "idle" || summary.NextSeq == nil {
+		return initializedSession{}, errors.New("invalid restored session identity or status")
+	}
+	if canConfigure && (summary.Provider == "" || summary.Model == "") {
+		return initializedSession{}, errors.New("invalid restored session route")
+	}
+	transcript, nextSeq, err := readSessionHistory(ctx, client, summary.ID, *summary.NextSeq)
+	if err != nil {
+		return initializedSession{}, err
+	}
+	cwd := summary.CWD
+	if cwd == "" {
+		cwd = a.options.CWD
+	}
+	selected := view.ModelRoute{}
+	if canConfigure {
+		selected = view.ModelRoute{Provider: summary.Provider, Model: summary.Model, Effort: summary.Effort}
+	}
+	return initializedSession{
+		sessionID: summary.ID, nextSeq: nextSeq, cwd: cwd, transcript: &transcript,
+		detail:       initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
+		canCancel:    slices.Contains(initialized.Capabilities, "session.cancel"),
+		canApprove:   slices.Contains(initialized.Capabilities, "approval"),
+		canQuestion:  slices.Contains(initialized.Capabilities, "question"),
+		canStream:    slices.Contains(initialized.Capabilities, "session.assistant-stream"),
+		canHistory:   true,
 		canModels:    slices.Contains(initialized.Capabilities, "model.selection"),
 		canConfigure: canConfigure, route: selected,
 	}, nil
@@ -467,13 +662,16 @@ func (a *App) cancelTurn(client rpcClient, promptID uint64, sessionID string, de
 
 // DismissError hides the error banner without changing the host state.
 func (a *App) DismissError() {
+	if a.model.RecoveryOpen {
+		return
+	}
 	a.model.Error = ""
 	a.model.ErrorDetail = ""
 }
 
 // handleNotification runs on the main thread.
 func (a *App) handleNotification(method string, params json.RawMessage) {
-	if a.shuttingDown.Load() || a.model.Phase == view.PhaseFailed {
+	if a.shuttingDown.Load() || a.model.Phase == view.PhaseFailed || a.model.Phase == view.PhaseResyncing {
 		return
 	}
 	if !a.options.SDKProtocol {
@@ -524,12 +722,16 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 					Seq *uint64 `json:"seq"`
 				} `json:"event"`
 			}
-			if json.Unmarshal(params, &envelope) != nil || envelope.Seq == nil || envelope.Event.Seq == nil || *envelope.Seq != notification.Event.Seq || *envelope.Seq > a.nextSeq {
-				a.setFailure("Invalid session event sequence", errors.New("Restart the host; this version cannot resynchronize history"))
+			if json.Unmarshal(params, &envelope) != nil || envelope.Seq == nil || envelope.Event.Seq == nil || *envelope.Seq != notification.Event.Seq {
+				a.setFailure("Invalid session event sequence", errors.New("The host sent an inconsistent session event sequence"))
 				go a.stopHost()
 				return
 			}
 			if *envelope.Seq < a.nextSeq {
+				return
+			}
+			if *envelope.Seq > a.nextSeq {
+				a.requireResync(errors.New("The host event sequence skipped a frame"))
 				return
 			}
 			a.nextSeq++
@@ -605,6 +807,7 @@ func (a *App) Shutdown(timeout time.Duration) {
 	if !a.shuttingDown.CompareAndSwap(false, true) {
 		return
 	}
+	a.logf("shutdown requested")
 	close(a.stopped)
 	a.post(a.clearApprovals)
 	a.post(a.clearQuestions)
@@ -631,12 +834,15 @@ func (a *App) Shutdown(timeout time.Duration) {
 		_ = supervisor.Stop(ctx)
 		cancel()
 	}
+	a.logf("shutdown complete")
+	a.closeLog()
 }
 
-func (a *App) watchHost(supervisor *host.Supervisor) {
+func (a *App) watchHost(supervisor *host.Supervisor, generation uint64) {
 	err := supervisor.WaitError()
+	a.logf("host exited: %v", err)
 	a.post(func() {
-		if a.shuttingDown.Load() || a.model.Phase == view.PhaseFailed {
+		if a.shuttingDown.Load() || a.hostGeneration.Load() != generation || a.model.Phase == view.PhaseFailed {
 			return
 		}
 		detail := "host exited"
@@ -675,8 +881,35 @@ func (a *App) setFailure(summary string, err error) {
 		}
 	}
 	a.model.ErrorDetail = clipDetail(detail, maxErrorRunes)
+	a.model.RecoveryOpen = true
+	a.model.Recoverable = !a.options.SDKProtocol && !a.shuttingDown.Load()
+	a.model.Restarting = false
+	a.model.RecoveryError = ""
+	a.model.ToolInspector = nil
 	a.awaitingTurn = false
 	a.sawActivity = false
+	a.captureCrash(summary, err)
+}
+
+// requireResync pauses the stream after a forward sequence gap. Restarting
+// reparses the durable log; automatic resynchronization is a later milestone.
+func (a *App) requireResync(err error) {
+	if a.model.Phase == view.PhaseFailed || a.model.Phase == view.PhaseResyncing {
+		return
+	}
+	a.model.Phase = view.PhaseResyncing
+	a.model.RecoveryOpen = true
+	a.model.Recoverable = !a.options.SDKProtocol && !a.shuttingDown.Load()
+	a.model.Restarting = false
+	a.model.Error = "The host event stream has a gap"
+	a.model.ErrorDetail = "Restart the host to recover the session from its durable log. Automatic resynchronization is not available in this version."
+	a.model.RecoveryError = ""
+	a.awaitingTurn = false
+	a.sawActivity = false
+	a.clearApprovals()
+	a.clearQuestions()
+	a.clearStream()
+	a.logf("resync required: %v", err)
 }
 
 func (a *App) stopHost() {
@@ -722,6 +955,96 @@ func (a *App) post(fn func()) {
 	case incoming <- hostNotification{apply: fn}:
 	case <-a.stopped:
 	}
+}
+
+func (a *App) openLog() {
+	a.logMu.Lock()
+	defer a.logMu.Unlock()
+	if a.options.LogDir == "" {
+		return
+	}
+	if err := os.MkdirAll(a.options.LogDir, 0o755); err != nil {
+		a.logger = log.New(os.Stderr, "", log.LstdFlags|log.LUTC)
+		a.logger.Printf("create log directory %s: %v", a.options.LogDir, err)
+		return
+	}
+	path := filepath.Join(a.options.LogDir, "dsh-mygo.log")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		a.logger = log.New(os.Stderr, "", log.LstdFlags|log.LUTC)
+		a.logger.Printf("open log %s: %v", path, err)
+		return
+	}
+	a.logFile = file
+	a.logger = log.New(file, "", log.LstdFlags|log.LUTC)
+}
+
+func (a *App) logf(format string, args ...any) {
+	a.logMu.Lock()
+	defer a.logMu.Unlock()
+	if a.logger != nil {
+		a.logger.Printf(format, args...)
+	}
+}
+
+func (a *App) closeLog() {
+	a.logMu.Lock()
+	defer a.logMu.Unlock()
+	if a.logFile != nil {
+		_ = a.logFile.Close()
+		a.logFile = nil
+	}
+	a.logger = nil
+}
+
+// captureCrash snapshots the failure and writes it off the main thread.
+func (a *App) captureCrash(summary string, err error) {
+	if a.options.LogDir == "" {
+		return
+	}
+	detail := ""
+	if err != nil {
+		detail = err.Error()
+	}
+	pid := a.supervisorPID()
+	source := "app"
+	if pid != 0 {
+		source = "host"
+	}
+	report := crashReport{
+		Time:     time.Now().UTC(),
+		App:      channel.ReleaseVersion,
+		Protocol: channel.ProtocolVersion,
+		DSH:      channel.DSHVersion,
+		Platform: runtime.GOOS + "/" + runtime.GOARCH,
+		Session:  a.sessionID,
+		Source:   source,
+		Summary:  summary,
+		Detail:   detail,
+		PID:      pid,
+		Stderr:   a.stderrTail(),
+	}
+	go func() {
+		a.logf("failure: %s", summary)
+		if detail != "" {
+			a.logf("detail: %s", redactSecrets(detail))
+		}
+		path, writeErr := writeCrashReport(a.options.LogDir, report)
+		if writeErr != nil {
+			a.logf("crash report failed: %v", writeErr)
+			return
+		}
+		a.logf("crash report: %s", path)
+	}()
+}
+
+func (a *App) supervisorPID() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.supervisor == nil {
+		return 0
+	}
+	return a.supervisor.PID()
 }
 
 func isTurnActivity(eventType string) bool {

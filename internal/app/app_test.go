@@ -207,7 +207,7 @@ func TestMygoInitializeCreatesSessionAfterValidHandshake(t *testing.T) {
 			client := &fakeClient{results: map[string]json.RawMessage{"initialize": json.RawMessage(test.handshake), "session/create": json.RawMessage(test.session)}}
 			application := newTestApp(client)
 			application.options.SDKProtocol = false
-			initialized, err := application.initialize(context.Background(), client)
+			initialized, err := application.initialize(context.Background(), client, "")
 			if (err == nil) != test.valid {
 				t.Fatalf("initialize error = %v", err)
 			}
@@ -228,7 +228,7 @@ func TestMygoInitializeCreatesSessionAfterValidHandshake(t *testing.T) {
 	}
 }
 
-func TestMygoEventsUseBaselineAndRejectGaps(t *testing.T) {
+func TestMygoEventsUseBaselineAndResyncOnGaps(t *testing.T) {
 	application := newTestApp(&fakeClient{})
 	application.options.SDKProtocol = false
 	application.nextSeq = 7
@@ -237,8 +237,8 @@ func TestMygoEventsUseBaselineAndRejectGaps(t *testing.T) {
 		t.Fatalf("items = %+v, next seq = %d", application.Model().Items, application.nextSeq)
 	}
 	application.handleNotification("session/event", json.RawMessage(`{"sessionId":"s1","seq":9,"event":{"seq":9,"type":"turn/end","data":{}}}`))
-	if application.Model().Phase != view.PhaseFailed {
-		t.Fatal("event gap was silently accepted")
+	if model := application.Model(); model.Phase != view.PhaseResyncing || !model.RecoveryOpen || !model.Recoverable {
+		t.Fatalf("event gap did not enter resyncing: %+v", model)
 	}
 }
 

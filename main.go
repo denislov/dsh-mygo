@@ -62,6 +62,10 @@ func main() {
 	if err != nil {
 		log.Fatal(fmt.Errorf("resolve resources: %w", err))
 	}
+	logDir, logErr := mygo.App.Path(mygo.PathLogs)
+	if logErr != nil {
+		log.Printf("resolve logs: %v", logErr)
+	}
 	dshHomePath, err := resolveDSHHome(*dshHome)
 	if err != nil {
 		log.Fatal(err)
@@ -78,10 +82,17 @@ func main() {
 		ResourcesDir: resourcesDir,
 		DSHHome:      dshHomePath,
 	})
-	preflightErr := launchErr
+	preflight := func() error {
+		if launchErr != nil {
+			return launchErr
+		}
+		if *sdkProtocol || *hostCommand != "" || *profile != "mygo" {
+			return nil
+		}
+		return host.EnsureProfile(dshHomePath, filepath.Join(resourcesDir, "host"), *profile)
+	}
 	preflightSummary := "Could not start the DeepSeek Harness host"
 	if launchErr == nil && !*sdkProtocol && *hostCommand == "" && *profile == "mygo" {
-		preflightErr = host.EnsureProfile(dshHomePath, filepath.Join(resourcesDir, "host"), *profile)
 		preflightSummary = "Could not prepare the DeepSeek Harness profile"
 	}
 
@@ -96,8 +107,10 @@ func main() {
 		SessionID:        *sessionID,
 		SDKProtocol:      *sdkProtocol,
 		MaxFrame:         *maxFrame,
-		PreflightErr:     preflightErr,
+		Preflight:        preflight,
 		PreflightSummary: preflightSummary,
+		LogDir:           logDir,
+		Quit:             mygo.App.Quit,
 		Post: func(fn func()) {
 			if win := window.Load(); win != nil {
 				win.Update(fn)

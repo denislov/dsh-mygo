@@ -10,7 +10,7 @@ import (
 
 func TestPreflightFailureShowsHostError(t *testing.T) {
 	application := New(Options{
-		PreflightErr:     errors.New("profile seed failed"),
+		Preflight:        func() error { return errors.New("profile seed failed") },
 		PreflightSummary: "Could not prepare the profile",
 	})
 	application.Start()
@@ -25,10 +25,13 @@ func TestPreflightFailureShowsHostError(t *testing.T) {
 	if !strings.Contains(model.ErrorDetail, "profile seed failed") {
 		t.Fatalf("detail = %q", model.ErrorDetail)
 	}
+	if !model.RecoveryOpen || !model.Recoverable || model.Restart == nil || model.OpenLogs == nil {
+		t.Fatalf("recovery surface is incomplete: %+v", model)
+	}
 }
 
 func TestPreflightFailureUsesDefaultSummary(t *testing.T) {
-	application := New(Options{PreflightErr: errors.New("host entry missing")})
+	application := New(Options{Preflight: func() error { return errors.New("host entry missing") }})
 	application.Start()
 
 	model := application.Model()

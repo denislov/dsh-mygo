@@ -108,11 +108,12 @@ Idle → Starting → Initializing → Ready → Stopping → Stopped
 ### 崩溃与重启
 
 - Host 退出码非 0、协议解析失败、启动超时都进入 `Fatal`。
-- UI 保留当前会话投影，显示恢复对话框：
-  - 重启 Host。
-  - 查看日志/技术详情。
-  - 退出。
-- 重启使用有界退避（例如 1s、2s、4s），避免崩溃循环。
+- UI 保留当前会话投影，显示不可 Escape 关闭的恢复对话框：
+  - Restart host。
+  - View logs。
+  - Quit。
+- 重启由用户触发：停止旧进程，启动新 Host，完成 `initialize`，再用 `session/resume` + `session/history` 回放同一会话；恢复失败保留旧投影并重新显示对话框。
+- 重启不自动重试，也不自动重连；自动退避与崩溃循环保护未实现。
 - 更新安装期间不自动重启。
 
 ## 单实例与深链
@@ -126,12 +127,12 @@ Idle → Starting → Initializing → Ready → Stopping → Stopped
 
 | 内容 | 位置 |
 | --- | --- |
-| Go 应用日志 | `mygo.App.Path(mygo.PathLogs)` |
-| Host stderr 环形缓冲 | 内存；崩溃时写入日志文件 |
+| Go 应用日志 | `PathLogs/dsh-mygo.log`（追加） |
+| Host stderr 环形缓冲 | 内存；失败时写入崩溃报告 |
 | 协议错误 | 日志 + UI 技术详情 |
 | 崩溃报告 | `PathLogs/crash-<UTC>-<source>.log` |
 
-崩溃报告包含：版本、平台、Host 退出码/信号、stderr 尾部、当前会话 id、最后一条协议错误。**不包含** API key、token、cookie、附件内容。
+崩溃报告包含：版本、平台、Host 进程 id、stderr 尾部、当前会话 id、失败摘要与详情。写入前把 API key、Bearer token、password/secret 形状的值替换为 `[REDACTED]`；不写环境变量、cookie 或附件内容。
 
 ## 失败模式
 
@@ -147,6 +148,7 @@ Idle → Starting → Initializing → Ready → Stopping → Stopped
 ## 测试
 
 - 用 fake Host 进程验证启动/超时/崩溃/停止状态机。
+- 用真实 Host 验证 kill → Restart → `session/resume` + history 回放 → 继续发送。
 - 用真实 `dsh --profile mygo` 验证 initialize 与 shutdown。
 - Windows 上验证 Job Object 回收；POSIX 上验证进程组回收。
 - 验证 stdout 纯净性：任何日志写入 stdout 都让测试失败。

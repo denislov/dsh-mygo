@@ -187,7 +187,7 @@ Host 通过 list/resume/history 提供历史，具体参数、快照边界和资
 
 - `session/status` 驱动“正在工作”指示、输入禁用/排队、托盘/通知。
 - `assistant/message.usage` 提供 token 统计；`request/context` 提供上下文容量。
-- `resyncing` 表示正在用历史补齐缺口，暂停发送并显示同步指示。
+- `resyncing` 表示事件流出现缺口，暂停发送并显示同步指示；本版本通过重启 Host 后回放 history 恢复。
 - compaction 事件清除过期的上下文估算，并展示压缩摘要。
 - 不要在 UI 侧重新计算 token；只展示 Host 提供的数字。
 
@@ -220,7 +220,7 @@ Host 通过 list/resume/history 提供历史，具体参数、快照边界和资
 | 失败 | 处理 |
 | --- | --- |
 | 未知事件类型 | 忽略 + 一次性诊断日志 |
-| `seq` 缺口 | 标记 `resyncing`，用 history 补齐后继续；无法安全合并时停止 Host 并提示重启 |
+| `seq` 缺口 | 标记 `resyncing`，暂停发送并显示恢复对话框；重启 Host 后用 history 回放恢复 |
 | 流式帧乱序/缺口 | 丢弃当前 attempt，等待 `start` |
 | 提交事件缺失 | end 本身不成为历史；保留前缀等待提交，idle/turn 结束时清理，不伪造最终答案 |
 | 工具参数 JSON 非法 | 展示原文 + 解析错误 |

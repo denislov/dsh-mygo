@@ -269,6 +269,74 @@ func TestAgainstMygoRealComposition(t *testing.T) {
 	}
 }
 
+func TestAgainstMygoRestart(t *testing.T) {
+	launch, root := realMygoLaunch(t, true)
+	updates := make(chan func(), 512)
+	application := New(Options{
+		Launch: launch, CWD: root, Provider: "mygo-mock", Model: "echo",
+		Post: func(fn func()) { updates <- fn },
+	})
+	defer application.Shutdown(10 * time.Second)
+	go application.Start()
+	waitFor(t, application, updates, 90*time.Second, func() bool { return application.Model().Phase == view.PhaseIdle })
+
+	application.Send("Reply with exactly: pong")
+	waitFor(t, application, updates, 30*time.Second, func() bool {
+		return application.Model().Phase == view.PhaseIdle && hasAssistantText(application.Model().Items, "pong")
+	})
+	sessionID := application.Model().SessionID
+	itemsBefore := len(application.Model().Items)
+
+	application.mu.Lock()
+	supervisor := application.supervisor
+	application.mu.Unlock()
+	if supervisor == nil {
+		t.Fatal("host supervisor is missing")
+	}
+	process, err := os.FindProcess(supervisor.PID())
+	if err != nil {
+		t.Fatalf("find host process: %v", err)
+	}
+	if err := process.Kill(); err != nil {
+		t.Fatalf("kill host process: %v", err)
+	}
+
+	waitFor(t, application, updates, 30*time.Second, func() bool {
+		model := application.Model()
+		return model.Phase == view.PhaseFailed && model.RecoveryOpen && model.Recoverable
+	})
+
+	application.Restart()
+	waitFor(t, application, updates, 90*time.Second, func() bool {
+		model := application.Model()
+		return model.Phase == view.PhaseIdle && model.SessionID == sessionID && !model.RecoveryOpen
+	})
+	if application.Model().Error != "" {
+		t.Fatalf("restart left an error: %q", application.Model().Error)
+	}
+	if len(application.Model().Items) != itemsBefore {
+		t.Fatalf("recovered items = %d, want %d", len(application.Model().Items), itemsBefore)
+	}
+	if !hasAssistantText(application.Model().Items, "pong") {
+		t.Fatal("recovered transcript lost the assistant reply")
+	}
+
+	application.Send("Reply with exactly: pong")
+	waitFor(t, application, updates, 30*time.Second, func() bool {
+		return application.Model().Phase == view.PhaseIdle && assistantTexts(application.Model().Items, "pong") >= 2
+	})
+}
+
+func assistantTexts(items []projection.Item, want string) int {
+	count := 0
+	for _, item := range items {
+		if item.Kind == projection.KindAssistant && item.Text == want {
+			count++
+		}
+	}
+	return count
+}
+
 func TestMygoRealProtocolLifecycle(t *testing.T) {
 	launch, _ := realMygoLaunch(t, true)
 	for _, mode := range []string{"wrong-version", "wrong-release", "invalid-frame", "shutdown-before-initialize", "stdin-eof"} {

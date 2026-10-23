@@ -28,6 +28,7 @@
 - 协议：合法/非法帧、版本、未知方法、超时、取消、重复回答、背压。
 - 交互：审批/提问的载荷校验、FIFO、上限、过期身份、表单草稿。
 - 会话/设置：摘要校验、切换门禁、草稿隔离、模型确认事件、配置 revision 与写入屏障。
+- 恢复/日志：seq 缺口进入 resyncing、恢复对话框状态、崩溃报告命名/脱敏、应用日志落盘。
 - 会话管理：rename/archive/delete/fork 的参数、事件、列表更新与冲突。
 - 恢复：seq 缺口 resync、baseline 重连、resync 失败时的停止路径。
 - 通用设置与偏好：命名空间白名单、secret 排除、UI 偏好 schema/原子写/损坏回退。
@@ -103,6 +104,7 @@ node --test resources/host/tests/*.test.mjs
 - `TestAgainstMygoRealStreaming`：mock adapter 暂停生成，验证流式先可见、提交替换、取消与同会话继续。
 - `TestMygoRealHistoryAfterRestart`：两个进程共享同一 `DSH_HOME`，验证列表、恢复、分页回放与继续发送。
 - `TestAgainstMygoSessionSwitching`、`TestAgainstMygoModelSettings`、`TestAgainstMygoConfiguration`、`TestAgainstMygoToolDiffs`：真实会话切换、模型请求、配置持久化与 write/edit diff。
+- `TestAgainstMygoRestart`：完成一个回合后 kill Host，等待恢复对话框，Restart 后 resume 同一会话、回放 transcript 并继续发送。
 - `node scripts/test-real-host.mjs --runtime`：同一组测试改用 `resources/runtime` 的 Node、DSH 闭包与私有入口；用于打包前后检查运行时闭包。
 
 需要真实模型与 key 的 `TestAgainstMygoRealModel` 默认跳过；运行前确认会产生 API 调用费用。

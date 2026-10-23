@@ -160,12 +160,12 @@ UI、Host、bundle 作为一个发布单元验证；不允许只升级其中一�
 
 | 内容 | 位置 |
 | --- | --- |
-| Go 日志 | `PathLogs` |
-| Host stderr 尾部 | 内存环形缓冲；崩溃时写盘 |
+| Go 日志 | `PathLogs/dsh-mygo.log`（追加） |
+| Host stderr 尾部 | 内存环形缓冲；失败时写入崩溃报告 |
 | 崩溃报告 | `PathLogs/crash-<UTC>-<source>.log` |
 | 更新日志 | `PathLogs/update-*.log` |
 
-报告包含版本、平台、Host 退出码/信号、最后错误、当前会话 id；不包含 secret。崩溃报告写入 `PathLogs`，与 Go 应用日志同目录。
+报告包含版本、平台、Host 进程 id、最后错误、当前会话 id 与 stderr 尾部；写入前把 API key、Bearer token、password/secret 形状的值替换为 `[REDACTED]`，不写环境变量、cookie 或附件内容。崩溃报告与 Go 应用日志同目录；恢复对话框的 **View logs** 打开该目录。
 
 ## 测试
 

@@ -24,6 +24,8 @@ const (
 	PhaseIdle
 	// PhaseRunning means a prompt is in flight.
 	PhaseRunning
+	// PhaseResyncing means the event stream has a gap and sends are paused.
+	PhaseResyncing
 	// PhaseStopped means the host was shut down.
 	PhaseStopped
 	// PhaseFailed means the host could not start or stopped unexpectedly.
@@ -40,6 +42,14 @@ type Model struct {
 	Detail               string
 	Error                string
 	ErrorDetail          string
+	RecoveryOpen         bool
+	Recoverable          bool
+	Restarting           bool
+	RecoveryError        string
+	Restart              func()
+	OpenLogs             func()
+	CanOpenLogs          bool
+	Quit                 func()
 	Send                 func(text string)
 	Dismiss              func()
 	Cancel               func()
@@ -130,7 +140,7 @@ func View(c *mgo.Context, model *Model) {
 	model.InterruptedMarkdown.OnLink = model.Markdown.OnLink
 	mgo.Column(c).Fill().Background(theme.Background).Children(func() {
 		header(c, model)
-		if model.Error != "" {
+		if model.Error != "" && !model.RecoveryOpen {
 			errorBanner(c, model)
 		}
 		transcript(c, model)
@@ -141,6 +151,7 @@ func View(c *mgo.Context, model *Model) {
 	toolInspectorModal(c, model)
 	sessionsModal(c, model)
 	settingsModal(c, model)
+	recoveryModal(c, model)
 }
 
 func header(c *mgo.Context, model *Model) {
@@ -304,7 +315,7 @@ func toolCard(c *mgo.Context, model *Model, item projection.Item) {
 
 func composer(c *mgo.Context, model *Model) {
 	theme := c.Theme()
-	stopped := model.Phase == PhaseStopped || model.Phase == PhaseFailed || model.SessionSwitching
+	stopped := model.Phase == PhaseStopped || model.Phase == PhaseFailed || model.Phase == PhaseResyncing || model.SessionSwitching || model.RecoveryOpen
 	canSend := model.Phase == PhaseIdle && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy && !model.SettingsOpen && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain
 	mgo.Column(c).Padding(12, 20, 16, 20).Gap(8).Children(func() {
 		mgo.TextArea(c.Key("composer-"+model.SessionID), &model.Draft).Lines(1, 8).
@@ -361,6 +372,8 @@ func composerHint(model *Model) string {
 		return "Starting the host…"
 	case PhaseRunning:
 		return "Working…"
+	case PhaseResyncing:
+		return "Syncing history…"
 	case PhaseIdle:
 		return "Enter sends · Shift+Enter adds a line"
 	default:
@@ -376,6 +389,8 @@ func phaseLabel(phase Phase) string {
 		return "Ready"
 	case PhaseRunning:
 		return "Working"
+	case PhaseResyncing:
+		return "Syncing"
 	case PhaseStopped:
 		return "Stopped"
 	case PhaseFailed:
@@ -391,7 +406,7 @@ func phaseColor(phase Phase, theme *mgo.Theme) mgo.Color {
 		return theme.Success
 	case PhaseRunning:
 		return theme.Accent
-	case PhaseStarting:
+	case PhaseStarting, PhaseResyncing:
 		return theme.Warning
 	case PhaseFailed:
 		return theme.Danger
