@@ -34,6 +34,7 @@
 - 附件只投影显示元数据：`attachmentId`（不透明标识）、`mediaType`、`bytes`、`width`、`height`、可选 `name`；不读取或缓存图片字节，不把引用解释成路径。只有 png/jpeg/webp/gif 且引用字段有界的块才进入 UI，畸形引用丢弃而不是渲染可疑内容；纯图片消息同样保留一行，不能因文本为空而消失。附件不进入本地草稿文件。
 - 助手 Markdown 增量展示及工具折叠/只读 diff；reasoning、工具参数不展示为临时正文。原生 Sessions 历史入口回放正文；usage/context 作为会话级指标展示，不进入正文。
 - 会话指标取最新值而不累计：`assistant/message.usage` 提供最近一步的 token 计数（工具-only 步骤也更新），`request/context` 提供路由 `provider`/`model` 与 `contextWindow`。计数为负数或超出安全上界时按缺失处理；未知容量/用量保持未知，不推算、不跨历史窗口求和。展示只读取投影，不回写日志、不改变 nextSeq，也不进入下一次请求内容。
+- 深度快照同样只显示最新值：`todo/write` 最多 64 行、内容单行截断 200 rune，非法状态/空内容跳过，下一 `turn/start` 清空，与 DSH `todos` 折叠一致；`plan/mode` 为 latest-wins；`goal/change` 只接受 active/paused/blocked/complete，objective 单行截断 400 rune，clear 清除当前目标。所有快照不进入正文、不推测缺失字段。
 - model/selection 是 Host 提交的持久选择意图，参与 nextSeq 顺序与历史回放，但不增加聊天正文行。Settings 以匹配的 Host 确认更新当前模型标签；真实请求配置仍由 DSH 生成。模型变更产生的 synthetic model-selection context 不是用户输入，不进入 transcript。
 - session/title 参与持久 seq 校验，更新 Host 会话摘要而不增加聊天正文行；rename 返回的 nextSeq 包含该提交。列表更新时间来自已读持久事件时间，标题与排序以 Host 列表为准。归档状态由 DSH workspace registry 管理，不生成 transcript 行；取消归档后的历史仍按原序列恢复，不重写原日志。
 - 当前会话重命名的 UI 确认必须匹配提交事件的标题和序列；RPC 超时或确认失败后，目录刷新与 history 回放一起重建安全边界，保留 composer 草稿，不把目录中的 nextSeq 直接当成已消费序列。后台目标重命名的事件不进入当前会话投影。
@@ -69,7 +70,9 @@ DSH 核心事件（`SessionEventMap`）：
 
 - `session/title`：会话标题与最近活动时间。
 - `compaction/*`：压缩开始/结束、摘要与上下文变化。
-- `goal/*`、`todo/*`、`plan/*`：目标、待办、计划面板。
+- `todo/write`：最新整表待办，作为 composer 上方清单展示；下一 `turn/start` 清空，不增加正文行。
+- `plan/mode`：最新计划模式状态，显示为 header 摘要，不增加正文行。
+- `goal/change`：目标快照或清除墓碑，显示为 header 摘要，不增加正文行。
 - `subagent/*`：父子会话关系、运行状态与结果入口。
 - `session/*-delivery`、telemetry：日志/诊断，默认不展示。
 
@@ -89,6 +92,9 @@ type SessionView struct {
     Turns     []TurnView
     Usage     UsageView
     Context   ContextView
+    Tasks     []TaskView
+    PlanActive bool
+    Goal      *GoalView
     Pending   []QueuedInput
 }
 
@@ -124,6 +130,8 @@ type UsageView struct {
     ReasoningTokens, TotalTokens   int
 }
 type ContextView struct { Provider string; Model string; Window int }
+type TaskView struct { Content string; Status string } // pending | in_progress | completed
+type GoalView struct { Objective string; Phase string; MaxRounds int; RoundsStarted int }
 ```
 
 字段名是实现建议，不是协议契约；协议契约以 [通道协议](channel-protocol.md) 为准。

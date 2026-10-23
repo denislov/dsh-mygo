@@ -36,6 +36,11 @@ const ctx = {
             const chunk = (chunk) => stream({ type: 'chunk', index: streamIndex++, time: Date.now(), chunk })
             event('turn/start', { turn })
             if (process.argv.includes('--usage')) event('request/context', { provider: 'test', model: 'echo', contextWindow: 128000 })
+            if (process.argv.includes('--depth')) {
+              event('plan/mode', { active: true })
+              event('goal/change', { kind: 'goal/change', version: 1, operation: 'create', goal: { id: 'goal-fixture', revision: 1, objective: 'Ship the fixture', phase: 'active', maxGoalRounds: 10 }, roundsStarted: 1, createdAt: 1, updatedAt: 2 })
+              event('todo/write', { todos: [{ content: 'Inspect projection', status: 'completed' }, { content: 'Project todo panel', status: 'in_progress' }] })
+            }
             event('user/message', message)
             work.finish = (aborted, approvalOutcome) => {
               if (work.finished) return

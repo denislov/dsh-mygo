@@ -39,6 +39,8 @@ var chinese = map[string]string{
 	"Reset preferences": "恢复默认", "Apply preferences": "应用偏好", "Cancel": "取消",
 	"Image": "图片", "Image attachment": "图片附件", "Attach image…": "附加图片…", "Remove": "移除", "No matching files": "没有匹配的文件",
 	"Context": "上下文", "In": "输入", "Out": "输出", "cache": "缓存",
+	"Tasks %d/%d": "任务 %d/%d", "+%d more": "另有 %d 项", "Plan mode": "计划模式", "Goal": "目标",
+	"active": "进行中", "paused": "已暂停", "blocked": "受阻", "complete": "已完成",
 	"Image attachments are not supported by this host":        "当前 Host 不支持图片附件",
 	"Choose a PNG, JPEG, WebP or GIF image":                   "请选择 PNG、JPEG、WebP 或 GIF 图片",
 	"The image attachment is empty":                           "图片附件为空",

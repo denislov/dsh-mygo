@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"unicode"
@@ -78,6 +79,22 @@ type ContextView struct {
 	Window   int
 }
 
+// Task is one checklist row from the latest `todo/write` snapshot. Status is
+// one of pending, in_progress or completed.
+type Task struct {
+	Content string
+	Status  string
+}
+
+// Goal is the current durable goal snapshot in display form. Objective is
+// single-line and bounded; Phase is one of active, paused, blocked, complete.
+type Goal struct {
+	Objective     string
+	Phase         string
+	MaxRounds     int
+	RoundsStarted int
+}
+
 // Event is one session-log event exactly as the SDK forwards it.
 type Event struct {
 	Type string          `json:"type"`
@@ -118,6 +135,13 @@ type Transcript struct {
 	// follow the newest committed values and never advance nextSeq.
 	Usage   UsageView
 	Context ContextView
+	// Tasks is the standing checklist from the latest todo/write snapshot; it
+	// is cleared when a new turn starts, mirroring the Host's todos fold.
+	Tasks []Task
+	// PlanActive reports the latest plan/mode collaboration state.
+	PlanActive bool
+	// Goal is the current durable goal, nil before creation or after a clear.
+	Goal *Goal
 }
 
 // Items returns the rows in session-log order. Callers must treat the slice
@@ -138,6 +162,14 @@ func (t *Transcript) Apply(event Event) bool {
 		return t.applyAssistant(event)
 	case "request/context":
 		return t.applyRequestContext(event)
+	case "todo/write":
+		return t.applyTodoWrite(event)
+	case "plan/mode":
+		return t.applyPlanMode(event)
+	case "goal/change":
+		return t.applyGoalChange(event)
+	case "turn/start":
+		return t.applyTurnStart()
 	case "tool/call":
 		return t.applyToolCall(event)
 	case "tool/result":
@@ -257,6 +289,149 @@ func (t *Transcript) applyRequestContext(event Event) bool {
 	}
 	t.Context = context
 	return true
+}
+
+// applyTurnStart clears the standing checklist the way the Host's `todos`
+// projection does; finished lists stay visible until the next turn begins.
+func (t *Transcript) applyTurnStart() bool {
+	if len(t.Tasks) == 0 {
+		return false
+	}
+	t.Tasks = nil
+	return true
+}
+
+// applyTodoWrite replaces the standing checklist from one whole-list snapshot.
+// Malformed rows are skipped rather than trusted, and nothing becomes a
+// transcript row.
+func (t *Transcript) applyTodoWrite(event Event) bool {
+	var data struct {
+		Todos []struct {
+			Content string `json:"content"`
+			Status  string `json:"status"`
+		} `json:"todos"`
+	}
+	if json.Unmarshal(event.Data, &data) != nil {
+		return false
+	}
+	tasks := make([]Task, 0, len(data.Todos))
+	for _, raw := range data.Todos {
+		if len(tasks) >= maxTaskCount {
+			break
+		}
+		content := singleLine(raw.Content, maxTaskRunes)
+		if content == "" || !validTaskStatus(raw.Status) {
+			continue
+		}
+		tasks = append(tasks, Task{Content: content, Status: raw.Status})
+	}
+	if len(tasks) == 0 {
+		tasks = nil
+	}
+	if slices.Equal(tasks, t.Tasks) {
+		return false
+	}
+	t.Tasks = tasks
+	return true
+}
+
+func validTaskStatus(status string) bool {
+	switch status {
+	case "pending", "in_progress", "completed":
+		return true
+	default:
+		return false
+	}
+}
+
+// applyPlanMode records the latest whole-value plan-mode state.
+func (t *Transcript) applyPlanMode(event Event) bool {
+	var data struct {
+		Active bool `json:"active"`
+	}
+	if json.Unmarshal(event.Data, &data) != nil {
+		return false
+	}
+	if data.Active == t.PlanActive {
+		return false
+	}
+	t.PlanActive = data.Active
+	return true
+}
+
+// applyGoalChange records the latest durable goal snapshot or clear tombstone.
+func (t *Transcript) applyGoalChange(event Event) bool {
+	var data struct {
+		Operation string `json:"operation"`
+		Goal      *struct {
+			Objective     string `json:"objective"`
+			Phase         string `json:"phase"`
+			MaxGoalRounds int    `json:"maxGoalRounds"`
+		} `json:"goal"`
+		RoundsStarted int `json:"roundsStarted"`
+	}
+	if json.Unmarshal(event.Data, &data) != nil {
+		return false
+	}
+	if data.Operation == "clear" {
+		if t.Goal == nil {
+			return false
+		}
+		t.Goal = nil
+		return true
+	}
+	if data.Goal == nil || data.Operation == "" {
+		return false
+	}
+	objective := singleLine(data.Goal.Objective, maxGoalRunes)
+	if objective == "" || !validGoalPhase(data.Goal.Phase) {
+		return false
+	}
+	goal := &Goal{
+		Objective:     objective,
+		Phase:         data.Goal.Phase,
+		MaxRounds:     boundedRounds(data.Goal.MaxGoalRounds),
+		RoundsStarted: boundedRounds(data.RoundsStarted),
+	}
+	if t.Goal != nil && *t.Goal == *goal {
+		return false
+	}
+	t.Goal = goal
+	return true
+}
+
+func validGoalPhase(phase string) bool {
+	switch phase {
+	case "active", "paused", "blocked", "complete":
+		return true
+	default:
+		return false
+	}
+}
+
+func boundedRounds(value int) int {
+	if value < 0 || value > maxGoalRounds {
+		return 0
+	}
+	return value
+}
+
+// singleLine flattens a user/model supplied string for a one-line label,
+// dropping control characters and bounding its length.
+func singleLine(text string, limit int) string {
+	var builder strings.Builder
+	for _, character := range text {
+		switch character {
+		case '\r', '\n', '\t':
+			builder.WriteRune(' ')
+		default:
+			if unicode.IsControl(character) {
+				continue
+			}
+			builder.WriteRune(character)
+		}
+	}
+	return clip(builder.String(), limit)
 }
 
 // tokenCount rejects negative or absurd counters so one malformed event cannot
@@ -552,4 +727,9 @@ const (
 	maxAttachmentDimension   = 8192
 	// Token counters beyond this bound are treated as absent.
 	maxTokenCount = 1 << 40
+	// Deep-info snapshots are display-only; keep a hostile event bounded.
+	maxTaskCount  = 64
+	maxTaskRunes  = 200
+	maxGoalRunes  = 400
+	maxGoalRounds = 1_000_000
 )

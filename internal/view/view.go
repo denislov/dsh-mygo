@@ -52,6 +52,9 @@ type Model struct {
 	Detail               string
 	Usage                projection.UsageView
 	Context              projection.ContextView
+	Tasks                []projection.Task
+	PlanActive           bool
+	Goal                 *projection.Goal
 	Error                string
 	ErrorDetail          string
 	RecoveryOpen         bool
@@ -178,6 +181,7 @@ func View(c *mgo.Context, model *Model) {
 			}
 			historyControls(c, model)
 			transcript(c, model)
+			taskPanel(c, model)
 			composer(c, model)
 		})
 	})
@@ -218,6 +222,9 @@ func header(c *mgo.Context, model *Model) {
 	}
 	if label := usageContextLabel(model); label != "" {
 		mgo.Text(c.Key("usage-context"), label).Padding(0, 20, 8, 20).FontSize(11).SingleLine().TextColor(theme.TextMuted)
+	}
+	if label := depthLabel(model); label != "" {
+		mgo.Text(c.Key("session-depth"), label).Padding(0, 20, 8, 20).FontSize(11).SingleLine().TextColor(theme.TextMuted)
 	}
 	if model.Permission.Available {
 		label := model.T("Permissions: refresh Settings")

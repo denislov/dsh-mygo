@@ -8,7 +8,7 @@ import { markdownPrefix, markdownReply } from './markdown-sample.mjs'
 
 class MygoMockAdapter extends LlmAdapter {
   async listModels(provider) {
-    return [{ provider, id: 'echo', name: 'Echo' }, { provider, id: 'route-probe', name: 'Route probe' }]
+    return [{ provider, id: 'echo', name: 'Echo' }, { provider, id: 'route-probe', name: 'Route probe' }, { provider, id: 'todo-probe', name: 'Todo probe' }]
   }
 
   async resolveModel(provider, model) {
@@ -18,6 +18,20 @@ class MygoMockAdapter extends LlmAdapter {
   async *stream(options) {
     let reply = 'pong'
     if (options.model === 'route-probe') reply = `Selected ${options.provider}/${options.model}/${options.reasoningEffort ?? 'default'}`
+    if (options.model === 'todo-probe') {
+      const step = this.todoCalls ?? 0
+      if (step < 1) {
+        this.todoCalls = 1
+        const argumentsText = JSON.stringify({ todos: [{ content: 'Inspect projection', status: 'completed' }, { content: 'Project todo panel', status: 'in_progress' }] })
+        const callId = ToolCallId('todo-probe-0')
+        yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+        yield { type: 'tool-call-delta', index: 0, id: callId, name: 'todo_write', argumentsDelta: argumentsText }
+        yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: callId, name: 'todo_write', arguments: argumentsText } }
+        yield { type: 'finish', reason: { kind: 'tool-calls' } }
+        return
+      }
+      if (options.messages.at(-1)?.role === 'tool') reply = 'todo probe complete'
+    }
     if (options.model === 'diff-probe') {
       const step = this.diffCalls ?? 0
       if (step < 2) {

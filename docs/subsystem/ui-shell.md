@@ -112,6 +112,11 @@ App
 - 展示预算与淘汰由 [会话投影](session-projection.md#历史回放) 定义；浏览缓存淘汰较新行时显示 Viewing earlier history 并禁用发送，返回最新后恢复。历史控制条在最小窗口保持可达；没有可见消息的页提示 No visible messages，不冒充空会话。
 - 用户消息的附件显示元数据行（类型、尺寸、大小、可选文件名），图片未解码或读取失败时不阻塞其余正文；只有图片、没有文本的消息仍保留卡片和标题，但此时不显示复制正文动作。
 
+### 任务与目标
+
+- composer 上方显示最新 `todo/write` 清单：标题 `Tasks done/total`，最多 8 行，完成/进行中/待办各有标记，超出显示 `+N more`；下一回合开始清空，清单不进入正文。
+- header 摘要行显示计划模式与当前目标（objective、phase、rounds），单行截断；没有对应事件时不占位。
+
 ### Markdown
 
 - 流式：`markdown.Stream(c, text, &options)`。
