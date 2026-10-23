@@ -25,10 +25,27 @@ DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node Host（`dsh-ba
 ```sh
 go tool mygo dev
 go test ./...
-go tool mygo build          # buildCommand 先构建 resources/runtime
+go tool mygo build          # buildCommand 先构建 resources/runtime，并自动签名
 node scripts/build-runtime.mjs
 node scripts/smoke-packaged.mjs  # 打包产物 smoke（Windows）
 ```
+
+## 自签名发布构建
+
+项目使用本地自签名 Authenticode 证书，不购买公开 CA 证书。首次 `go tool mygo build` 会在 `.signing/` 生成证书；`.signing/` 已被忽略，私钥、PFX 和密码不会进入版本库。签名需要 OpenSSL（Git for Windows 自带）和 Windows SDK 的 `signtool.exe`。
+
+```sh
+node scripts/self-sign.mjs              # 生成或复用 .signing/dsh-mygo.pfx
+node scripts/self-sign.mjs --trust      # 仅本机：信任证书，便于无警告测试
+node scripts/verify-signatures.mjs      # 校验 exe 与安装器签名
+node scripts/self-sign.mjs --remove-trust
+```
+
+`mygo.json` 的 `windows.signCommand` 会签名 Go 二进制、安装器、卸载器，以及 `resources/` 中未签名的 PE 文件；Node 自带的 `node.exe` 已有 OpenJS Foundation 签名，会跳过。时间戳默认使用 DigiCert；时间戳服务器不可达时退回无时间戳签名（自签名证书可接受）。发布者应备份 `.signing/`；`--force` 会更换签名身份，已信任旧证书的用户需要重新信任新证书。
+
+自签名证书不会建立 SmartScreen 信誉：Windows 会显示 **Unknown publisher**，安装器可能被 SmartScreen 拦截。发布时请附上 `.signing/dsh-mygo.cer` 的 SHA-256 指纹与构建产物的校验和，让用户自行核验；不要引导用户无条件把自签名根证书加入信任库。开源项目后续可申请 [SignPath Foundation](https://signpath.io) 的免费 OSS 签名。
+
+`DSH_MYGO_SIGN=0` 可生成未签名构建；此时 MyGo 的构建日志仍会显示 `Signing`/`Signed`，但脚本实际跳过签名。`DSH_MYGO_REQUIRE_SIGNATURE=0` 可跳过打包 smoke 的签名检查。
 
 原生窗口 + fake host（无需 DSH 或 API key）：
 

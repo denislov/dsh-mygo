@@ -96,9 +96,15 @@ UI、Host、bundle 作为一个发布单元验证；不允许只升级其中一�
 
 ### Windows（首发）
 
-- 代码签名证书（EV 或 OV）；对 Go 二进制、Node、DLL、安装器签名。
-- 时间戳；签名后再封装安装器。
-- SmartScreen 信誉需要时间；不要承诺首次安装无提示。
+使用本地自签名证书，不购买公开 CA 证书。签名身份由 `scripts/self-sign.mjs` 生成到 `.signing/`：
+
+- `.signing/dsh-mygo.pfx` 保存私钥，`dsh-mygo.cer` 是公钥证书，`password.txt` 与 `subject.txt` 是本地构建状态；`.signing/` 不进入版本库。
+- 默认 3072 位 RSA、3 年有效期，`keyUsage=digitalSignature`、`extendedKeyUsage=codeSigning`。
+- `mygo.json` 的 `windows.signCommand` 调用 `scripts/sign-windows.mjs`，签名 Go 二进制、安装器、卸载器，以及 `resources/` 中未签名的 PE 文件；已有发布者签名的文件（如 Node 的 `node.exe`）跳过。
+- 首次 `go tool mygo build` 自动生成证书；`DSH_MYGO_SIGN=0` 跳过签名，构建日志仍显示 MyGo 的 `Signing`/`Signed` 步骤文案，但产物未签名。
+- 时间戳默认 `http://timestamp.digicert.com`；服务器不可达时退回无时间戳签名。
+- 本机信任：`node scripts/self-sign.mjs --trust` 写入 CurrentUser 的 Root 与 TrustedPublisher；`--remove-trust` 移除。`node scripts/verify-signatures.mjs` 校验签名，`--require-trusted` 要求证书链受信。
+- 自签名证书不建立 SmartScreen 信誉：Windows 显示 Unknown publisher，安装器可能被拦截。发布时附 `.cer`、SHA-256 指纹与产物校验和，不承诺首次安装无提示；开源项目后续可申请 SignPath Foundation 的免费 OSS 签名。
 - 安装器 per-user、无需管理员；卸载保留 `$DSH_HOME`。
 
 ### macOS（随后）
@@ -169,9 +175,9 @@ UI、Host、bundle 作为一个发布单元验证；不允许只升级其中一�
 
 ## 测试
 
-- 打包 smoke：`node scripts/smoke-packaged.mjs` 检查 `build/windows-amd64` 的 exe、host、Node、DSH 闭包与 `runtime/manifest.json` 版本；用空 `PATH`、临时 `DSH_HOME` 与临时日志目录启动 exe，等待 profile、session 与应用日志；随后对打包资源跑 composition + restart 真实组合测试。
+- 打包 smoke：`node scripts/smoke-packaged.mjs` 检查 `build/windows-amd64` 的 exe、安装器、host、Node、DSH 闭包与 `runtime/manifest.json` 版本；调用 `scripts/verify-signatures.mjs` 校验 exe 与安装器签名；用空 `PATH`、临时 `DSH_HOME` 与临时日志目录启动 exe，等待 profile、session 与应用日志；随后对打包资源跑 composition + restart 真实组合测试。
 - 安装包 smoke：安装包启动、Host ready、完成一个回合（Windows 优先；安装与签名阶段）。
-- 签名校验：Windows `signtool verify`；macOS `codesign --verify` 与公证。
+- 签名校验：Windows `signtool verify`（`node scripts/verify-signatures.mjs`，可用 `--require-trusted` 要求证书链受信）；macOS `codesign --verify` 与公证。
 - 更新 smoke：旧版本 → 新版本，保留会话/设置；delta 路径。
 - 断网/磁盘满/权限错误。
 - 任务运行中更新被拒绝/确认后中断。

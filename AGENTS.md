@@ -42,7 +42,7 @@ dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node H
 4. **必须有 answerer.** 新增审批/提问能力时，同时实现 Host 侧 answerer；没有 answerer 的工具调用会挂起。
 5. **stdout 是协议.** Host 的 stdout 只能写 JSON-RPC 帧；日志走 stderr。Go 侧不得把日志写进协议管道。
 6. **进程边界校验.** 所有入站 JSON 校验字段、类型、大小；不信任 UI 输入。跨进程 id/路径按不可信处理。
-7. **不记录 secret.** API key、token、cookie、附件内容不得进入日志、崩溃报告、错误消息。
+7. **不记录 secret.** API key、token、cookie、附件内容、证书私钥/PFX 密码不得进入日志、崩溃报告、错误消息或版本库。
 8. **协议版本化.** 破坏性变更提升 `protocolVersion`；新能力通过 capability 声明；旧 Host 不认识的能力不启用。
 9. **MyGo 元素是帧作用域的.** 不把 `ui.Element` / `ui.Context` 存进 app 状态或 goroutine；跨帧状态用字段、`ui.Handle`、`FocusBind`、`c.Key`。
 10. **主线程只做 UI.** 慢 I/O 与进程等待在 goroutine；结果用 `Window.Update` 发布。
@@ -94,6 +94,9 @@ docs/
 go tool mygo dev                    # 开发运行（默认 dsh --profile mygo；首启自动创建 profile）
 go tool mygo build                  # 打包（buildCommand 先构建 resources/runtime）
 node scripts/build-runtime.mjs      # 单独构建 bundled runtime（Node + DSH 闭包）
+node scripts/self-sign.mjs          # 生成/复用自签名证书（.signing/，不入库）
+node scripts/self-sign.mjs --trust  # 本机信任证书（测试用）
+node scripts/verify-signatures.mjs  # 校验打包产物签名
 node scripts/smoke-packaged.mjs     # 打包产物 smoke（Windows）
 go test ./...                       # 单元测试
 go test -race ./...                 # 并发改动

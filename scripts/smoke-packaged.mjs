@@ -15,8 +15,18 @@ if (process.platform !== 'win32') {
 }
 
 const versions = JSON.parse(await readFile(join(root, 'versions.json'), 'utf8'))
+const installer = existsSync(appDir)
+  ? readdirSync(appDir).find((name) => /^dsh-mygo Setup .+\.exe$/.test(name))
+  : undefined
+if (!installer) {
+  console.error(`Packaged installer is missing in ${appDir}`)
+  console.error('Run: go tool mygo build')
+  process.exit(2)
+}
+const installerPath = join(appDir, installer)
 const required = [
   exe,
+  installerPath,
   join(appDir, 'host', 'package.json'),
   join(appDir, 'runtime', 'mygo-host.mjs'),
   join(appDir, 'runtime', 'node', 'node.exe'),
@@ -47,6 +57,17 @@ const pass = (message) => console.log(`✓ ${message}`)
 const fail = (message) => {
   console.error(`✗ ${message}`)
   failures++
+}
+
+if (process.env.DSH_MYGO_REQUIRE_SIGNATURE !== '0') {
+  const checked = spawnSync(process.execPath, [join(root, 'scripts', 'verify-signatures.mjs'), exe, installerPath], {
+    cwd: root,
+    stdio: 'inherit',
+  })
+  if (checked.status === 0) pass('packaged artifacts are Authenticode-signed')
+  else fail('packaged artifact signatures')
+} else {
+  console.log('- signature check skipped (DSH_MYGO_REQUIRE_SIGNATURE=0)')
 }
 
 const suite = spawnSync(

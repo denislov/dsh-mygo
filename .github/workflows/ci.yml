@@ -36,6 +36,8 @@ jobs:
         run: go test ./...
       - name: Node host tests
         run: node --test "resources/host/tests/*.test.mjs"
+      - name: Signing script tests
+        run: node --test "scripts/*.test.mjs"
 
   linux:
     name: Linux Go tests

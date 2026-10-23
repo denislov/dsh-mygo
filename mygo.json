@@ -3,5 +3,8 @@
   "identifier": "com.denislov.dshmygo",
   "version": "0.1.0",
   "out": "build",
-  "buildCommand": "node scripts/build-runtime.mjs"
+  "buildCommand": "node scripts/build-runtime.mjs",
+  "windows": {
+    "signCommand": "node scripts/sign-windows.mjs %1"
+  }
 }
