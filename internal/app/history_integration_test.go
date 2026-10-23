@@ -16,7 +16,7 @@ import (
 func TestMygoRealHistoryAfterRestart(t *testing.T) {
 	launch, root := realMygoLaunch(t, true)
 	requestContext, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
+	t.Cleanup(cancel)
 	type notification struct {
 		method string
 		params json.RawMessage

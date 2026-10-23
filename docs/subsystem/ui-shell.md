@@ -18,7 +18,8 @@ UI 壳层是 MyGo 进程里的原生界面：
 | `internal/view/view.go` | `Model`、页面布局、transcript 行、composer、状态栏、错误横幅 |
 | `internal/app/app.go` | Host 启动/停止、版本握手、`session/create` / `session/prompt`、有界通知分发、`Window.Update` |
 | `internal/app/sessions.go` / `session_reader.go` | 会话操作、草稿隔离、列表/历史分页校验与后台回放 |
-| `internal/view/sessions.go` | 原生会话选择弹窗、刷新/新建/选择、transcript 控件重置 |
+| `internal/view/sessions.go` | 原生固定侧栏、窄窗口弹窗、标题搜索、会话管理表单与 transcript 控件重置 |
+| `internal/app/session_management.go` | 重命名、归档/取消归档、Host 确认与失败刷新屏障 |
 | `internal/app/settings.go` / `internal/view/settings.go` | 白名单模型目录、会话级应用状态机与原生 Settings 面板 |
 | `internal/app/configuration.go` / `internal/view/configuration.go` | 持久默认模型、只写密码凭据、配置快照校验与超时后刷新屏障 |
 | `internal/projection/` | 提交事件 → `Item`（user / assistant / tool / notice） |
@@ -151,10 +152,14 @@ App
 ## 会话列表
 
 - 会话列表读取 `session/list` 的固定快照并加载全部有界摘要，遵守 Host 的排序，不自行按 UI 活动时间重排；没有标题时显示短 session id。目录只用于显示，不通过 UI 读取文件或改写持久 cwd。
-- 首次启动新建当前会话，不自动选择上次历史。重启后从会话列表选择旧会话，分页完成后恢复正文，再允许继续发送。
+- 首次启动新建当前会话，不自动选择上次历史；握手及创建完成后后台加载摘要，背景列表加载不阻塞发送，新导航或发送取消过期列表操作。重启后从会话列表选择旧会话，分页完成后恢复正文，再允许继续发送。
 - 列表包含 profile persistence 可见的根/分叉会话，不按工作目录筛选，不展示 subagent；不同目录明确显示。冷会话 stored 不代表未被其他进程占用，恢复失败可重试，不能绕过单写者约束。
 - 支持新建、刷新、恢复与空/错误/加载状态；最多加载 1000 条摘要。Host 数量与资源限制见 [通道协议](channel-protocol.md#host-历史能力)。
 - 侧栏固定展示会话列表，支持搜索、标题编辑、归档/删除、fork 与更大目录检索；不提供无后端能力的假按钮。
+- 窗口宽度至少 820 时显示宽 260 的固定侧栏；窄窗口通过 Sessions 打开弹窗，操作区保持可达。两种布局共用搜索、筛选、表单草稿与按 session id 绑定的列表身份，切换布局不提交表单或丢失输入。标题搜索在有界摘要上做大小写不敏感匹配，不搜索正文；列表按 Host 顺序展示更新时间、状态和目录。
+- UI 分别协商 `session.rename` 与 `session.archive`，入口随能力显示。取消归档通过同一归档方法的 `archived:false`；目录请求在支持归档时携带 `includeArchived:true`，由 Show archived 本地筛选。归档会话的打开按钮禁用，先恢复再打开；重命名表单按目标会话 id 绑定，冷目标在后台 resume 取得 Host 单写者句柄后再 rename，不切换当前正文、模型或草稿。
+- 归档前提供目标操作确认，写入中不能关闭、切换、新建或重复提交。当前会话归档后保留可读正文及草稿，显示归档提示并禁用发送，允许新建、切换或恢复。Host 重启遇到已知归档的当前会话时新建会话，旧草稿留在原 id 下，不自动取消归档；恢复旧会话后取回该草稿。
+- 管理成功以 Host 摘要与新列表的目标身份、标题/归档状态为准；当前会话重命名还需匹配有序到达的 `session/title` 提交及 nextSeq。失败或超时保留表单与草稿，禁止发送、导航和设置写入，要求 Refresh sessions；重命名涉及当前会话时刷新还需回放 history 校准序列。失败、关闭和新操作通过 operation 身份丢弃迟到结果，不让旧响应覆盖新会话。
 
 ## 设置
 

@@ -94,24 +94,28 @@ type App struct {
 	notificationInput chan hostNotification
 
 	// These fields belong to the main thread.
-	awaitingTurn       bool
-	sawActivity        bool
-	promptID           uint64
-	sessionID          string
-	nextSeq            uint64
-	promptDone         <-chan error
-	cancelIdle         bool
-	batchUpdating      bool
-	transcriptDirty    bool
-	sessionOperation   uint64
-	sessionCancel      context.CancelFunc
-	loadingSession     string
-	sessionBuffer      []hostNotification
-	sessionBufferBytes int
-	drafts             map[string]string
-	settingsOperation  uint64
-	settingsCancel     context.CancelFunc
-	restarting         bool
+	awaitingTurn        bool
+	sawActivity         bool
+	promptID            uint64
+	sessionID           string
+	nextSeq             uint64
+	promptDone          <-chan error
+	cancelIdle          bool
+	batchUpdating       bool
+	transcriptDirty     bool
+	sessionOperation    uint64
+	sessionCancel       context.CancelFunc
+	loadingSession      string
+	sessionBuffer       []hostNotification
+	sessionBufferBytes  int
+	sessionTitleSeq     uint64
+	sessionTitle        string
+	sessionNeedsHistory bool
+	sessionCatalogDirty bool
+	drafts              map[string]string
+	settingsOperation   uint64
+	settingsCancel      context.CancelFunc
+	restarting          bool
 
 	hostGeneration atomic.Uint64
 	shuttingDown   atomic.Bool
@@ -143,6 +147,10 @@ func New(options Options) *App {
 	app.model.RefreshSessions = app.RefreshSessions
 	app.model.NewSession = app.NewSession
 	app.model.SwitchSession = app.SwitchSession
+	app.model.SessionPanel.OpenRename = app.OpenSessionRename
+	app.model.SessionPanel.SaveRename = app.RenameSession
+	app.model.SessionPanel.CancelEdit = app.CancelSessionEdit
+	app.model.SessionPanel.SetArchived = app.SetSessionArchived
 	app.model.OpenSettings = app.OpenSettings
 	app.model.CloseSettings = app.CloseSettings
 	app.model.RefreshSettings = app.RefreshSettings
@@ -167,10 +175,10 @@ func (a *App) Model() *view.Model { return a.model }
 // the runtime. It blocks until initialization finishes, so call it on a
 // goroutine.
 func (a *App) Start() {
-	a.startHost(false)
+	a.startHost(false, "")
 }
 
-func (a *App) startHost(recover bool) {
+func (a *App) startHost(recover bool, resumeID string) {
 	generation := a.hostGeneration.Add(1)
 	if a.options.Preflight != nil {
 		if err := a.options.Preflight(); err != nil {
@@ -242,10 +250,6 @@ func (a *App) startHost(recover bool) {
 		a.stopHost()
 	}()
 
-	resumeID := ""
-	if recover {
-		resumeID = a.sessionID
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), initializeTimeout)
 	defer cancel()
 	initialized, err := a.initialize(ctx, client, resumeID)
@@ -270,6 +274,13 @@ func (a *App) startHost(recover bool) {
 		if a.shuttingDown.Load() || a.model.Phase == view.PhaseFailed || a.hostGeneration.Load() != generation {
 			return
 		}
+		if a.sessionID != "" && a.sessionID != initialized.sessionID {
+			if a.drafts == nil {
+				a.drafts = make(map[string]string)
+			}
+			a.drafts[a.sessionID] = a.model.Draft
+			a.model.Draft = a.drafts[initialized.sessionID]
+		}
 		a.sessionID = initialized.sessionID
 		a.nextSeq = initialized.nextSeq
 		a.promptID++
@@ -292,6 +303,14 @@ func (a *App) startHost(recover bool) {
 		a.model.SessionID = initialized.sessionID
 		a.model.SessionCWD = initialized.cwd
 		a.model.CanHistory = initialized.canHistory
+		a.model.SessionPanel.CanRename = initialized.canRename
+		a.model.SessionPanel.CanArchive = initialized.canArchive
+		a.model.SessionPanel.Uncertain = false
+		a.model.SessionPanel.ActiveArchived = false
+		a.sessionNeedsHistory = false
+		a.sessionTitleSeq = 0
+		a.sessionTitle = ""
+		a.CancelSessionEdit()
 		a.model.CanModels = initialized.canModels
 		a.model.CanConfigure = initialized.canConfigure
 		if initialized.route.Provider != "" {
@@ -310,6 +329,7 @@ func (a *App) startHost(recover bool) {
 		if a.model.Phase == view.PhaseStarting || a.model.Phase == view.PhaseResyncing {
 			a.model.Phase = view.PhaseIdle
 		}
+		a.refreshSessions(true)
 	})
 }
 
@@ -344,9 +364,13 @@ func (a *App) Restart() {
 	a.promptID++
 	a.promptDone = nil
 	a.logf("restart requested")
+	resumeID := a.sessionID
+	if a.model.SessionPanel.ActiveArchived {
+		resumeID = ""
+	}
 	go func() {
 		a.stopHost()
-		a.startHost(true)
+		a.startHost(true, resumeID)
 		a.post(func() {
 			a.restarting = false
 			a.model.Restarting = false
@@ -376,6 +400,8 @@ type initializedSession struct {
 	canQuestion  bool
 	canStream    bool
 	canHistory   bool
+	canRename    bool
+	canArchive   bool
 	canModels    bool
 	canConfigure bool
 	route        view.ModelRoute
@@ -405,7 +431,7 @@ func (a *App) initialize(ctx context.Context, client rpcClient, resumeID string)
 	result, err := client.Call(ctx, "initialize", map[string]any{
 		"protocolVersion": channel.ProtocolVersion,
 		"client":          map[string]string{"name": "dsh-mygo", "version": channel.ReleaseVersion, "platform": runtime.GOOS, "locale": "zh-CN"},
-		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history", "model.selection", "settings.configuration"},
+		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history", "session.rename", "session.archive", "model.selection", "settings.configuration"},
 	})
 	if err != nil {
 		return initializedSession{}, err
@@ -453,6 +479,8 @@ func (a *App) initialize(ctx context.Context, client rpcClient, resumeID string)
 		canQuestion:  slices.Contains(initialized.Capabilities, "question"),
 		canStream:    slices.Contains(initialized.Capabilities, "session.assistant-stream"),
 		canHistory:   slices.Contains(initialized.Capabilities, "session.history"),
+		canRename:    slices.Contains(initialized.Capabilities, "session.rename"),
+		canArchive:   slices.Contains(initialized.Capabilities, "session.archive"),
 		canModels:    slices.Contains(initialized.Capabilities, "model.selection"),
 		canConfigure: canConfigure, route: selected,
 	}, nil
@@ -513,6 +541,8 @@ func (a *App) resumeSession(ctx context.Context, client rpcClient, id string, in
 		canQuestion:  slices.Contains(initialized.Capabilities, "question"),
 		canStream:    slices.Contains(initialized.Capabilities, "session.assistant-stream"),
 		canHistory:   true,
+		canRename:    slices.Contains(initialized.Capabilities, "session.rename"),
+		canArchive:   slices.Contains(initialized.Capabilities, "session.archive"),
 		canModels:    slices.Contains(initialized.Capabilities, "model.selection"),
 		canConfigure: canConfigure, route: selected,
 	}, nil
@@ -534,8 +564,11 @@ func validSessionID(value string) bool {
 // while the host is busy or not ready.
 func (a *App) Send(text string) {
 	text = strings.TrimSpace(text)
-	if text == "" || a.shuttingDown.Load() || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 || a.model.SessionBusy || a.model.SettingsBusy || a.model.SettingsOpen || a.model.ModelUncertain || a.model.ConfigurationUncertain {
+	if text == "" || a.shuttingDown.Load() || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 || a.model.SessionBusy || a.model.SessionPanel.BlocksInput() || a.model.SettingsBusy || a.model.SettingsOpen || a.model.ModelUncertain || a.model.ConfigurationUncertain {
 		return
+	}
+	if a.model.SessionPanel.Refreshing {
+		a.cancelSessionOperation()
 	}
 	client := a.currentClient()
 	if client == nil {
@@ -735,6 +768,21 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 				return
 			}
 			a.nextSeq++
+			a.sessionCatalogDirty = true
+			if notification.Event.Type == "session/title" {
+				var data struct {
+					Title string `json:"title"`
+				}
+				if json.Unmarshal(notification.Event.Data, &data) == nil {
+					a.sessionTitleSeq = a.nextSeq
+					a.sessionTitle = data.Title
+					for index, summary := range a.model.Sessions {
+						if summary.ID == a.sessionID {
+							a.model.Sessions[index].Title = data.Title
+						}
+					}
+				}
+			}
 		}
 		if isTurnActivity(notification.Event.Type) {
 			a.sawActivity = true
@@ -798,6 +846,10 @@ func (a *App) applyStatus(status string) {
 		a.model.Phase = view.PhaseIdle
 		a.model.CancelPending = false
 		a.clearApprovals()
+		if a.sessionCatalogDirty && a.model.CanRefreshSessions() && !a.model.SessionPanel.Uncertain {
+			a.sessionCatalogDirty = false
+			a.refreshSessions(true)
+		}
 	}
 }
 

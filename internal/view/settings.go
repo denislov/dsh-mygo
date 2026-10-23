@@ -64,7 +64,7 @@ func (model *Model) PrepareSettings(route ModelRoute) {
 }
 
 func (model *Model) CanEditSettings() bool {
-	return model.CanModels && model.Phase == PhaseIdle && !model.SessionBusy && !model.SessionsOpen && !model.SettingsBusy && len(model.Approvals) == 0 && len(model.Questions) == 0
+	return model.CanModels && model.Phase == PhaseIdle && !model.SessionBusy && !model.SessionPanel.Uncertain && model.SessionPanel.EditingID == "" && model.SessionPanel.ArchiveID == "" && !model.SessionsOpen && !model.SettingsBusy && len(model.Approvals) == 0 && len(model.Questions) == 0
 }
 
 func settingsModal(c *mgo.Context, model *Model) {

@@ -114,6 +114,7 @@ Idle → Starting → Initializing → Ready → Stopping → Stopped
   - View logs。
   - Quit。
 - 重启由用户触发：停止旧进程，启动新 Host，完成 `initialize`，再用 `session/resume` + `session/history` 回放同一会话；恢复失败保留旧投影并重新显示对话框。
+- 当前会话已知为归档时，用户重启 Host 后创建新会话而不 resume 归档会话；原会话草稿按 id 保留，用户取消归档并打开后恢复，不隐式改动归档集合。
 - 重启不自动重试，也不自动重连；自动退避与崩溃循环保护未实现。
 - 更新安装期间不自动重启。
 

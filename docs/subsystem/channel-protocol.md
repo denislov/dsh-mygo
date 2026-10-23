@@ -93,7 +93,7 @@
 
 ### 会话管理
 
-- `session.rename` 仅在公开 `sessionTitle.rename` 与持久化服务可用时协商；`session.archive` 仅在公开 `workspaceRegistry.archiveSession/unarchiveSession` 与持久化服务可用时协商。未协商调用返回 `protocol/capability-unavailable`；这两个能力不隐式启用 UI 入口。
+- `session.rename` 仅在公开 `sessionTitle.rename` 与持久化服务可用时协商；`session.archive` 仅在公开 `workspaceRegistry.archiveSession/unarchiveSession` 与持久化服务可用时协商。未协商调用返回 `protocol/capability-unavailable`；UI 分别依据协商结果显示操作入口。
 - 重命名要求本 Host 已拥有且 idle 的会话；冷会话先通过 `session/resume` 取得单写者句柄。标题为非空字符串，最多 1024 UTF-8 字节，拒绝 ASCII 控制字符，规范化由 DSH 标题服务完成。通过公开服务追加 `session/title`，等待 persistence.flush 后返回摘要及 nextSeq；不修改模型路由、用户消息或 UI 本地历史。
 - 归档及取消归档接受本 profile 可见的根/分叉会话；未知 id 返回 `session/not-found`，subagent 与待迁移会话拒绝操作。归档状态写入 DSH workspace registry，不写入会话 header 或本地 UI 文件，不删除日志；重复操作幂等。默认列表隐藏归档会话，`includeArchived:true` 包含两种状态；列表游标继续首次捕获的固定快照。
 - 归档会话不得 resume 或 prompt，返回 `session/archived`；先用 `session/archive` 的 `archived:false` 取消归档，再恢复或继续发送。本 Host 已拥有的归档会话保留句柄和历史读取能力。

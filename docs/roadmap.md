@@ -1,6 +1,6 @@
 # 开发进度与路线图
 
-> 统计基线：`9faa9b6`（2026-10-23 13:51）；能力进度包含本次 M2-1 会话管理后端变更，决策更新于 2026-10-23。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
+> 统计基线：`9faa9b6`（2026-10-23 13:51）；能力进度包含本次 M2-2 会话侧栏及管理 UI 变更，决策更新于 2026-10-23。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
 
 ## 1. 结论
 
@@ -54,7 +54,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 | 流式 | `session/assistant-stream`、临时行、提交替换、缺口/abandoned/截断 | `internal/projection/stream.go`、`TestAgainstMygoRealStreaming` |
 | 人机交互 | approval 与 question 的 answerer、FIFO 队列、超时/撤销/过期身份、多问题表单 | `internal/interaction`、`TestAgainstMygoRealApprovals`、`TestAgainstMygoQuestions` |
 | 投影与渲染 | user/assistant/tool/diff/notice、原生 Markdown 流式与代码复制、工具折叠与只读 hunk | `internal/projection`、`internal/view/markdown.go`、`tools.go` |
-| 会话 UI | Sessions 弹窗、新建/刷新/恢复、草稿隔离、切换后整体替换、窄窗口适配 | `internal/view/sessions.go`、`TestAgainstMygoSessionSwitching` |
+| 会话 UI | 宽窗口固定侧栏、窄窗口 Sessions 弹窗、标题搜索、归档筛选、重命名/归档/恢复；新建/刷新/恢复、草稿隔离与写入失败确认屏障 | `internal/view/sessions.go`、`internal/app/session_management.go`、`TestAgainstMygoSessionManagement`、`TestAgainstMygoSessionSwitching` |
 | 模型与设置 | `model.selection` 目录与 effort、`settings.configuration` 默认模型（revision）、DeepSeek 凭据只写 | `internal/app/settings.go`、`configuration.go`、`TestAgainstMygoConfiguration` |
 | 回归入口 | 旧 SDK 链路保留为显式 `-sdk-protocol -profile sdk` | `main.go`、`testdata/fake-sdk-host.mjs` |
 | 工程基线 | 正式 identifier、版本单点、Windows/Linux CI、构建产物重建 | `versions.json`、`internal/version`、`.github/workflows/ci.yml` |
@@ -76,7 +76,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 ### 4.2 产品体验缺口（能用，但不像完整桌面客户端）
 
-- **会话侧栏与管理**：UI 仍是弹窗，无固定侧栏、搜索、重命名/归档操作入口。Host 已有 `session/rename|archive`（含取消归档）及真实 `title/updatedAt`、最近活动排序，UI 尚未协商这两个新能力；delete/fork 后置。冷元数据读取需要扫描有界日志，超出 20000 事件/32 MiB 的单会话会使目录查询明确失败，后续需独立投影索引与大历史方案。
+- **会话管理扩展**：侧栏、标题搜索、重命名/归档/恢复已接通；delete/fork 后置。冷目标重命名会先 resume 并占用 Host 的会话名额（当前最多 8 个）；冷元数据读取需要扫描有界日志，超出 20000 事件/32 MiB 的单会话会使目录查询明确失败，后续需独立投影索引、大历史和句柄释放方案。
 - **权限模式**：只有 `DSH_PERMISSION_MODE` 环境变量，UI 不能展示或切换，也没有危险模式确认。
 - **UI 偏好**：主题、语言、快捷键、最近会话、跨重启草稿未持久化（窗口尺寸/位置由 MyGo `StateKey` 处理）。
 - **附件与引用**：图片粘贴、文件拖放、`@path` 引用、`/` 命令均未实现；协议里 `attachments` 仍是后续契约。
@@ -133,8 +133,8 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 目标：像桌面客户端，而不是演示程序。
 
-- 固定侧栏：会话常驻列表、搜索、新建；窄窗口降级为弹窗。
-- 会话管理：Host 侧 `rename/archive`、标题、`updatedAt`、最近活动排序已完成；下一步接原生 UI 操作入口，delete/fork 后置。
+- 固定侧栏（已完成）：会话常驻列表、标题搜索、新建；宽度小于 820 时通过 Sessions 弹窗访问，搜索与表单状态共用。
+- 会话管理（已完成）：Host 与原生 UI 的重命名、归档/恢复、更新时间和最近活动排序；当前归档保留正文/草稿并禁用发送，写入失败需刷新确认，delete/fork 后置。
 - 权限模式 UI：展示与切换（走 Host，不本地改环境变量），`danger-full-access` 明确确认。
 - UI 偏好持久化：主题/语言/快捷键/最近会话/草稿，原子写；i18n 决策落地。
 - 附件与引用：图片（类型白名单、base64 限额）、`@path`、拖放；`/` 命令先留扩展。
@@ -168,10 +168,13 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 ## 6. 建议的下一批任务（PR 粒度）
 
-1. **M2-2 会话侧栏与管理 UI**：协商 `session.rename/session.archive`；固定侧栏、标题搜索、重命名、归档与取消归档；窄窗口继续用弹窗，保留会话草稿与交互屏障。
-2. **M1-4 干净机器验收**：项目所有者因没有干净 Windows VM，决定本轮跳过并继续 M2；未验收，不标记通过。Windows 发布前重新安排离线首启与证书提示流程检查。
+1. **M3-1 实时缺口自动 resync**：优先处理持久事件缺口；明确运行中 history 的可读边界、缓冲与恢复失败路径，再补流式 baseline，减少手工重启。
+2. **M2-3 权限模式展示与切换**：沿用 Host 权限服务与独立能力协商，支持当前模式展示及危险模式确认；随后推进草稿/偏好持久化。
+3. **M1-4 干净机器验收**：项目所有者因没有干净 Windows VM，决定本轮跳过并继续 M2；未验收，不标记通过。Windows 发布前重新安排离线首启与证书提示流程检查。
 
-M2-1 会话管理后端已完成：重命名写入 `session/title` 并等待落盘；归档复用独立挂载的 DSH workspace registry，保留日志并支持取消归档。实际检查：`go test ./...`（235 项）、`go vet ./...`、Node Host/脚本回归（55/55）、`node scripts/test-real-host.mjs --runtime`、`git diff --check` 及修改文档的本地链接检查均通过。真实 `TestMygoRealHistoryAfterRestart` 验证标题/归档跨重启保留、取消归档和历史前缀不变；付费模型测试因没有 key 跳过。本轮未重建安装器，固定侧栏与管理 UI 属于下一项任务。
+M2-1 会话管理后端已完成：重命名写入 `session/title` 并等待落盘；归档复用独立挂载的 DSH workspace registry，保留日志并支持取消归档。实际检查：`go test ./...`（235 项）、`go vet ./...`、Node Host/脚本回归（55/55）、`node scripts/test-real-host.mjs --runtime`、`git diff --check` 及修改文档的本地链接检查均通过。真实 `TestMygoRealHistoryAfterRestart` 验证标题/归档跨重启保留、取消归档和历史前缀不变；付费模型测试因没有 key 跳过。该批未重建安装器；侧栏与管理 UI 的验证见下述 M2-2。
+
+M2-2 会话侧栏及管理 UI 已完成：UI 协商两个管理能力，宽窄布局共享筛选和表单；冷目标重命名不切走当前会话，当前标题以提交事件确认，失败后刷新目录并在必要时重放历史。Windows 原生窗口通过 UI Automation 验证重命名、归档、恢复及最小窗口弹窗，并检查宽/窄窗口截图。归档当前会话后的 Host 恢复创建新会话，原草稿按 id 留存；真实 Host 回归覆盖恢复归档会话后取回草稿。实际检查：`CGO_ENABLED=0 go test ./...`（242 项）、`go test -race ./internal/app ./internal/view`、`go tool mygo vet .`、`go vet ./...`、Node Host/脚本测试（55/55）、bundled runtime 完整真实组合及新增归档崩溃恢复定向测试、文档链接与 diff 检查均通过。修正了历史测试上下文早于 Host cleanup 取消造成的偶发关闭报错。本轮不重建安装器，不做干净 VM 或付费模型验收。
 
 ## 7. 风险与依赖
 

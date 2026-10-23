@@ -15,7 +15,7 @@ func (a *App) canChooseSession() bool {
 }
 
 func (a *App) OpenSessions() {
-	if !a.canChooseSession() {
+	if a.options.SDKProtocol || a.shuttingDown.Load() || a.currentClient() == nil || !a.model.CanRefreshSessions() {
 		return
 	}
 	a.model.SessionsOpen = true
@@ -24,11 +24,12 @@ func (a *App) OpenSessions() {
 }
 
 func (a *App) CloseSessions() {
-	if a.model.SessionSwitching {
+	if a.model.SessionSwitching || a.model.SessionPanel.Writing {
 		return
 	}
 	a.cancelSessionOperation()
 	a.model.SessionsOpen = false
+	a.CancelSessionEdit()
 }
 
 func (a *App) cancelSessionOperation() {
@@ -39,6 +40,8 @@ func (a *App) cancelSessionOperation() {
 	}
 	a.model.SessionBusy = false
 	a.model.SessionSwitching = false
+	a.model.SessionPanel.Refreshing = false
+	a.model.SessionPanel.Writing = false
 	a.loadingSession = ""
 	a.sessionBuffer = nil
 	a.sessionBufferBytes = 0
@@ -58,15 +61,30 @@ func (a *App) currentSessionOperation(operation uint64) bool {
 }
 
 func (a *App) RefreshSessions() {
-	if !a.canChooseSession() {
+	a.refreshSessions(false)
+}
+
+func (a *App) refreshSessions(background bool) {
+	if a.options.SDKProtocol || a.shuttingDown.Load() || !a.model.CanRefreshSessions() || a.currentClient() == nil {
 		return
 	}
 	ctx, operation := a.beginSessionOperation()
+	if background {
+		a.model.SessionBusy = false
+		a.model.SessionPanel.Refreshing = true
+	}
 	client := a.currentClient()
 	cancel := a.sessionCancel
+	includeArchived := a.model.SessionPanel.CanArchive
+	needsHistory, id, minimumSeq := a.sessionNeedsHistory, a.sessionID, a.nextSeq
 	go func() {
 		defer cancel()
-		sessions, err := readSessionList(ctx, client)
+		sessions, err := readSessionList(ctx, client, includeArchived)
+		var transcript projection.Transcript
+		var nextSeq uint64
+		if err == nil && needsHistory {
+			transcript, nextSeq, err = readSessionHistory(ctx, client, id, minimumSeq)
+		}
 		a.post(func() {
 			if !a.currentSessionOperation(operation) {
 				return
@@ -77,6 +95,14 @@ func (a *App) RefreshSessions() {
 				return
 			}
 			a.model.Sessions = sessions
+			a.model.SessionPanel.Uncertain = false
+			if needsHistory && nextSeq >= a.nextSeq {
+				a.transcript = transcript
+				a.nextSeq = nextSeq
+				a.publishTranscript()
+			}
+			a.sessionNeedsHistory = false
+			a.updateActiveArchived()
 		})
 	}()
 }
@@ -169,7 +195,11 @@ func (a *App) loadSession(id string) {
 			a.sessionID = summary.ID
 			a.model.SessionID = summary.ID
 			a.model.SessionCWD = summary.CWD
+			a.model.SessionPanel.ActiveArchived = summary.Archived
+			a.upsertSession(summary.view())
 			a.nextSeq = nextSeq
+			a.sessionTitleSeq = 0
+			a.sessionTitle = ""
 			a.promptID++
 			a.promptDone = nil
 			a.awaitingTurn = false

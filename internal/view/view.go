@@ -72,6 +72,7 @@ type Model struct {
 	CopiedMessageID      string
 	CopiedMessageText    string
 	CanHistory           bool
+	SessionPanel         SessionPanelState
 	SessionID            string
 	SessionCWD           string
 	Sessions             []SessionSummary
@@ -138,13 +139,19 @@ func View(c *mgo.Context, model *Model) {
 		}
 	}
 	model.InterruptedMarkdown.OnLink = model.Markdown.OnLink
-	mgo.Column(c).Fill().Background(theme.Background).Children(func() {
-		header(c, model)
-		if model.Error != "" && !model.RecoveryOpen {
-			errorBanner(c, model)
+	mgo.Row(c.Key("shell")).Fill().Background(theme.Background).Children(func() {
+		width, _ := c.Size()
+		if width >= 820 && model.CanHistory && !model.SessionsOpen && !model.SettingsOpen && len(model.Approvals) == 0 && len(model.Questions) == 0 {
+			sessionSidebar(c, model)
 		}
-		transcript(c, model)
-		composer(c, model)
+		mgo.Column(c.Key("conversation")).Grow(1).MinWidth(0).FillHeight().Children(func() {
+			header(c, model)
+			if model.Error != "" && !model.RecoveryOpen {
+				errorBanner(c, model)
+			}
+			transcript(c, model)
+			composer(c, model)
+		})
 	})
 	approvalModal(c, model)
 	questionModal(c, model)
@@ -159,7 +166,7 @@ func header(c *mgo.Context, model *Model) {
 	mgo.Row(c).Padding(14, 20).Gap(12).AlignItems(mgo.Center).Children(func() {
 		mgo.Text(c, "dsh-mygo").FontSize(15).Bold()
 		if model.CanHistory && model.OpenSessions != nil {
-			mgo.Button(c.Key("sessions"), "Sessions").Disabled(!model.CanChooseSession()).OnClick(model.OpenSessions)
+			mgo.Button(c.Key("sessions"), "Sessions").Disabled(!model.CanRefreshSessions()).OnClick(model.OpenSessions)
 		}
 		if model.CanModels && model.OpenSettings != nil {
 			mgo.Button(c.Key("settings"), "Settings").Disabled(!model.CanEditSettings()).OnClick(model.OpenSettings)
@@ -181,7 +188,7 @@ func header(c *mgo.Context, model *Model) {
 	}
 	if model.CanHistory && model.SessionID != "" {
 		mgo.Row(c.Key("active-session")).Padding(0, 20, 8, 20).Gap(12).Children(func() {
-			mgo.Text(c, sessionLabel(SessionSummary{ID: model.SessionID})).FontSize(11).TextColor(theme.TextMuted)
+			mgo.Text(c, model.ActiveSessionLabel()).FontSize(11).TextColor(theme.TextMuted).SingleLine().Grow(1)
 			mgo.Text(c, model.SessionCWD).FontSize(11).TextColor(theme.TextMuted).SingleLine()
 		})
 	}
@@ -316,7 +323,7 @@ func toolCard(c *mgo.Context, model *Model, item projection.Item) {
 func composer(c *mgo.Context, model *Model) {
 	theme := c.Theme()
 	stopped := model.Phase == PhaseStopped || model.Phase == PhaseFailed || model.Phase == PhaseResyncing || model.SessionSwitching || model.RecoveryOpen
-	canSend := model.Phase == PhaseIdle && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy && !model.SettingsOpen && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain
+	canSend := model.Phase == PhaseIdle && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy && !model.SessionPanel.BlocksInput() && !model.SettingsOpen && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain
 	mgo.Column(c).Padding(12, 20, 16, 20).Gap(8).Children(func() {
 		mgo.TextArea(c.Key("composer-"+model.SessionID), &model.Draft).Lines(1, 8).
 			Label("Message").Placeholder("Message DeepSeek…").AutoFocus().Disabled(stopped).

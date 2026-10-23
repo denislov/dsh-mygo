@@ -69,7 +69,7 @@ func pageCursor(raw json.RawMessage) (string, error) {
 	return cursor, nil
 }
 
-func readSessionList(ctx context.Context, client rpcClient) ([]view.SessionSummary, error) {
+func readSessionList(ctx context.Context, client rpcClient, includeArchived ...bool) ([]view.SessionSummary, error) {
 	var sessions []view.SessionSummary
 	seen := make(map[string]bool)
 	cursors := make(map[string]bool)
@@ -77,6 +77,9 @@ func readSessionList(ctx context.Context, client rpcClient) ([]view.SessionSumma
 	totalBytes := 0
 	for pageCount := 0; pageCount < 1001; pageCount++ {
 		params := map[string]any{"limit": 64}
+		if len(includeArchived) > 0 && includeArchived[0] {
+			params["includeArchived"] = true
+		}
 		if cursor != "" {
 			params["cursor"] = cursor
 		}
@@ -98,7 +101,7 @@ func readSessionList(ctx context.Context, client rpcClient) ([]view.SessionSumma
 				return nil, errors.New("Invalid or duplicate session summary")
 			}
 			seen[summary.ID] = true
-			sessions = append(sessions, view.SessionSummary{ID: summary.ID, Title: summary.Title, CWD: summary.CWD, CreatedAt: summary.CreatedAt, Status: summary.Status})
+			sessions = append(sessions, summary.view())
 		}
 		cursor, err = pageCursor(page.NextCursor)
 		if err != nil || cursor != "" && (cursors[cursor] || len(page.Sessions) == 0) {
@@ -110,6 +113,10 @@ func readSessionList(ctx context.Context, client rpcClient) ([]view.SessionSumma
 		cursors[cursor] = true
 	}
 	return nil, errors.New("Session list exceeds the page budget")
+}
+
+func (summary sessionSummary) view() view.SessionSummary {
+	return view.SessionSummary{ID: summary.ID, Title: summary.Title, CWD: summary.CWD, CreatedAt: summary.CreatedAt, UpdatedAt: summary.UpdatedAt, Status: summary.Status, Archived: summary.Archived}
 }
 
 func readSessionHistory(ctx context.Context, client rpcClient, id string, minimumSeq uint64) (projection.Transcript, uint64, error) {

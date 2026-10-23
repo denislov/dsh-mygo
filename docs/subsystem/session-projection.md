@@ -34,6 +34,7 @@
 - 助手 Markdown 增量展示及工具折叠/只读 diff；reasoning、工具参数不展示为临时正文。原生 Sessions 历史入口回放正文；usage/context 不展示。
 - model/selection 是 Host 提交的持久选择意图，参与 nextSeq 顺序与历史回放，但不增加聊天正文行。Settings 以匹配的 Host 确认更新当前模型标签；真实请求配置仍由 DSH 生成。模型变更产生的 synthetic model-selection context 不是用户输入，不进入 transcript。
 - session/title 参与持久 seq 校验，更新 Host 会话摘要而不增加聊天正文行；rename 返回的 nextSeq 包含该提交。列表更新时间来自已读持久事件时间，标题与排序以 Host 列表为准。归档状态由 DSH workspace registry 管理，不生成 transcript 行；取消归档后的历史仍按原序列恢复，不重写原日志。
+- 当前会话重命名的 UI 确认必须匹配提交事件的标题和序列；RPC 超时或确认失败后，目录刷新与 history 回放一起重建安全边界，保留 composer 草稿，不把目录中的 nextSeq 直接当成已消费序列。后台目标重命名的事件不进入当前会话投影。
 - configuration/default-model 和凭据写入属于 Host profile 配置，不产生聊天/模型选择事件，不推进当前 session nextSeq。默认模型只在显式 useDefaultModel 的新建/冷恢复中读取；会话标签始终取实际 Host session 路由，不把配置快照投影成当前路由。
 - 助手保留文本块的前导空白与末尾换行，不用 TrimSpace 改写代码缩进/开放围栏；多文本块仍以两个换行连接。临时和提交投影均显式标记 Truncated，截断上限仍为 8000 rune（省略标记另计），不保留第二份完整历史或推断缺失内容。
 

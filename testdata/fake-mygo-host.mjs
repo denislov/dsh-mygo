@@ -135,6 +135,17 @@ if (process.argv.includes('--sessions')) {
     },
   }
 }
+if (process.argv.includes('--session-management')) {
+  const archived = new Set()
+  ctx.sessionTitle = {
+    rename(session, title) { session.append('session/title', { title: title.trim(), messageSeqs: [], source: { kind: 'user' } }) },
+  }
+  ctx.workspaceRegistry = {
+    get archivedSessionIds() { return [...archived] },
+    async archiveSession(id) { archived.add(id) },
+    async unarchiveSession(id) { archived.delete(id) },
+  }
+}
 if (process.argv.includes('--models')) {
   ctx.llm.listProviders = () => [{ id: 'test', name: 'Test provider' }]
   ctx.llm.listModels = async (provider) => [{ provider, id: 'echo', name: 'Echo' }, { provider, id: 'route-probe', name: 'Route probe' }]
