@@ -1,10 +1,13 @@
 package host
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"dsh-mygo/internal/version"
 )
 
 func TestResolveLaunchOverride(t *testing.T) {
@@ -71,6 +74,25 @@ func writeTestFile(t *testing.T, path string) {
 	}
 }
 
+func writeRuntimeManifest(t *testing.T, runtimeDir, app string, protocol int, dsh string) {
+	t.Helper()
+	data, err := json.Marshal(map[string]any{"app": app, "protocolVersion": protocol, "dsh": dsh})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(runtimeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runtimeDir, "manifest.json"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeValidRuntimeManifest(t *testing.T, runtimeDir string) {
+	t.Helper()
+	writeRuntimeManifest(t, runtimeDir, version.App, version.Protocol, version.DSH)
+}
+
 func TestResolveLaunchBundledHost(t *testing.T) {
 	resources := t.TempDir()
 	runtimeDir := filepath.Join(resources, "runtime")
@@ -78,6 +100,7 @@ func TestResolveLaunchBundledHost(t *testing.T) {
 	node := filepath.Join(runtimeDir, "node", "node.exe")
 	writeTestFile(t, hostEntry)
 	writeTestFile(t, node)
+	writeValidRuntimeManifest(t, runtimeDir)
 
 	config, err := ResolveLaunch(LaunchOptions{ResourcesDir: resources, Profile: "mygo", CWD: "C:/work"})
 	if err != nil {
@@ -124,6 +147,7 @@ func TestResolveLaunchBundledDshFallback(t *testing.T) {
 	dshEntry := filepath.Join(runtimeDir, "node_modules", "@deepseek-ai", "dsh", "lib", "bin.js")
 	writeTestFile(t, node)
 	writeTestFile(t, dshEntry)
+	writeValidRuntimeManifest(t, runtimeDir)
 
 	config, err := ResolveLaunch(LaunchOptions{ResourcesDir: resources, Profile: "mygo", CWD: "C:/work"})
 	if err != nil {
@@ -134,6 +158,31 @@ func TestResolveLaunchBundledDshFallback(t *testing.T) {
 	}
 	if len(config.Args) != 3 || config.Args[0] != dshEntry || config.Args[1] != "--profile" || config.Args[2] != "mygo" {
 		t.Fatalf("args = %v", config.Args)
+	}
+}
+
+func TestResolveLaunchRejectsMissingManifest(t *testing.T) {
+	resources := t.TempDir()
+	runtimeDir := filepath.Join(resources, "runtime")
+	writeTestFile(t, filepath.Join(runtimeDir, "mygo-host.mjs"))
+	writeTestFile(t, filepath.Join(runtimeDir, "node", "node.exe"))
+
+	_, err := ResolveLaunch(LaunchOptions{ResourcesDir: resources, Profile: "mygo", CWD: "C:/work"})
+	if err == nil || !strings.Contains(err.Error(), "missing") {
+		t.Fatalf("err = %v, want missing manifest", err)
+	}
+}
+
+func TestResolveLaunchRejectsIncompatibleManifest(t *testing.T) {
+	resources := t.TempDir()
+	runtimeDir := filepath.Join(resources, "runtime")
+	writeTestFile(t, filepath.Join(runtimeDir, "mygo-host.mjs"))
+	writeTestFile(t, filepath.Join(runtimeDir, "node", "node.exe"))
+	writeRuntimeManifest(t, runtimeDir, "0.0.0", version.Protocol, version.DSH)
+
+	_, err := ResolveLaunch(LaunchOptions{ResourcesDir: resources, Profile: "mygo", CWD: "C:/work"})
+	if err == nil || !strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("err = %v, want manifest mismatch", err)
 	}
 }
 

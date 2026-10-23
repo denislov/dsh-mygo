@@ -45,7 +45,9 @@ func main() {
 	dshHome := flag.String("dsh-home", "", "optional DSH_HOME override")
 	maxFrame := flag.Int("max-frame", channel.DefaultMaxFrameBytes, "maximum JSON-RPC frame bytes")
 	hostCommand := flag.String("host-command", "", "override the host executable")
+	logDirFlag := flag.String("log-dir", "", "override the logs directory (testing)")
 	flag.Parse()
+	mygo.App.SetName("dsh-mygo")
 	useHostDefaults := useHostDefaultRoute(flag.CommandLine)
 	if *profile == "sdk" && !*sdkProtocol {
 		log.Fatal("-profile sdk requires -sdk-protocol")
@@ -61,6 +63,13 @@ func main() {
 	resourcesDir, err := mygo.App.Path(mygo.PathResources)
 	if err != nil {
 		log.Fatal(fmt.Errorf("resolve resources: %w", err))
+	}
+	if *logDirFlag != "" {
+		absolute, err := filepath.Abs(*logDirFlag)
+		if err != nil {
+			log.Fatal(fmt.Errorf("resolve log directory: %w", err))
+		}
+		mygo.App.SetPath(mygo.PathLogs, absolute)
 	}
 	logDir, logErr := mygo.App.Path(mygo.PathLogs)
 	if logErr != nil {
@@ -119,7 +128,6 @@ func main() {
 	})
 	uiModel := application.Model()
 
-	mygo.App.SetName("dsh-mygo")
 	mygo.App.WhenReady(func() {
 		window.Store(mygo.NewWindow(mygo.WindowOptions{
 			Title:     "dsh-mygo",

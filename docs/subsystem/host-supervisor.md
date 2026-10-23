@@ -37,7 +37,7 @@ Host 入口在启动前完成版本校验、`mygo` profile 选择与会话创建
 2. `resources/runtime/node_modules/@deepseek-ai/dsh/lib/bin.js`：bundled `dsh` CLI（私有入口缺失时的兼容回退）。
 3. `PATH` 上的 `dsh`（仅开发期，且必须校验版本）。
 
-`-host-command` 与 `-dsh-dir` 分别覆盖前两项。bundled 入口存在但 Node 缺失时返回错误，不静默回退到 PATH。UI 显示可操作的错误。
+`-host-command` 与 `-dsh-dir` 分别覆盖前两项。bundled 入口存在但 Node 缺失、`runtime/manifest.json` 缺失或与本 app/协议/DSH 版本不一致时返回错误，不静默回退到 PATH。UI 显示可操作的错误。
 
 ### 首启 profile
 

@@ -1,10 +1,14 @@
 package host
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"dsh-mygo/internal/version"
 )
 
 // LaunchOptions selects the DeepSeek Harness host command.
@@ -86,6 +90,9 @@ func bundledLaunch(resourcesDir, profile, cwd string, environment []string) (Con
 		if err != nil {
 			return Config{}, false, err
 		}
+		if err := validateRuntimeManifest(runtimeDir); err != nil {
+			return Config{}, false, err
+		}
 		return Config{
 			Command: node,
 			Args:    []string{hostEntry, profile},
@@ -99,6 +106,9 @@ func bundledLaunch(resourcesDir, profile, cwd string, environment []string) (Con
 		if err != nil {
 			return Config{}, false, err
 		}
+		if err := validateRuntimeManifest(runtimeDir); err != nil {
+			return Config{}, false, err
+		}
 		return Config{
 			Command: node,
 			Args:    []string{dshEntry, "--profile", profile},
@@ -107,6 +117,36 @@ func bundledLaunch(resourcesDir, profile, cwd string, environment []string) (Con
 		}, true, nil
 	}
 	return Config{}, false, nil
+}
+
+func validateRuntimeManifest(runtimeDir string) error {
+	path := filepath.Join(runtimeDir, "manifest.json")
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("bundled runtime is incomplete: missing %s", path)
+	}
+	if err != nil {
+		return fmt.Errorf("read bundled runtime manifest: %w", err)
+	}
+	if len(data) > 64<<10 {
+		return fmt.Errorf("bundled runtime manifest is too large: %s", path)
+	}
+	var manifest struct {
+		App             string `json:"app"`
+		ProtocolVersion int    `json:"protocolVersion"`
+		DSH             string `json:"dsh"`
+	}
+	if json.Unmarshal(data, &manifest) != nil {
+		return fmt.Errorf("invalid bundled runtime manifest: %s", path)
+	}
+	if manifest.App != version.App || manifest.ProtocolVersion != version.Protocol || manifest.DSH != version.DSH {
+		return fmt.Errorf(
+			"bundled runtime does not match this app: app %q, protocol %d, DSH %q; want app %q, protocol %d, DSH %q",
+			manifest.App, manifest.ProtocolVersion, manifest.DSH,
+			version.App, version.Protocol, version.DSH,
+		)
+	}
+	return nil
 }
 
 func bundledNode(runtimeDir string) (string, error) {

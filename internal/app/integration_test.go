@@ -194,7 +194,11 @@ func realMygoLaunch(t *testing.T, mockModel bool) (host.Config, string) {
 		t.Fatal(err)
 	}
 	dshHome := t.TempDir()
-	if err := host.EnsureProfile(dshHome, filepath.Join(root, "resources", "host"), "mygo"); err != nil {
+	bundleDir := filepath.Join(root, "resources", "host")
+	if resourcesDir != "" {
+		bundleDir = filepath.Join(resourcesDir, "host")
+	}
+	if err := host.EnsureProfile(dshHome, bundleDir, "mygo"); err != nil {
 		t.Fatalf("seed profile: %v", err)
 	}
 	launch, err := host.ResolveLaunch(host.LaunchOptions{

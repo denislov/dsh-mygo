@@ -111,6 +111,7 @@ node --test resources/host/tests/*.test.mjs
 
 ## 打包测试
 
+- 打包目录 smoke：`node scripts/smoke-packaged.mjs` 验证 manifest/版本、打包资源真实回合（composition + restart）、干净 `DSH_HOME` 首启、session 与应用日志。
 - 安装包 smoke：窗口打开、Host ready、完成一个不调用模型的回合。
 - 签名：Windows `signtool verify`；macOS `codesign --verify` 与公证。
 - 更新：旧版本 → 新版本，会话/设置保留；delta 校验。

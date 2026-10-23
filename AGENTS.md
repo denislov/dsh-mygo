@@ -94,6 +94,7 @@ docs/
 go tool mygo dev                    # 开发运行（默认 dsh --profile mygo；首启自动创建 profile）
 go tool mygo build                  # 打包（buildCommand 先构建 resources/runtime）
 node scripts/build-runtime.mjs      # 单独构建 bundled runtime（Node + DSH 闭包）
+node scripts/smoke-packaged.mjs     # 打包产物 smoke（Windows）
 go test ./...                       # 单元测试
 go test -race ./...                 # 并发改动
 CGO_ENABLED=0 go test ./...         # 纯 Go 构建

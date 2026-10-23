@@ -27,6 +27,7 @@ go tool mygo dev
 go test ./...
 go tool mygo build          # buildCommand 先构建 resources/runtime
 node scripts/build-runtime.mjs
+node scripts/smoke-packaged.mjs  # 打包产物 smoke（Windows）
 ```
 
 原生窗口 + fake host（无需 DSH 或 API key）：
