@@ -1,6 +1,6 @@
 # 开发进度与路线图
 
-> 统计基线：`9faa9b6`（2026-10-23 13:51）；能力进度包含 M2-4a 草稿、M3-2 大历史、M2-4b 界面偏好与本次 M2-5 附件/引用变更，更新于 2026-10-24。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
+> 统计基线：`9faa9b6`（2026-10-23 13:51）；能力进度包含 M2-4a 草稿、M3-2 大历史、M2-4b 界面偏好、M2-5 附件/引用与本次 M2-6a usage/context 变更，更新于 2026-10-24。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
 
 ## 1. 结论
 
@@ -8,7 +8,7 @@
 
 一句话：**能开发、能演示、能在开发机上真实跑；还不能交给普通用户安装使用。**
 
-判断依据：协议与 UI 主链路已经闭环，M0 工程基线、M1 运行时/打包/安装器 smoke、自签名发布构建、手工崩溃恢复、会话管理、缺口恢复、权限 UI、草稿/界面偏好、附件与引用、有界历史窗口/句柄回收已完成；干净机器验收、深度信息与 Windows 发布工程仍是主要缺口；macOS 作为后续发布单元。
+判断依据：协议与 UI 主链路已经闭环，M0 工程基线、M1 运行时/打包/安装器 smoke、自签名发布构建、手工崩溃恢复、会话管理、缺口恢复、权限 UI、草稿/界面偏好、附件与引用、有界历史窗口/句柄回收已完成，深度信息已有 usage/context；干净机器验收、plan/todo/goal 与子代理状态、Windows 发布工程仍是主要缺口；macOS 作为后续发布单元。
 
 ## 2. 事实快照
 
@@ -60,6 +60,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 | 本机编辑状态 | 按 DSH_HOME/profile 隔离的有界草稿与最近会话、原子保存/冲突检测/损坏备份、确认发送后清除、启动恢复/失败复制与异步退出保存 | `internal/preferences`、`internal/app/local_state.go`、`TestAgainstMygoLocalEditingState` |
 | 界面偏好 | 独立面板、跟随系统/浅色/深色、中英文界面、Enter/Ctrl+Enter 与有限命令改绑/禁用、v1→v2 迁移与保存失败保护 | `internal/view/preferences.go`、`internal/i18n`、`internal/app/ui_preferences.go`、偏好/输入/重启回归 |
 | 附件与引用 | 独立 `attachments` 能力与图片策略、canonical base64/类型/预算/路由校验、事件前持久提交、历史元数据行、粘贴/拖放/选择文件与 `@path` 补全 | `resources/host/attachments.mjs`、`internal/attachment`、`internal/app/attachments.go`、`internal/view/mentions.go`、`TestAgainstMygoRealAttachments` |
+| 深度信息（usage/context） | 最新一步 token 计数与路由容量、非法计数丢弃、header 单行摘要、未知容量不推算 | `internal/projection`（`assistant/message.usage`、`request/context`）、`internal/view/usage.go`、`TestAgainstMygoRealUsageContext` |
 | 大历史与资源回收 | 反向尾页/更早页/返回最新、独立持久目录投影、缓存缺失降级、只读旧窗口和展示缓存上限、非当前句柄回收 | `resources/host/catalog.mjs`、`history.mjs`、`server.mjs`、`internal/app/history_window.go`、`TestAgainstMygoLargeHistoryAndReleasedSessions` |
 | 回归入口 | 旧 SDK 链路保留为显式 `-sdk-protocol -profile sdk` | `main.go`、`testdata/fake-sdk-host.mjs` |
 | 工程基线 | 正式 identifier、版本单点、Windows/Linux CI、构建产物重建 | `versions.json`、`internal/version`、`.github/workflows/ci.yml` |
@@ -86,7 +87,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 - **权限模式扩展**：当前会话展示/切换、危险确认和冷恢复已接通；未来会话默认权限编辑仍后置，UI 不更改部署环境。
 - **UI 偏好扩展**：草稿、最近会话、主题、中英文与发送/新建/偏好/停止快捷键可配置并恢复；侧栏选择、搜索/复制等更广命令及任意按键录制后置。窗口尺寸/位置仍由 MyGo StateKey 处理。
 - **附件与引用**：图片输入契约、粘贴/拖放/选择文件、`@path` 补全与历史引用展示已完成；`/` 命令留扩展，附件缩略图读取未实现。
-- **深度信息**：usage/context/compaction 不展示；`subagent/*` 协议表有定义但 Host 不发送、UI 不投影；plan/todo/goal 未投影。
+- **深度信息**：usage/context 已在 header 展示最新一步与路由容量；compaction 不展示；`subagent/*` 协议表有定义但 Host 不发送、UI 不投影；plan/todo/goal 未投影。
 - **会话形态**：只支持单活跃会话；运行中会话不能 attach；后台会话的审批/提问不呈现。Host 同时拥有上限仍为 8，导航与冷目标管理会自动回收退休句柄；释放后重开使用冷恢复路由。
 - **本地化扩展**：应用标签/常用提示使用集中双语词表，并同步 MyGo 内建控件；用户/工具/提问载荷保留原文，技术诊断允许英文回退。Host 采用加载后的 locale，运行中更改在下次 Host 启动生效；其它语言与系统语言自动匹配后置。
 
@@ -144,7 +145,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 - 权限模式 UI（已完成）：实际预设/sandbox/approval 展示与当前会话切换，危险 bundle 明确确认；Host 写入会话日志并等待落盘，失败必须刷新。
 - UI 偏好持久化（已完成）：草稿/最近会话与主题、双语界面和有限快捷键配置，编辑文件 v1→v2 无损迁移，保存失败保留原文/旧文件；更多侧栏和命令偏好继续扩展。
 - 附件与引用（已完成）：图片类型白名单、预算校验与 Host 事件前提交、粘贴/拖放/选择文件、`@path` 补全与引用展示已接通；`/` 命令留扩展，缩略图读取未实现。
-- 深度信息：usage/context 最小展示；subagent/plan/todo 先做投影。
+- 深度信息（进行中）：usage/context 最小展示已完成；plan/todo/goal 投影与子代理状态待接。
 
 验收：560×420 到宽屏都可用；"找会话 → 改名 → 切模型 → 发图 → 审批/提问 → 停止"全流程通过；错误恢复不丢草稿。
 
@@ -174,7 +175,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 ## 6. 建议的下一批任务（PR 粒度）
 
-1. **M2-6 深度信息**：先展示 Host 提供的 usage/context，再接 plan/todo 与子代理状态；运行中 attach 和后台会话交互保持 M3 后续单独推进。
+1. **M2-6 深度信息（续）**：usage/context 已完成；继续 plan/todo/goal 投影与子代理状态；运行中 attach 和后台会话交互保持 M3 后续单独推进。
 2. **M1-4 干净机器验收**：项目所有者因没有干净 Windows VM，决定本轮跳过并继续 M2；未验收，不标记通过。Windows 发布前重新安排离线首启与证书提示流程检查。
 
 M2-1 会话管理后端已完成：重命名写入 `session/title` 并等待落盘；归档复用独立挂载的 DSH workspace registry，保留日志并支持取消归档。实际检查：`go test ./...`（235 项）、`go vet ./...`、Node Host/脚本回归（55/55）、`node scripts/test-real-host.mjs --runtime`、`git diff --check` 及修改文档的本地链接检查均通过。真实 `TestMygoRealHistoryAfterRestart` 验证标题/归档跨重启保留、取消归档和历史前缀不变；付费模型测试因没有 key 跳过。该批未重建安装器；侧栏与管理 UI 的验证见下述 M2-2。
@@ -202,6 +203,10 @@ M2-4b 界面偏好已完成：独立设备级面板支持 system/light/dark、en
 M2-5 附件与引用已完成：`attachments` 只在 Host 挂载附件存储且能校验模型模态时协商，`initialize` 返回媒体类型、base64/单图/总量/数量/像素/边长上限；`session/prompt` 接受 image 块（canonical base64、可选显示名），Host 先校验预算与当前路由模态，再经 DSH 附件服务在 user 事件前提交持久引用；任何失败不产生部分写入且不回传 payload。投影只保留 `attachmentId/mediaType/bytes/width/height/name`，畸形引用丢弃、纯图片消息保留一行；`model/list` 增加 sanitized `inputModalities`，未知模态放行、text-only 拒绝。Composer 支持 `transfer.PNG` 剪贴板粘贴、元素与窗口级文件拖放、原生图片选择、暂存 chips 移除与纯图片发送；非图片文件转为 `@path` 引用，`@` 补全用 TextSelection+Popover 列出会话工作目录候选并支持 Tab/Enter/Escape。App 发送前按协商上限校验并构造 text+image 块，成功后清空暂存、失败保留草稿与暂存图片；暂存图片不写入本地草稿文件，切换会话或重启清空。下一项为 M2-6 深度信息。
 
 本批实际检查：`CGO_ENABLED=0 go test ./...`（346 项通过，37 项真实 Host/付费组跳过）、`go test -race ./internal/app ./internal/view ./internal/projection ./internal/attachment ./internal/channel ./internal/i18n`（297 项）、`go tool mygo vet .`、`go vet ./...`、Node Host/脚本（79/79）、bundled runtime 完整真实组合均通过。`TestAgainstMygoFakeHostAttachments` 覆盖 fake Host 全链路；`TestAgainstMygoRealAttachments` 用真实 DSH 附件存储提交 2×2 PNG，验证事件前持久化、规范化元数据与历史只带引用；Tester 覆盖粘贴、拖放、chips、纯图片发送与 `@` 补全。Windows 原生窗口用 UIA 复验 `@path` 补全（Popover 候选、点击插入 `@notes.txt`、发送与回显）并截图；同一构建中确认 Attach image 按钮与原生选择器可打开，但受当前会话剪贴板/UIA 输入注入限制，粘贴与文件选择未能完成端到端自动化，相关路径由 Tester 与真实 Host 覆盖。未重建安装器、未跑打包/安装 smoke；未读取 `.env` 或调用付费模型；macOS 未验证。
+
+M2-6a usage/context 已完成：`assistant/message.usage` 的最新一步 token 计数（文本与工具-only 步骤均更新）和 `request/context` 的 `provider`/`model`/`contextWindow` 进入会话级指标，不新增正文行；负数或超界计数按缺失处理，未知容量/用量保持未知，不跨历史窗口求和、不写回日志、不改变 nextSeq。Header 增加单行摘要（`Context 已用 / 容量 · 百分比 · In / Out · cache`），Host 未提供事件时保持安静；指标行与中英文词表覆盖，Tester 验证组合/部分/空指标。fake Host 的 `--usage` 提供事件形状，真实 Host 用 mock adapter 端到端验证 `mygo-mock/echo` 路由与 1/1 token、未知容量保持 0。下一步为 plan/todo/goal 投影。
+
+本批实际检查：`CGO_ENABLED=0 go test ./...`（356 项通过，38 项真实 Host/付费组跳过）、`go test -race ./internal/app ./internal/view ./internal/projection ./internal/attachment ./internal/channel ./internal/i18n`（307 项）、`go tool mygo vet .`、`go vet ./...`、Node Host/脚本（79/79）、bundled runtime 完整真实组合均通过。新增 `TestAgainstMygoFakeHostUsageAndContext` 与真实 `TestAgainstMygoRealUsageContext`；投影层覆盖文本/工具-only usage、非法计数、路由容量、重复事件与畸形载荷上界。本批未重建安装器、未跑打包/安装 smoke；未读取 `.env` 或调用付费模型；macOS 未验证。
 
 ## 7. 风险与依赖
 

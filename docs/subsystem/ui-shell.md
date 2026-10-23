@@ -43,6 +43,7 @@ UI 壳层是 MyGo 进程里的原生界面：
 - 工具卡片使用原生 Collapsible，默认折叠，展开状态绑定稳定工具行 ID，结果更新/列表位置变化不重置。展开显示预览和 `View details`；原生检视器提供 Arguments / Result / Changes、逐 hunk 导航和只读 DiffView，大 hunk 明确回退文本。不读写显示路径，不提供应用/撤销改动操作。
 - 检视器只保留一个 hunk 的 editor 状态；关闭、结果更新和淘汰释放旧缓冲。审批/提问优先，暂时隐藏检视器，避免两个 Modal 叠加；交互结束后可以继续查看。
 - 协商 `session.history` 后，header 提供 Sessions，当前会话 ID 与 cwd 显示在独立信息行。侧栏或选择弹窗显示当前 profile 的有界完整摘要列表、时间、状态与目录，支持 Refresh / New conversation / 选择恢复；窄窗口用弹窗降级。旧 Host/SDK 不显示入口。
+- 会话指标行显示最新一步 token 用量与路由容量（`Context 已用 / 容量 · 百分比 · In / Out · cache`），只在 Host 提供对应事件时出现；单行截断，容量或用量未知时省略对应片段，不阻塞 Sessions/Settings 入口，也不参与发送或历史回放。
 - 仅 idle 且无审批/提问时允许导航。刷新可 Close/Escape 取消；历史加载期间显示 Loading、禁用发送与编辑，不能重复新建/切换或关闭弹窗。失败保留当前 transcript/草稿，弹窗中显示可重试的安全错误；审批/提问优先，不叠加会话弹窗与工具检视器。
 - 切换成功后才整体替换 transcript，清除工具展开/检视器、复制反馈、旧 ListState 和临时流式状态；transcript 与 composer 的控件身份包含 session id。草稿按会话隔离并通过设备级编辑文件恢复。新建使用启动 cwd；新建/冷恢复按 Host 默认或显式 flags 选择模型，冷恢复保持持久 cwd，仍由 Host 持有的会话保持原路由。
 - Settings 提供当前会话模型面板：provider、模型目录建议、实际 Model ID、effort 与 Refresh/Apply model/Close。只在 idle 无交互、无会话操作时启用，Host 确认后显示新模型；读取可取消，提交期间防重复/禁止关闭，失败保留表单和草稿。面板内容可滚动，底部操作始终可达；header 将模型/Host 版本信息放在独立行，避免窄窗口挤掉 Sessions/Settings。

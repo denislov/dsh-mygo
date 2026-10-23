@@ -35,6 +35,7 @@ const ctx = {
             let streamIndex = 0
             const chunk = (chunk) => stream({ type: 'chunk', index: streamIndex++, time: Date.now(), chunk })
             event('turn/start', { turn })
+            if (process.argv.includes('--usage')) event('request/context', { provider: 'test', model: 'echo', contextWindow: 128000 })
             event('user/message', message)
             work.finish = (aborted, approvalOutcome) => {
               if (work.finished) return
@@ -60,10 +61,12 @@ const ctx = {
                     { path: 'second.txt', oldText: null, newText: 'created' },
                   ] } } : {}),
                 })
-                const seq = event('assistant/message', { turn, step: 1, message: { content: [{ type: 'text', text: reply }] } })
+                const usage = process.argv.includes('--usage') ? { inputTokens: 1200, outputTokens: 350, totalTokens: 1550, cacheReadTokens: 200 } : undefined
+                const seq = event('assistant/message', { turn, step: 1, message: { content: [{ type: 'text', text: reply }] }, ...(usage ? { usage } : {}) })
                 if (work.streaming) stream({ type: 'end', index: streamIndex, outcome: { kind: 'committed', eventType: 'assistant/message', seq } })
               } else if (work.streaming) {
-                const seq = event('assistant/message', { turn, step: 1, interrupted: true, message: { content: [{ type: 'text', text: work.markdown ? markdownPrefix : 'Live prefix' }] } })
+                const usage = process.argv.includes('--usage') ? { inputTokens: 900, outputTokens: 120 } : undefined
+                const seq = event('assistant/message', { turn, step: 1, interrupted: true, message: { content: [{ type: 'text', text: work.markdown ? markdownPrefix : 'Live prefix' }] }, ...(usage ? { usage } : {}) })
                 stream({ type: 'end', index: streamIndex, outcome: { kind: 'committed', eventType: 'assistant/message', seq } })
               }
               event('turn/end', { reason: aborted ? { kind: 'aborted', reason: { kind: 'user' } } : { kind: 'completed' } })

@@ -85,6 +85,8 @@ func (a *App) publishTranscript() {
 	}
 	a.transcriptDirty = false
 	a.model.Items = a.transcript.Items()
+	a.model.Usage = a.transcript.Usage
+	a.model.Context = a.transcript.Context
 	if item, visible := a.stream.Item(); visible {
 		a.model.Items = append(slices.Clone(a.model.Items), item)
 	}

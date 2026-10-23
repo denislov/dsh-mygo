@@ -32,7 +32,8 @@
 - `question/request` / `question/closed` 同样由交互层管理，不把本地表单或取消动作写成历史。结构化答案通过真实 `ask_user_question` 工具结果进入 Host 日志；协议只支持阻塞提问，timed/continued 问题与迟到回复不进入投影。会话 idle 清理本会话提问，无 agent 请求不随会话 idle 消失。
 - 列表预览按 rune 截断：消息 8000、工具参数/结果 4000；工具详情按下述独立字节预算保留，超限或淘汰必须提示，不冒充完整内容。打开历史也遵守相同展示上限，不承诺完整原文复制或按需加载被淘汰详情。
 - 附件只投影显示元数据：`attachmentId`（不透明标识）、`mediaType`、`bytes`、`width`、`height`、可选 `name`；不读取或缓存图片字节，不把引用解释成路径。只有 png/jpeg/webp/gif 且引用字段有界的块才进入 UI，畸形引用丢弃而不是渲染可疑内容；纯图片消息同样保留一行，不能因文本为空而消失。附件不进入本地草稿文件。
-- 助手 Markdown 增量展示及工具折叠/只读 diff；reasoning、工具参数不展示为临时正文。原生 Sessions 历史入口回放正文；usage/context 不展示。
+- 助手 Markdown 增量展示及工具折叠/只读 diff；reasoning、工具参数不展示为临时正文。原生 Sessions 历史入口回放正文；usage/context 作为会话级指标展示，不进入正文。
+- 会话指标取最新值而不累计：`assistant/message.usage` 提供最近一步的 token 计数（工具-only 步骤也更新），`request/context` 提供路由 `provider`/`model` 与 `contextWindow`。计数为负数或超出安全上界时按缺失处理；未知容量/用量保持未知，不推算、不跨历史窗口求和。展示只读取投影，不回写日志、不改变 nextSeq，也不进入下一次请求内容。
 - model/selection 是 Host 提交的持久选择意图，参与 nextSeq 顺序与历史回放，但不增加聊天正文行。Settings 以匹配的 Host 确认更新当前模型标签；真实请求配置仍由 DSH 生成。模型变更产生的 synthetic model-selection context 不是用户输入，不进入 transcript。
 - session/title 参与持久 seq 校验，更新 Host 会话摘要而不增加聊天正文行；rename 返回的 nextSeq 包含该提交。列表更新时间来自已读持久事件时间，标题与排序以 Host 列表为准。归档状态由 DSH workspace registry 管理，不生成 transcript 行；取消归档后的历史仍按原序列恢复，不重写原日志。
 - 当前会话重命名的 UI 确认必须匹配提交事件的标题和序列；RPC 超时或确认失败后，目录刷新与 history 回放一起重建安全边界，保留 composer 草稿，不把目录中的 nextSeq 直接当成已消费序列。后台目标重命名的事件不进入当前会话投影。
@@ -61,7 +62,7 @@ DSH 核心事件（`SessionEventMap`）：
 | `assistant/attempt` | 未产生可见消息的尝试；用于错误/重试展示 |
 | `tool/call` | 工具调用开始（名称、原始参数 JSON） |
 | `tool/result` | 工具结果、错误、`meta`（diff 等展示数据） |
-| `request/header` / `request/context` | 请求元数据；用于诊断，不直接展示 |
+| `request/header` / `request/context` | 请求元数据；`request/context` 更新路由容量指标，不增加正文行 |
 | `session/end-seed` | fork/恢复边界 |
 
 插件扩展事件按类型投影：
@@ -116,6 +117,13 @@ type ToolCallView struct {
     Diff      *DiffView   // 从 tool/result.meta 提取
 }
 type NoticeView struct { Kind string; Text string; Level Level }
+
+type UsageView struct {
+    InputTokens, OutputTokens      int
+    CacheReadTokens, CacheWriteTokens int
+    ReasoningTokens, TotalTokens   int
+}
+type ContextView struct { Provider string; Model string; Window int }
 ```
 
 字段名是实现建议，不是协议契约；协议契约以 [通道协议](channel-protocol.md) 为准。

@@ -18,6 +18,7 @@
 - 文本流式通过 `session.assistant-stream` capability 启用；Host 只转发自己拥有的确切 agent 的公开流式帧。旧 Host/SDK 保持仅提交模式，不自动降级协议。Go 只展示 text，reasoning/工具参数不进入临时行。
 - `session/create` 要求已有绝对目录 `cwd` 和显式 provider/model（可选 effort），或协商 settings.configuration 后单独传 useDefaultModel:true；两种路由不能混用。Host 验证模型路由后创建并拥有 session id。prompt 只接受自己创建或通过公开 agents.resume 恢复并拥有的会话和 text content，忙碌时拒绝新 prompt。
 - 创建结果中的 `session.nextSeq` 是创建完成时 DSH 的下一事件 offset。初始会话元数据不重放；其余完整提交事件从此 offset 开始转发。`session/event` 同时携带外层 `seq` 和原始 `event.seq`，两者必须相同。
+- DSH 提交事件按原样转发（含 `request/context` 等 log-only 事件）；哪些事件成为 UI 行、如何聚合为会话指标由投影层决定，Host 不替 UI 裁剪语义。
 - Go 忽略重复事件；实时缺口触发 resync（标记 `resyncing`、拉取 `session/history` 补齐、按序合并）；无法安全恢复或载荷非法时停止 Host 并报错。
 - 旧 SDK 的 `contentBlocks`、点分隔通知和隐式会话创建只在显式 `-sdk-protocol` 模式下启用，不自动降级。
 - UI 声明 `approval` / `question`，Host 返回双方交集；未协商时对应交互不可用，不能调用回答/取消提问方法。无 agent 提问使用空 `sessionId`，不冒用当前会话身份。阻塞提问与 timed/continued 提问都通过同一请求/回答通道。

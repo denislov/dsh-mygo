@@ -50,6 +50,8 @@ type Model struct {
 	Phase                Phase
 	ModelLabel           string
 	Detail               string
+	Usage                projection.UsageView
+	Context              projection.ContextView
 	Error                string
 	ErrorDetail          string
 	RecoveryOpen         bool
@@ -213,6 +215,9 @@ func header(c *mgo.Context, model *Model) {
 			mgo.Text(c, model.ActiveSessionLabel()).FontSize(11).TextColor(theme.TextMuted).SingleLine().Grow(1)
 			mgo.Text(c, model.SessionCWD).FontSize(11).TextColor(theme.TextMuted).SingleLine()
 		})
+	}
+	if label := usageContextLabel(model); label != "" {
+		mgo.Text(c.Key("usage-context"), label).Padding(0, 20, 8, 20).FontSize(11).SingleLine().TextColor(theme.TextMuted)
 	}
 	if model.Permission.Available {
 		label := model.T("Permissions: refresh Settings")

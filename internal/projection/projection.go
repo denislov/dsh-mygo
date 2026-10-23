@@ -57,6 +57,27 @@ type Attachment struct {
 	Name      string
 }
 
+// UsageView is the latest token accounting an adapter reported for one step.
+// It describes the model call that produced the newest assistant message; older
+// totals are not aggregated because history windows may omit earlier steps.
+type UsageView struct {
+	HasUsage         bool
+	InputTokens      int
+	OutputTokens     int
+	CacheReadTokens  int
+	CacheWriteTokens int
+	ReasoningTokens  int
+	TotalTokens      int
+}
+
+// ContextView is the route capacity the Host recorded for the next request.
+// Provider and Model are sanitized display strings, never request headers.
+type ContextView struct {
+	Provider string
+	Model    string
+	Window   int
+}
+
 // Event is one session-log event exactly as the SDK forwards it.
 type Event struct {
 	Type string          `json:"type"`
@@ -93,6 +114,10 @@ type Transcript struct {
 	seen            []sequenceRange
 	toolIndex       map[string]int
 	toolDetailBytes int
+	// Usage and Context are session-scoped metrics, not transcript rows. They
+	// follow the newest committed values and never advance nextSeq.
+	Usage   UsageView
+	Context ContextView
 }
 
 // Items returns the rows in session-log order. Callers must treat the slice
@@ -111,6 +136,8 @@ func (t *Transcript) Apply(event Event) bool {
 		return t.applyUser(event)
 	case "assistant/message":
 		return t.applyAssistant(event)
+	case "request/context":
+		return t.applyRequestContext(event)
 	case "tool/call":
 		return t.applyToolCall(event)
 	case "tool/result":
@@ -156,9 +183,16 @@ func (t *Transcript) applyAssistant(event Event) bool {
 	if json.Unmarshal(event.Data, &data) != nil {
 		return false
 	}
+	changed := false
+	// Usage travels with the assistant message; a step may carry accounting
+	// without visible text (a tool-only step), so it updates the banner too.
+	if usage := assistantUsage(event.Data); usage != t.Usage {
+		t.Usage = usage
+		changed = true
+	}
 	text, truncated := assistantSource(data.Message.Content)
 	if text == "" {
-		return false
+		return changed
 	}
 	item := Item{Seq: event.Seq, ID: eventID(event), Kind: KindAssistant, Title: "Assistant", Text: text, Truncated: truncated}
 	if data.Interrupted {
@@ -167,6 +201,78 @@ func (t *Transcript) applyAssistant(event Event) bool {
 	}
 	t.add(item)
 	return true
+}
+
+// assistantUsage extracts the optional step accounting, dropping implausible
+// numbers instead of trusting an adapter's raw counters.
+func assistantUsage(data json.RawMessage) UsageView {
+	var envelope struct {
+		Usage *struct {
+			InputTokens      int `json:"inputTokens"`
+			OutputTokens     int `json:"outputTokens"`
+			TotalTokens      int `json:"totalTokens"`
+			CacheReadTokens  int `json:"cacheReadTokens"`
+			CacheWriteTokens int `json:"cacheWriteTokens"`
+			ReasoningTokens  int `json:"reasoningTokens"`
+		} `json:"usage"`
+	}
+	if json.Unmarshal(data, &envelope) != nil || envelope.Usage == nil {
+		return UsageView{}
+	}
+	usage := UsageView{
+		HasUsage:         true,
+		InputTokens:      tokenCount(envelope.Usage.InputTokens),
+		OutputTokens:     tokenCount(envelope.Usage.OutputTokens),
+		CacheReadTokens:  tokenCount(envelope.Usage.CacheReadTokens),
+		CacheWriteTokens: tokenCount(envelope.Usage.CacheWriteTokens),
+		ReasoningTokens:  tokenCount(envelope.Usage.ReasoningTokens),
+		TotalTokens:      tokenCount(envelope.Usage.TotalTokens),
+	}
+	if usage.TotalTokens == 0 {
+		usage.TotalTokens = clampTokens(usage.InputTokens, usage.OutputTokens)
+	}
+	return usage
+}
+
+// applyRequestContext records the route capacity from the latest log-only
+// request context event. It never adds a transcript row.
+func (t *Transcript) applyRequestContext(event Event) bool {
+	var data struct {
+		Provider      string `json:"provider"`
+		Model         string `json:"model"`
+		ContextWindow int    `json:"contextWindow"`
+	}
+	if json.Unmarshal(event.Data, &data) != nil {
+		return false
+	}
+	context := ContextView{Window: tokenCount(data.ContextWindow)}
+	if safeReference(data.Provider) {
+		context.Provider = data.Provider
+	}
+	if safeReference(data.Model) {
+		context.Model = data.Model
+	}
+	if context == t.Context {
+		return false
+	}
+	t.Context = context
+	return true
+}
+
+// tokenCount rejects negative or absurd counters so one malformed event cannot
+// overflow the banner or tread on the JSON safe-integer bound.
+func tokenCount(value int) int {
+	if value < 0 || value > maxTokenCount {
+		return 0
+	}
+	return value
+}
+
+func clampTokens(input, output int) int {
+	if input > maxTokenCount-output {
+		return maxTokenCount
+	}
+	return input + output
 }
 
 func (t *Transcript) applyToolCall(event Event) bool {
@@ -444,4 +550,6 @@ const (
 	maxAttachmentNameRunes   = 128
 	maxAttachmentBytes       = 200 * 1024 * 1024
 	maxAttachmentDimension   = 8192
+	// Token counters beyond this bound are treated as absent.
+	maxTokenCount = 1 << 40
 )
