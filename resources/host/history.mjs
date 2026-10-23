@@ -11,13 +11,13 @@ export function sessionID(value) {
   return value
 }
 
-export function sessionSummary(header, record) {
+export function sessionSummary(header, record, metadata = record?.metadata ?? {}) {
   return {
-    id: sessionID(header.id), title: '', cwd: header.cwd ?? '',
+    id: sessionID(header.id), title: metadata.title || header.id.slice(0, 8), cwd: header.cwd ?? '',
     provider: record?.route?.provider ?? '', model: record?.route?.model ?? '', effort: record?.route?.effort ?? '',
-    createdAt: header.createdAt, updatedAt: header.createdAt,
+    createdAt: header.createdAt, updatedAt: metadata.updatedAt ?? header.createdAt,
     status: record?.handle ? (record.busy ? 'running' : record.handle.agent.status) : 'stored',
-    archived: false,
+    archived: metadata.archived ?? false,
     ...(header.parentSession === undefined ? {} : { parentId: header.parentSession }),
     ...(record?.handle ? { nextSeq: record.handle.agent.session.seq } : {}),
   }
@@ -29,6 +29,51 @@ export class SessionHistory {
     this.sessions = sessions
     this.maxPageBytes = maxPageBytes
     this.cursors = new Map()
+    this.metadata = new Map()
+  }
+
+  async describe(header, record, snapshot) {
+    const persistence = this.ctx.get('sessionPersistence')
+    if (!persistence) return sessionSummary(header, record)
+    snapshot ??= await persistence.stat(header.id)
+    const cached = this.metadata.get(header.id)
+    const seq = record?.handle?.agent.session.seq
+    let metadata
+    if (snapshot?.revision !== undefined && cached?.revision === snapshot.revision && cached.seq === seq) {
+      metadata = cached.value
+    } else {
+      const handle = await persistence.open(header.id, 'read')
+      metadata = { title: '', updatedAt: header.createdAt }
+      let offset = 0
+      let bytes = 0
+      const boundary = snapshot?.eventCount
+      try {
+        for (;;) {
+          const length = boundary === undefined ? 64 : Math.min(64, boundary - offset)
+          if (length === 0) break
+          const { events } = await handle.read(offset, length)
+          if (events.length > length || boundary !== undefined && events.length !== length) throw new Error('Invalid summary prefix')
+          for (const event of events) {
+            bytes += Buffer.byteLength(JSON.stringify(event))
+            if (offset >= 20000 || bytes > 32 * 1024 * 1024) throw fault('session/catalog-too-large', 'Session metadata exceeds the supported history budget')
+            if (event.seq !== offset || !Number.isSafeInteger(event.time) || event.time < 0) throw new Error('Invalid summary event')
+            metadata.updatedAt = Math.max(metadata.updatedAt, event.time)
+            if (event.type === 'session/title') {
+              const title = event.data?.title
+              if (typeof title !== 'string' || Buffer.byteLength(title) > 1024 || /[\u0000-\u001f\u007f]/.test(title)) throw new Error('Invalid stored title')
+              metadata.title = title
+            }
+            offset++
+          }
+          if (events.length < length) break
+        }
+      } finally { await handle.close() }
+      if (this.metadata.size >= 1000) this.metadata.delete(this.metadata.keys().next().value)
+      this.metadata.set(header.id, { revision: snapshot?.revision, seq, value: metadata })
+    }
+    const archived = this.ctx.get('workspaceRegistry')?.archivedSessionIds.includes(header.id) ?? false
+    if (record) record.metadata = { ...metadata, archived }
+    return sessionSummary(header, record, { ...metadata, archived })
   }
 
   limit(params) {
@@ -72,17 +117,32 @@ export class SessionHistory {
 
   async list(params) {
     const limit = this.limit(params)
+    if (params.includeArchived !== undefined && typeof params.includeArchived !== 'boolean') throw fault('protocol/invalid-params', 'Invalid includeArchived', -32602)
     let state
     if (params.cursor !== undefined) {
       state = this.cursor(params.cursor, 'list')
     } else {
       let snapshots
-      try { snapshots = await this.ctx.get('sessionPersistence').list() } catch {
+      try {
+        await this.ctx.get('sessionPersistence').flush()
+        snapshots = await this.ctx.get('sessionPersistence').list()
+      } catch {
         throw fault('session/list-failed', 'Could not list stored sessions')
       }
-      const sessions = snapshots.filter(({ header, formatStatus }) => header.origin !== 'subagent' && formatStatus !== 'migration-required')
-        .map(({ header }) => sessionSummary(header, this.sessions.get(header.id)))
-        .sort((left, right) => right.createdAt - left.createdAt || left.id.localeCompare(right.id))
+      const visible = snapshots.filter(({ header, formatStatus }) => header.origin !== 'subagent' && formatStatus !== 'migration-required')
+      if (visible.length > 1000) throw fault('session/catalog-too-large', 'The stored session catalog exceeds the supported snapshot budget')
+      const sessions = []
+      try {
+        for (const snapshot of visible) {
+          const id = snapshot.header.id
+          if (!params.includeArchived && this.ctx.get('workspaceRegistry')?.archivedSessionIds.includes(id)) continue
+          sessions.push(await this.describe(snapshot.header, this.sessions.get(id), snapshot))
+        }
+      } catch (error) {
+        if (error.kind === 'session/catalog-too-large') throw error
+        throw fault('session/list-failed', 'Could not read stored session metadata')
+      }
+      sessions.sort((left, right) => right.updatedAt - left.updatedAt || left.id.localeCompare(right.id))
       if (sessions.length > 1000 || Buffer.byteLength(JSON.stringify(sessions)) > 256 * 1024) {
         throw fault('session/catalog-too-large', 'The stored session catalog exceeds the supported snapshot budget')
       }
@@ -99,7 +159,7 @@ export class SessionHistory {
     if (params.direction !== undefined && params.direction !== 'forward') throw fault('protocol/invalid-params', 'Only forward history is supported', -32602)
     const record = this.sessions.get(id)
     if (!record?.handle) throw fault('session/not-found', 'Session is not owned by this host')
-    if (record.busy || record.modelUpdating || record.handle.agent.status !== 'idle') throw fault('session/busy', 'Wait for the session to become idle before reading history')
+    if (record.busy || record.modelUpdating || record.metadataUpdating || record.handle.agent.status !== 'idle') throw fault('session/busy', 'Wait for the session to become idle before reading history')
     const state = params.cursor === undefined ? { kind: 'history', id, offset: 0, nextSeq: record.handle.agent.session.seq } : this.cursor(params.cursor, 'history', id)
     const persistence = this.ctx.get('sessionPersistence')
     let events
@@ -122,5 +182,5 @@ export class SessionHistory {
     return { events: page, nextSeq: state.nextSeq, hasMore, ...(hasMore ? { nextCursor: this.save({ ...state, offset }) } : {}) }
   }
 
-  close() { this.cursors.clear() }
+  close() { this.cursors.clear(); this.metadata.clear() }
 }

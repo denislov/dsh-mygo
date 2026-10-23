@@ -91,7 +91,7 @@ export class ModelSettings {
     const provider = label(params.provider)
     const model = label(params.model)
     const effort = params.effort === undefined ? '' : label(params.effort, 256, true)
-    if (record.busy || record.modelUpdating || record.handle.agent.status !== 'idle') throw fault('session/busy', 'Wait for the session to become idle')
+    if (record.busy || record.modelUpdating || record.metadataUpdating || record.handle.agent.status !== 'idle') throw fault('session/busy', 'Wait for the session to become idle')
     record.modelUpdating = true
     try {
       const selected = { provider, model, ...(effort === '' ? {} : { reasoningEffort: this.server.reasoningEffort(effort) }) }

@@ -18,7 +18,7 @@ function runtime() {
     agents: {
       async create(options) {
         const agent = {
-          session: { id: options.sessionId }, status: 'idle',
+          session: { id: options.sessionId, header: { id: options.sessionId, createdAt: 0 } }, status: 'idle',
           followup(message) { this.message = message },
           cancel(cause) { this.cancelCause = cause; this.cancelCount = (this.cancelCount ?? 0) + 1 },
           async whenIdle() { this.status = 'idle' },

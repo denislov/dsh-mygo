@@ -9,6 +9,9 @@
   disabled: true
 
 - insert:
+    - id: mygo-workspace
+      name: '@deepseek-ai/dsh-workspace'
+
     - id: tool-ask-user
       name: '@deepseek-ai/dsh-tool-ask-user'
       config:

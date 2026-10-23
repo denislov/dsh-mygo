@@ -1,6 +1,6 @@
 # 开发进度与路线图
 
-> 代码基线：`9faa9b6`（2026-10-23 13:51）；决策更新于 2026-10-23。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
+> 统计基线：`9faa9b6`（2026-10-23 13:51）；能力进度包含本次 M2-1 会话管理后端变更，决策更新于 2026-10-23。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
 
 ## 1. 结论
 
@@ -50,6 +50,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 | --- | --- | --- |
 | 进程与协议 | spawn/stdio/stderr 尾、版本+能力协商、15 个方法、有界帧、通知背压、非法帧关闭 | `internal/host`、`internal/channel`、`resources/host/transport.mjs`、`tests/fixtures/protocol/` |
 | 会话 | create/list/resume/history、`nextSeq` 起点、单写者、分页游标与预算、冷恢复 | `resources/host/server.mjs`、`internal/app/session_reader.go`、`TestMygoRealHistoryAfterRestart` |
+| 会话管理后端 | rename、归档/取消归档、持久标题、真实活动时间、最近活动排序与归档过滤；独立 capability 与写入预占 | `resources/host/sessions.mjs`、`history.mjs`、`tests/history.test.mjs`、`TestMygoRealHistoryAfterRestart` |
 | 流式 | `session/assistant-stream`、临时行、提交替换、缺口/abandoned/截断 | `internal/projection/stream.go`、`TestAgainstMygoRealStreaming` |
 | 人机交互 | approval 与 question 的 answerer、FIFO 队列、超时/撤销/过期身份、多问题表单 | `internal/interaction`、`TestAgainstMygoRealApprovals`、`TestAgainstMygoQuestions` |
 | 投影与渲染 | user/assistant/tool/diff/notice、原生 Markdown 流式与代码复制、工具折叠与只读 hunk | `internal/projection`、`internal/view/markdown.go`、`tools.go` |
@@ -75,7 +76,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 ### 4.2 产品体验缺口（能用，但不像完整桌面客户端）
 
-- **会话侧栏与管理**：仍是弹窗；无固定侧栏、搜索、重命名、归档、删除、fork。Host 侧 `session/rename|archive|delete|fork` 方法尚未实现；列表 `title` 为空、`updatedAt` 等于 `createdAt`，没有按最近活动排序。
+- **会话侧栏与管理**：UI 仍是弹窗，无固定侧栏、搜索、重命名/归档操作入口。Host 已有 `session/rename|archive`（含取消归档）及真实 `title/updatedAt`、最近活动排序，UI 尚未协商这两个新能力；delete/fork 后置。冷元数据读取需要扫描有界日志，超出 20000 事件/32 MiB 的单会话会使目录查询明确失败，后续需独立投影索引与大历史方案。
 - **权限模式**：只有 `DSH_PERMISSION_MODE` 环境变量，UI 不能展示或切换，也没有危险模式确认。
 - **UI 偏好**：主题、语言、快捷键、最近会话、跨重启草稿未持久化（窗口尺寸/位置由 MyGo `StateKey` 处理）。
 - **附件与引用**：图片粘贴、文件拖放、`@path` 引用、`/` 命令均未实现；协议里 `attachments` 仍是后续契约。
@@ -85,7 +86,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 ### 4.3 协议与健壮性缺口
 
-- 实时缺口自动 resync（现在直接停 Host，需重启应用）。
+- 实时缺口自动 resync（现在暂停发送，通过恢复对话框手工重启 Host 回放，不要求重启整个应用）。
 - RPC 请求级取消（`$/cancel`），超时只能丢弃结果，不能撤销请求。
 - 流式重连 baseline（`revision` + `activeAttempt`）。
 - 历史增量向上加载；现在是全量回放，受 32 MiB / 20k 事件 / 1024 页预算限制，大会话可能打不开。
@@ -133,7 +134,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 目标：像桌面客户端，而不是演示程序。
 
 - 固定侧栏：会话常驻列表、搜索、新建；窄窗口降级为弹窗。
-- 会话管理：Host 侧 `rename/archive` + 事件 + UI；标题、`updatedAt`、按最近活动排序；delete/fork 后置。
+- 会话管理：Host 侧 `rename/archive`、标题、`updatedAt`、最近活动排序已完成；下一步接原生 UI 操作入口，delete/fork 后置。
 - 权限模式 UI：展示与切换（走 Host，不本地改环境变量），`danger-full-access` 明确确认。
 - UI 偏好持久化：主题/语言/快捷键/最近会话/草稿，原子写；i18n 决策落地。
 - 附件与引用：图片（类型白名单、base64 限额）、`@path`、拖放；`/` 命令先留扩展。
@@ -167,8 +168,10 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 ## 6. 建议的下一批任务（PR 粒度）
 
-1. **M1-4 干净机器验收**（0.5–1 天）：自签名 Authenticode、安装/卸载 smoke 与 Windows Job Object 已通过；在干净 Windows VM 上跑安装器 smoke 与离线首启，确认 SmartScreen/证书信任流程。
-2. **M2-1 会话管理后端**（2–3 天）：`session/rename` + `session/archive` + 列表 `title/updatedAt`；随后接侧栏第一版。
+1. **M2-2 会话侧栏与管理 UI**：协商 `session.rename/session.archive`；固定侧栏、标题搜索、重命名、归档与取消归档；窄窗口继续用弹窗，保留会话草稿与交互屏障。
+2. **M1-4 干净机器验收**：项目所有者因没有干净 Windows VM，决定本轮跳过并继续 M2；未验收，不标记通过。Windows 发布前重新安排离线首启与证书提示流程检查。
+
+M2-1 会话管理后端已完成：重命名写入 `session/title` 并等待落盘；归档复用独立挂载的 DSH workspace registry，保留日志并支持取消归档。实际检查：`go test ./...`（235 项）、`go vet ./...`、Node Host/脚本回归（55/55）、`node scripts/test-real-host.mjs --runtime`、`git diff --check` 及修改文档的本地链接检查均通过。真实 `TestMygoRealHistoryAfterRestart` 验证标题/归档跨重启保留、取消归档和历史前缀不变；付费模型测试因没有 key 跳过。本轮未重建安装器，固定侧栏与管理 UI 属于下一项任务。
 
 ## 7. 风险与依赖
 

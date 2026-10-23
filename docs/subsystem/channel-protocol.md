@@ -74,11 +74,11 @@
 
 | 方法 | 参数 | 结果 |
 | --- | --- | --- |
-| `session/list` | `{ cursor?, limit? }` | `{ sessions: SessionSummary[], nextCursor? }` |
+| `session/list` | `{ cursor?, limit?, includeArchived? }` | `{ sessions: SessionSummary[], nextCursor? }` |
 | `session/create` | `{ cwd, provider, model, effort? }` 或 `{ cwd, useDefaultModel:true }`（后者需 settings.configuration） | `{ session: SessionSummary }` |
 | `session/resume` | `{ sessionId, provider, model, effort? }` 或 `{ sessionId, useDefaultModel:true }`（后者需 settings.configuration） | `{ session: SessionSummary }` |
-| `session/rename` | `{ sessionId, title }` | `{ session: SessionSummary }` |
-| `session/archive` | `{ sessionId }` | `{}` |
+| `session/rename` | `{ sessionId, title }`（需 `session.rename`） | `{ session: SessionSummary }` |
+| `session/archive` | `{ sessionId, archived? }`（需 `session.archive`；默认 true，false 取消归档） | `{}` |
 | `session/delete` | `{ sessionId }` | `{}`（需要 capability `session.delete`） |
 | `session/fork` | `{ sessionId, messageId? }` | `{ session: SessionSummary }` |
 | `session/history` | `{ sessionId, cursor?, limit?, direction? }` | `{ events: SessionEvent[], nextCursor?, hasMore, nextSeq }` |
@@ -91,11 +91,20 @@
 
 `SessionSummary` 包含：`id`、`title`、`cwd`、`provider`、`model`、`effort`、`createdAt`、`updatedAt`、`status`、`parentId?`、`archived`；create/resume 结果额外带 `nextSeq`。
 
+### 会话管理
+
+- `session.rename` 仅在公开 `sessionTitle.rename` 与持久化服务可用时协商；`session.archive` 仅在公开 `workspaceRegistry.archiveSession/unarchiveSession` 与持久化服务可用时协商。未协商调用返回 `protocol/capability-unavailable`；这两个能力不隐式启用 UI 入口。
+- 重命名要求本 Host 已拥有且 idle 的会话；冷会话先通过 `session/resume` 取得单写者句柄。标题为非空字符串，最多 1024 UTF-8 字节，拒绝 ASCII 控制字符，规范化由 DSH 标题服务完成。通过公开服务追加 `session/title`，等待 persistence.flush 后返回摘要及 nextSeq；不修改模型路由、用户消息或 UI 本地历史。
+- 归档及取消归档接受本 profile 可见的根/分叉会话；未知 id 返回 `session/not-found`，subagent 与待迁移会话拒绝操作。归档状态写入 DSH workspace registry，不写入会话 header 或本地 UI 文件，不删除日志；重复操作幂等。默认列表隐藏归档会话，`includeArchived:true` 包含两种状态；列表游标继续首次捕获的固定快照。
+- 归档会话不得 resume 或 prompt，返回 `session/archived`；先用 `session/archive` 的 `archived:false` 取消归档，再恢复或继续发送。本 Host 已拥有的归档会话保留句柄和历史读取能力。
+- 已拥有会话必须 idle，且无恢复、模型或元数据写入任务；元数据任务持有会话预占直到底层写入及落盘完成，其间 prompt/resume/history/model-select 与第二次元数据写入返回 busy。配置写入与元数据写入互斥；Host shutdown 等待已接受的元数据任务结算后再释放句柄。不以超时冒充底层写入已取消；写入失败要求客户端刷新确认。
+- 归档采用 registry 的活动检查，不隐式停止正在运行的任务；跨进程活动检测沿用 DSH registry 提供者的范围，不承诺跨进程 Agent 状态的全局锁。所有底层异常转换为固定错误消息，不回传标题内容、存储路径或原始异常。
+
 ### Host 历史能力
 
 - `session.history` 同时保护 list/resume/history/fork；只有公开 sessionPersistence 的 list/stat/open/flush 和 agents.resume 可用时才协商，未协商调用返回 `protocol/capability-unavailable`。
 - list 范围为当前 DSH_HOME/profile 持久化服务可见的根/分叉会话，不按 cwd 筛选；排除 subagent 和 migration-required。仅投影白名单元数据，不转发完整 header、revision、凭据或请求配置。按 updatedAt 倒序、id 升序建立固定快照。
-- 列表标题来自 Host 持久会话元数据（`session/title` 事件或 rename）；没有标题时回退短 session id。`updatedAt` 反映最后一次持久更新；`archived` 为真时默认列表可过滤。冷会话 status 为 `stored`，provider/model/effort 为空，不推断历史路由或宣称其未被其他进程占用。已拥有会话补充本连接模型路由、实时 status 和 nextSeq。
+- 列表标题取日志中最后一个 `session/title`；没有标题时回退 session id 的前 8 个字符。`updatedAt` 取创建时间与已读持久事件时间的最大值；归档本身不伪造会话事件或推进该时间。列表先 flush，再通过公开 persistence read handle 分批读取元数据；每会话预算 20000 事件/32 MiB，超限明确报错，不截断日志或返回半份列表。元数据缓存最多 1000 条，以 persistence revision 和已拥有会话的 seq 校验新鲜度，关闭连接即释放。`archived` 来自 registry，默认列表隐藏归档会话。冷会话 status 为 `stored`，provider/model/effort 为空，不推断历史路由或宣称其未被其他进程占用。已拥有会话补充本连接模型路由、实时 status 和 nextSeq。
 - 冷恢复要求显式 provider/model（可选 effort），或协商后的 useDefaultModel:true；继续使用持久 header.cwd（必须仍为已有绝对目录）。通过 agents.resume 获取单写者句柄，恢复/修复由 DSH 完成，不自行补造事件或扫描私有 JSONL。外来进程占用、未知会话、迁移或路由失败不暴露底层错误。subagent 不可恢复。
 - 已拥有且 idle 的 resume 幂等返回原有路由，不重新配置模型；正在恢复/运行返回 session/busy。恢复预占 maxSessions 名额（与 create 共用，默认 8）；失败释放，退出中止待恢复任务并回收迟到句柄。
 - history 可读本 Host 拥有的会话：idle 会话按完整日志分页回放；运行中的会话通过 `assistantStream` baseline 接着读，不重放完整临时流。每次使用公开 persistence.flush 建立可读屏障，read handle 在成功/失败均关闭；不调用已弃用的同步 session 事件读取方法。

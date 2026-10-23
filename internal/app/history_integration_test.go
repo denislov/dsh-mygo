@@ -21,8 +21,11 @@ func TestMygoRealHistoryAfterRestart(t *testing.T) {
 		method string
 		params json.RawMessage
 	}
+	hostNumber := 0
 	start := func() (*channel.Client, <-chan notification, func()) {
 		t.Helper()
+		hostNumber++
+		number := hostNumber
 		supervisor, err := host.Start(requestContext, launch)
 		if err != nil {
 			t.Fatal(err)
@@ -47,7 +50,7 @@ func TestMygoRealHistoryAfterRestart(t *testing.T) {
 			defer stopCancel()
 			if _, err := client.Call(stopContext, "shutdown", map[string]any{}); err != nil {
 				_ = supervisor.Stop(stopContext)
-				t.Errorf("shutdown: %v", err)
+				t.Errorf("shutdown host %d (exit %v): %v", number, supervisor.WaitError(), err)
 			}
 			select {
 			case <-supervisor.Done():
@@ -80,17 +83,20 @@ func TestMygoRealHistoryAfterRestart(t *testing.T) {
 			Capabilities []string `json:"capabilities"`
 		}
 		call(client, "initialize", map[string]any{
-			"protocolVersion": channel.ProtocolVersion, "capabilities": []string{"session.history"},
+			"protocolVersion": channel.ProtocolVersion, "capabilities": []string{"session.history", "session.rename", "session.archive"},
 			"client": map[string]string{"name": "dsh-mygo", "version": channel.ReleaseVersion, "platform": "test", "locale": "zh-CN"},
 		}, &result)
-		if !reflect.DeepEqual(result.Capabilities, []string{"session.history"}) {
+		if !reflect.DeepEqual(result.Capabilities, []string{"session.history", "session.rename", "session.archive"}) {
 			t.Fatalf("capabilities = %v", result.Capabilities)
 		}
 	}
 	type sessionResult struct {
 		Session struct {
-			ID      string `json:"id"`
-			NextSeq int    `json:"nextSeq"`
+			ID        string `json:"id"`
+			NextSeq   int    `json:"nextSeq"`
+			Title     string `json:"title"`
+			UpdatedAt int64  `json:"updatedAt"`
+			CreatedAt int64  `json:"createdAt"`
 		} `json:"session"`
 	}
 	prompt := func(client *channel.Client, notifications <-chan notification, id string) {
@@ -175,6 +181,11 @@ func TestMygoRealHistoryAfterRestart(t *testing.T) {
 	var created sessionResult
 	call(first, "session/create", map[string]string{"cwd": root, "provider": "mygo-mock", "model": "echo"}, &created)
 	prompt(first, firstNotifications, created.Session.ID)
+	var renamed sessionResult
+	call(first, "session/rename", map[string]string{"sessionId": created.Session.ID, "title": "  持久会话标题  "}, &renamed)
+	if renamed.Session.Title != "持久会话标题" || renamed.Session.UpdatedAt < renamed.Session.CreatedAt {
+		t.Fatalf("renamed summary = %+v", renamed.Session)
+	}
 	original := history(first, created.Session.ID)
 	if len(original) == 0 {
 		t.Fatal("original history is empty")
@@ -184,15 +195,24 @@ func TestMygoRealHistoryAfterRestart(t *testing.T) {
 	initialize(second)
 	var listed struct {
 		Sessions []struct {
-			ID string `json:"id"`
+			ID        string `json:"id"`
+			Title     string `json:"title"`
+			UpdatedAt int64  `json:"updatedAt"`
+			Archived  bool   `json:"archived"`
 		} `json:"sessions"`
 	}
 	call(second, "session/list", map[string]any{}, &listed)
 	if len(listed.Sessions) != 1 || listed.Sessions[0].ID != created.Session.ID {
 		t.Fatal("restarted host did not list the persisted session")
 	}
+	if listed.Sessions[0].Title != renamed.Session.Title || listed.Sessions[0].UpdatedAt < renamed.Session.UpdatedAt {
+		t.Fatalf("cold metadata did not survive restart: %+v", listed.Sessions[0])
+	}
 	var restored sessionResult
 	call(second, "session/resume", map[string]string{"sessionId": created.Session.ID, "provider": "mygo-mock", "model": "echo"}, &restored)
+	if restored.Session.Title != renamed.Session.Title {
+		t.Fatalf("restored title = %q", restored.Session.Title)
+	}
 	replayed := history(second, restored.Session.ID)
 	if len(replayed) < len(original) || !reflect.DeepEqual(original, replayed[:len(original)]) || len(replayed) != restored.Session.NextSeq {
 		t.Fatal("restored history did not preserve the original log prefix")
@@ -242,5 +262,25 @@ func TestMygoRealHistoryAfterRestart(t *testing.T) {
 	if len(retried) < len(continued) || !reflect.DeepEqual(continued, retried[:len(continued)]) {
 		t.Fatal("retry after ownership release lost the durable prefix")
 	}
+	call(contender, "session/archive", map[string]string{"sessionId": restored.Session.ID}, nil)
 	stopContender()
+	third, _, _ := start()
+	initialize(third)
+	call(third, "session/list", map[string]any{}, &listed)
+	if len(listed.Sessions) != 0 {
+		t.Fatal("archived session remained in the default listing")
+	}
+	call(third, "session/list", map[string]any{"includeArchived": true}, &listed)
+	if len(listed.Sessions) != 1 || !listed.Sessions[0].Archived || listed.Sessions[0].Title != renamed.Session.Title {
+		t.Fatalf("archive did not survive restart: %+v", listed.Sessions)
+	}
+	if _, err := third.Call(requestContext, "session/resume", map[string]string{"sessionId": created.Session.ID, "provider": "mygo-mock", "model": "echo"}); err == nil {
+		t.Fatal("archived session was resumed")
+	}
+	call(third, "session/archive", map[string]any{"sessionId": created.Session.ID, "archived": false}, nil)
+	call(third, "session/resume", map[string]string{"sessionId": created.Session.ID, "provider": "mygo-mock", "model": "echo"}, nil)
+	archivedHistory := history(third, restored.Session.ID)
+	if len(archivedHistory) < len(continued) || !reflect.DeepEqual(continued, archivedHistory[:len(continued)]) {
+		t.Fatal("archiving altered the durable history")
+	}
 }

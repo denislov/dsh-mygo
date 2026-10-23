@@ -8,7 +8,7 @@ const handshake = {
   capabilities: ['session.history'],
 }
 
-function runtime() {
+function runtime(management = false) {
   const stored = new Map()
   const reads = []
   const handles = []
@@ -45,6 +45,21 @@ function runtime() {
       },
     },
   }
+  if (management) {
+    const archived = new Set()
+    ctx.workspaceRegistry = {
+      get archivedSessionIds() { return [...archived] },
+      async archiveSession(id) { archived.add(id) },
+      async unarchiveSession(id) { archived.delete(id) },
+    }
+    ctx.sessionTitle = {
+      rename(session, title) {
+        const event = { seq: session.seq++, time: 500, type: 'session/title', data: { title: title.trim(), source: { kind: 'user' }, messageSeqs: [] } }
+        stored.get(session.id).events.push(event)
+        return { title: event.data.title }
+      },
+    }
+  }
   const server = new MygoServer(ctx, { notify() {}, createUserMessage: (value) => value, reasoningEffort: (value) => value, dshVersion: '0.2.1-rc.2' })
   return { server, ctx, stored, reads, handles }
 }
@@ -69,6 +84,135 @@ test('history requires negotiated persistence and an owned resumed session', asy
   assert.equal(next.handles.length, 1)
   await next.server.shutdown()
   assert.equal(next.handles[0].disposed, true)
+})
+
+test('session management negotiates each available service independently', async () => {
+  for (const enabled of [false, true]) {
+    const { server, ctx } = runtime(enabled)
+    const capabilities = ['session.history', 'session.rename', 'session.archive']
+    assert.deepEqual((await server.handle('initialize', { ...handshake, capabilities })).capabilities, enabled ? capabilities : ['session.history'])
+    if (!enabled) {
+      for (const method of ['session/rename', 'session/archive']) await assert.rejects(server.handle(method, { ...resume, title: 'New title' }), { kind: 'protocol/capability-unavailable' })
+    }
+    await server.shutdown()
+    if (enabled) {
+      const other = runtime(true)
+      delete other.ctx.sessionTitle
+      assert.deepEqual((await other.server.handle('initialize', { ...handshake, capabilities })).capabilities, ['session.history', 'session.archive'])
+      await other.server.shutdown()
+    }
+  }
+})
+
+const managementHandshake = { ...handshake, capabilities: ['session.history', 'session.rename', 'session.archive'] }
+
+test('rename commits a user title and list reads durable metadata sorted by activity', async () => {
+  const { server, stored } = runtime(true)
+  stored.set('newer', { header: { id: 'newer', cwd: process.cwd(), createdAt: 200 }, events: [] })
+  await server.handle('initialize', managementHandshake)
+  await server.handle('session/resume', resume)
+  const renamed = await server.handle('session/rename', { sessionId: resume.sessionId, title: '  工作会话  ' })
+  assert.equal(renamed.session.title, '工作会话')
+  assert.equal(renamed.session.updatedAt, 500)
+  assert.equal(renamed.session.nextSeq, 6)
+  const result = await server.handle('session/list', {})
+  assert.deepEqual(result.sessions.map(({ id }) => id), ['stored-1', 'newer'])
+  assert.equal(result.sessions[0].title, '工作会话')
+  assert.equal(result.sessions[1].title, 'newer')
+  assert.equal(stored.get(resume.sessionId).events.at(-1).data.source.kind, 'user')
+  await server.shutdown()
+})
+
+test('archive hides stored sessions by default and keeps an explicit archived listing', async () => {
+  const { server, stored } = runtime(true)
+  const original = structuredClone(stored.get(resume.sessionId).events)
+  await server.handle('initialize', managementHandshake)
+  await server.handle('session/resume', resume)
+  assert.deepEqual(await server.handle('session/archive', { sessionId: resume.sessionId }), {})
+  assert.deepEqual((await server.handle('session/list', {})).sessions, [])
+  const all = await server.handle('session/list', { includeArchived: true })
+  assert.equal(all.sessions[0].archived, true)
+  assert.deepEqual(stored.get(resume.sessionId).events, original)
+  assert.deepEqual(await server.handle('session/archive', { sessionId: resume.sessionId }), {})
+  await assert.rejects(server.handle('session/resume', resume), { kind: 'session/archived' })
+  await assert.rejects(server.handle('session/prompt', { sessionId: resume.sessionId, content: [{ type: 'text', text: 'hello' }] }), { kind: 'session/archived' })
+  await server.handle('session/archive', { sessionId: resume.sessionId, archived: false })
+  assert.equal((await server.handle('session/list', {})).sessions[0].archived, false)
+  await server.handle('session/resume', resume)
+  await server.shutdown()
+})
+
+test('management validates input, refuses foreign and busy sessions, and redacts storage errors', async () => {
+  const { server, ctx, handles } = runtime(true)
+  await server.handle('initialize', managementHandshake)
+  for (const title of ['', '   ', null, 1, 'x\nsecret', 'x\0', '中'.repeat(342)]) {
+    await assert.rejects(server.handle('session/rename', { sessionId: resume.sessionId, title }), { code: -32602 })
+  }
+  for (const method of ['session/rename', 'session/archive']) {
+    await assert.rejects(server.handle(method, { sessionId: '../private', title: 'title' }), { code: -32602 })
+    await assert.rejects(server.handle(method, { sessionId: 'missing', title: 'title' }), { kind: 'session/not-found' })
+  }
+  await assert.rejects(server.handle('session/rename', { sessionId: resume.sessionId, title: 'title' }), { kind: 'session/not-found' })
+  for (const includeArchived of [null, 1, 'true']) await assert.rejects(server.handle('session/list', { includeArchived }), { code: -32602 })
+  for (const archived of [null, 1, 'true']) await assert.rejects(server.handle('session/archive', { sessionId: resume.sessionId, archived }), { code: -32602 })
+  await server.handle('session/resume', resume)
+  handles[0].agent.status = 'running'
+  for (const method of ['session/rename', 'session/archive']) await assert.rejects(server.handle(method, { sessionId: resume.sessionId, title: 'title' }), { kind: 'session/busy' })
+  handles[0].agent.status = 'idle'
+  ctx.sessionTitle.rename = () => { throw new Error('private-token') }
+  ctx.workspaceRegistry.archiveSession = async () => { throw new Error('private-token') }
+  for (const method of ['session/rename', 'session/archive']) await assert.rejects(server.handle(method, { sessionId: resume.sessionId, title: 'title' }), (error) => error.kind.endsWith('-failed') && !error.message.includes('private-token'))
+  assert.equal(server.sessions.get(resume.sessionId).metadataUpdating, false)
+  await server.shutdown()
+})
+
+test('pending metadata writes reserve the session until durability and shutdown waits', async () => {
+  const { server, ctx } = runtime(true)
+  await server.handle('initialize', managementHandshake)
+  await server.handle('session/resume', resume)
+  let finish
+  let announce
+  const started = new Promise((resolve) => { announce = resolve })
+  ctx.sessionPersistence.flush = async () => { announce(); await new Promise((resolve) => { finish = resolve }) }
+  const writing = server.handle('session/rename', { sessionId: resume.sessionId, title: 'Pending' })
+  await started
+  for (const method of ['session/rename', 'session/archive', 'session/resume', 'session/history', 'session/prompt']) {
+    await assert.rejects(server.handle(method, { ...resume, title: 'other', content: [{ type: 'text', text: 'hello' }] }), { kind: 'session/busy' })
+  }
+  let stopped = false
+  const stopping = server.shutdown().then(() => { stopped = true })
+  await Promise.resolve()
+  assert.equal(stopped, false)
+  finish()
+  await writing
+  await stopping
+  assert.equal(stopped, true)
+})
+
+test('list metadata caches revisions, invalidates changes, and closes failed reads', async () => {
+  const { server, stored, handles, reads } = runtime()
+  const source = stored.get(resume.sessionId)
+  source.revision = 'first'
+  // Expose detached persistence metadata, as a real backend does.
+  server.ctx.sessionPersistence.list = async () => [...stored.values()].map(({ header, events, revision }) => ({ header, eventCount: events.length, revision }))
+  await server.handle('initialize', handshake)
+  await server.handle('session/list', {})
+  const count = reads.length
+  await server.handle('session/list', {})
+  assert.equal(reads.length, count)
+  source.events.push({ seq: 5, time: 700, type: 'session/title', data: { title: 'Persisted title' } })
+  source.revision = 'second'
+  const changed = await server.handle('session/list', {})
+  assert.equal(changed.sessions[0].title, 'Persisted title')
+  assert.equal(changed.sessions[0].updatedAt, 700)
+  assert.ok(reads.length > count)
+  assert.ok(handles.every((handle) => handle.closed))
+  source.revision = 'invalid'
+  source.events[0].seq = 8
+  await assert.rejects(server.handle('session/list', {}), { kind: 'session/list-failed' })
+  assert.equal(handles.at(-1).closed, true)
+  await server.shutdown()
+  assert.equal(server.history.metadata.size, 0)
 })
 
 test('history pages hold a fixed prefix and always close read handles', async () => {

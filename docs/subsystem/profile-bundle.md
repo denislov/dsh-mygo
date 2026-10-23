@@ -22,6 +22,8 @@ profile 由 `dsh-base` + `@dsh-mygo/host` 组成。channel 依赖 launcher 的 `
 
 Host 历史通过 `session.history` capability 启用，使用公开 sessionPersistence 与 agents.resume，不扫描私有存储或修改 DSH core。根会话目录、冷恢复路由、分页边界和预算以 [通道协议](channel-protocol.md#host-历史能力) 为准；原生 Sessions 弹窗提供列表/新建/恢复。
 
+会话管理分别通过 `session.rename` 与 `session.archive` 协商，使用 base 的公开 `sessionTitle` 与自有稳定行 `mygo-workspace` 挂载的 `@deepseek-ai/dsh-workspace` registry。registry 复用 base 的 storageDomain 与 sessionPersistence，不加载 Web 控制器或客户端。标题进入会话日志，归档集合由 registry 持久化；参数、单写者、活动检查和错误边界见 [通道协议](channel-protocol.md#会话管理)。
+
 模型设置通过 model.selection capability 启用；channel 从同版本 @deepseek-ai/dsh-agent 引入公开 installModelSelection，在 create/resume 的 Agent setup 中安装作用域内选择引用。校验后向 Host 日志提交 model/selection，再由该公开适配器在下一次 prompt/request 组装时应用；不修改 Agent 内部字段、全局默认模型或 profile patch。目录及 secret 边界以 [设置与凭据](settings-credentials.md) 为准。
 
 持久配置独立通过 settings.configuration 启用，复用 base 的公开 agentDefaultModel/settings/credentials 服务；channel 的 credentialRef 来自同版本 @deepseek-ai/dsh-credentials。只允许 agent-default-model 路由与官方 llm-deepseek 行绑定的凭据，持久化和锁归 Host；不改 DSH core，不自行写 profile/credentials。显式 flags 与 Host 默认值的优先级见 [设置与凭据](settings-credentials.md)。

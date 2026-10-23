@@ -7,6 +7,7 @@ import { QuestionQueue } from './question.mjs'
 import { SessionHistory, sessionID, sessionSummary } from './history.mjs'
 import { ModelSettings } from './models.mjs'
 import { Configuration } from './configuration.mjs'
+import { SessionManagement } from './sessions.mjs'
 
 const identity = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 if (!Number.isSafeInteger(identity.dshMygo?.protocolVersion)) {
@@ -45,6 +46,7 @@ export class MygoServer {
     this.history = new SessionHistory(ctx, this.sessions, Math.floor(maxFrameBytes / 2))
     this.models = new ModelSettings(this, Math.floor(maxFrameBytes / 2))
     this.configuration = new Configuration(this, credentialRef)
+    this.management = new SessionManagement(this)
     this.initialized = false
     this.stopping = false
     this.disposers = [
@@ -57,6 +59,11 @@ export class MygoServer {
       ctx.on('session/event', (session, event) => {
         const record = this.sessions.get(String(session.id))
         if (record?.handle?.agent.session !== session) return
+        record.metadata = {
+          ...record.metadata,
+          updatedAt: Math.max(record.metadata?.updatedAt ?? session.header.createdAt, event.time),
+          ...(event.type === 'session/title' ? { title: event.data.title } : {}),
+        }
         if (event.type === 'tool/call') {
           if (typeof event.data.callId === 'string' && record.calls.size < 256) record.calls.set(event.data.callId, { name: event.data.name, arguments: event.data.arguments })
         } else if (event.type === 'tool/result') {
@@ -92,8 +99,14 @@ export class MygoServer {
     if (this.stopping) throw fault('host/stopping', 'Host is stopping')
     if (method === 'initialize') return this.initialize(params)
     if (!this.initialized) throw fault('protocol/not-initialized', 'Initialize the host first')
-    if (this.configuration.pending && ['session/create', 'session/resume', 'session/prompt', 'model/select'].includes(method)) throw fault('settings/busy', 'A configuration write is still pending')
+    if (this.configuration.pending && ['session/create', 'session/resume', 'session/prompt', 'session/rename', 'session/archive', 'model/select'].includes(method)) throw fault('settings/busy', 'A configuration write is still pending')
     switch (method) {
+      case 'session/rename':
+      case 'session/archive': {
+        const operation = method.slice('session/'.length)
+        if (!this.capabilities.includes(`session.${operation}`)) throw fault('protocol/capability-unavailable', 'Session management was not negotiated')
+        return this.management[operation](params)
+      }
       case 'configuration/get':
       case 'configuration/default-model':
       case 'configuration/credential':
@@ -142,6 +155,11 @@ export class MygoServer {
     if (params.capabilities.includes('session.history') && ['list', 'stat', 'open', 'flush'].every((method) => typeof persistence?.[method] === 'function') && typeof this.ctx.agents.resume === 'function') {
       this.capabilities.push('session.history')
     }
+    if (['stat', 'open', 'flush'].every((method) => typeof persistence?.[method] === 'function')) {
+      if (params.capabilities.includes('session.rename') && typeof this.ctx.get('sessionTitle')?.rename === 'function') this.capabilities.push('session.rename')
+      const registry = this.ctx.get('workspaceRegistry')
+      if (params.capabilities.includes('session.archive') && typeof registry?.archiveSession === 'function' && typeof registry?.unarchiveSession === 'function') this.capabilities.push('session.archive')
+    }
     return {
       server: { name: 'dsh-mygo-host', version: releaseVersion, dshVersion: this.dshVersion },
       protocolVersion, capabilities: this.capabilities,
@@ -166,12 +184,17 @@ export class MygoServer {
       const agentOptions = { provider, model, ...(effort === undefined ? {} : { reasoningEffort: this.reasoningEffort(effort) }) }
       await this.ctx.llm.resolveCallConfig(agentOptions)
       record.handle = await this.ctx.agents.create({ sessionId, meta: { cwd }, agentOptions, ...(this.installModelSelection ? { setup: (agentCtx) => { this.installModelSelection(agentCtx, record.selection) } } : {}) })
+      if (this.ctx.get('sessionTitle')) {
+        await this.ctx.get('sessionPersistence').flush()
+        return { session: await this.history.describe(record.handle.agent.session.header, record) }
+      }
       return { session: {
-        id: sessionId, title: '', cwd, provider, model, effort: effort ?? '',
+        id: sessionId, title: sessionId.slice(0, 8), cwd, provider, model, effort: effort ?? '',
         createdAt: Date.now(), updatedAt: Date.now(), status: 'idle', archived: false,
         nextSeq: record.handle.agent.session.seq ?? 0,
       } }
     } catch {
+      await record.handle?.dispose().catch(() => {})
       this.sessions.delete(sessionId)
       throw fault('session/create-failed', 'Could not create the session; check the model route and host configuration')
     }
@@ -179,10 +202,12 @@ export class MygoServer {
 
   async resume(params) {
     const id = sessionID(params.sessionId)
+    if (this.management.pending.has(id)) throw fault('session/busy', 'Session metadata is being updated')
+    if (this.ctx.get('workspaceRegistry')?.archivedSessionIds.includes(id)) throw fault('session/archived', 'Unarchive the session before resuming it')
     const existing = this.sessions.get(id)
     if (existing) {
-      if (!existing.handle || existing.busy || existing.modelUpdating || existing.handle.agent.status !== 'idle') throw fault('session/busy', 'Session is running or being restored')
-      return { session: sessionSummary(existing.handle.agent.session.header, existing) }
+      if (!existing.handle || existing.busy || existing.modelUpdating || existing.metadataUpdating || existing.handle.agent.status !== 'idle') throw fault('session/busy', 'Session is running or being restored')
+      return { session: this.ctx.get('sessionTitle') ? await this.history.describe(existing.handle.agent.session.header, existing) : sessionSummary(existing.handle.agent.session.header, existing) }
     }
     params = this.configuration.sessionRoute(params)
     const provider = text(params.provider, 'provider')
@@ -207,6 +232,10 @@ export class MygoServer {
           record.handle = undefined
           throw fault('host/stopping', 'Host is stopping')
         }
+        if (this.ctx.get('sessionTitle')) {
+          await this.ctx.get('sessionPersistence').flush()
+          return { session: await this.history.describe(record.handle.agent.session.header, record) }
+        }
         return { session: sessionSummary(record.handle.agent.session.header, record) }
       } catch (error) {
         if (record.handle) {
@@ -227,12 +256,13 @@ export class MygoServer {
     if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) throw fault('protocol/invalid-params', 'Invalid sessionId', -32602)
     const record = this.sessions.get(sessionId)
     if (!record?.handle) throw fault('session/not-found', 'Session is not owned by this host')
+    if (this.ctx.get('workspaceRegistry')?.archivedSessionIds.includes(sessionId)) throw fault('session/archived', 'Unarchive the session before sending a prompt')
     if (!Array.isArray(params.content) || params.content.length === 0 || params.content.length > 64) throw fault('protocol/invalid-params', 'Invalid content', -32602)
     const content = params.content.map((block) => {
       if (block === null || typeof block !== 'object' || Array.isArray(block) || block.type !== 'text') throw fault('protocol/invalid-params', 'Only text content is supported', -32602)
       return { type: 'text', text: text(block.text, 'content text', 1024 * 1024) }
     })
-    if (record.busy || record.modelUpdating || record.handle.agent.status !== 'idle') throw fault('session/busy', 'Session is running')
+    if (record.busy || record.modelUpdating || record.metadataUpdating || record.handle.agent.status !== 'idle') throw fault('session/busy', 'Session is running')
     record.busy = true
     try {
       const message = this.createUserMessage({ content, source: { kind: 'user' } })
@@ -305,10 +335,11 @@ export class MygoServer {
     this.stopping = true
     this.approvals.close()
     this.questions.close()
-    this.history.close()
-    for (const dispose of this.disposers.splice(0)) dispose()
     const records = [...this.sessions.values()]
     for (const record of records) record.abort?.abort()
+    await this.management.drain()
+    this.history.close()
+    for (const dispose of this.disposers.splice(0)) dispose()
     await Promise.allSettled(records.map((record) => record.resumeTask))
     await this.ctx.get('subagents')?.drainDescendants(records.filter((record) => record.handle).map((record) => record.handle.agent))
     await Promise.all(records.map((record) => record.handle?.dispose()))
