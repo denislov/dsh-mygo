@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/egoist/mygo/transfer"
 	mgo "github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 
+	"dsh-mygo/internal/attachment"
 	"dsh-mygo/internal/interaction"
 	"dsh-mygo/internal/preferences"
 	"dsh-mygo/internal/projection"
@@ -38,6 +40,8 @@ const (
 type Model struct {
 	Prefs                PreferencesState
 	Attachments          AttachmentState
+	Mention              MentionState
+	QueryMentions        func(prefix string)
 	Items                []projection.Item
 	History              HistoryState
 	Draft                string
@@ -135,6 +139,7 @@ func NewModel() *Model {
 	model.List.FollowEnd = true
 	model.InterruptedMarkdown.CodeBlock = model.interruptedCodeBlock
 	model.Prefs = PreferencesState{Value: preferences.DefaultUI(), Ready: true}
+	model.Mention.CaretTarget = -1
 	model.List.Key = func(row int) any { return model.Items[row].ID }
 	return model
 }
@@ -367,15 +372,54 @@ func composer(c *mgo.Context, model *Model) {
 	theme := c.Theme()
 	stopped := model.Phase == PhaseStopped || model.Phase == PhaseFailed || model.Phase == PhaseResyncing || model.SessionSwitching || model.RecoveryOpen || model.LocalState.Closing || model.Prefs.Open
 	canSend := model.Phase == PhaseIdle && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy && !model.History.Detached && !model.SessionPanel.BlocksInput() && !model.SettingsOpen && !model.Prefs.Open && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain && !model.Permission.Uncertain && !model.LocalState.Closing
-	mgo.Column(c).Padding(12, 20, 16, 20).Gap(8).Children(func() {
-		mgo.TextArea(c.Key("composer-"+model.SessionID), &model.Draft).Lines(1, 8).
+	attachments := &model.Attachments
+	hasContent := func() bool { return strings.TrimSpace(model.Draft) != "" || len(attachments.Pending) > 0 }
+	zone := mgo.Column(c).Padding(12, 20, 16, 20).Gap(8)
+	if paths := zone.DroppedFiles(); len(paths) > 0 && attachments.AttachFiles != nil {
+		attachments.AttachFiles(paths)
+	}
+	if zone.FileDragOver() {
+		zone.Border(1, theme.Accent)
+	}
+	zone.Children(func() {
+		if len(attachments.Pending) > 0 || attachments.Error != "" {
+			mgo.Column(c).Gap(4).Children(func() {
+				for index, draft := range attachments.Pending {
+					mgo.Row(c).Gap(6).AlignItems(mgo.Center).Children(func() {
+						mgo.Text(c, draftLabel(model, draft)).FontSize(11).TextColor(theme.TextMuted).SingleLine()
+						remove := fmt.Sprintf("%s %d", model.T("Remove"), index+1)
+						if mgo.Button(c.Key(fmt.Sprintf("remove-attachment-%d", index)), remove).Clicked() {
+							attachments.Remove(index)
+						}
+					})
+				}
+				if attachments.Error != "" {
+					mgo.Text(c, model.T(attachments.Error)).FontSize(11).TextColor(theme.Danger)
+				}
+			})
+		}
+		area := mgo.TextArea(c.Key("composer-"+model.SessionID), &model.Draft).Lines(1, 8).
 			Label(model.T("Message")).Placeholder(model.T("Message DeepSeek…")).AutoFocus().Disabled(stopped).
 			OnChange(func() {
 				if model.DraftChanged != nil {
 					model.DraftChanged()
 				}
 			}).
+			OnPaste(func(text string) bool {
+				if text != "" || attachments.AttachImage == nil {
+					return false
+				}
+				png, err := c.Services().ReadClipboardData(transfer.PNG).Read(transfer.PNG)
+				if err != nil || len(png) == 0 {
+					return false
+				}
+				attachments.AttachImage("pasted.png", attachment.MediaPNG, png)
+				return true
+			}).
 			OnTextKey(func(key mgo.TextKey) bool {
+				if mentionKey(model, key) {
+					return true
+				}
 				mods := mgo.Modifiers(0)
 				if model.Prefs.Value.Send == "Ctrl+Enter" {
 					mods = mgo.Ctrl
@@ -384,14 +428,24 @@ func composer(c *mgo.Context, model *Model) {
 					return false
 				}
 				text := strings.TrimSpace(key.Text())
-				if !canSend || text == "" {
+				if !canSend || text == "" && len(attachments.Pending) == 0 {
 					return false
 				}
 				model.Send(key.Text())
 				key.SetText("")
 				return true
 			})
+		if model.Mention.CaretTarget >= 0 {
+			area.SetTextSelection(model.Mention.CaretTarget, model.Mention.CaretTarget)
+			model.Mention.CaretTarget = -1
+		}
+		composerMentions(c, area, model)
 		mgo.Row(c).Gap(8).AlignItems(mgo.Center).Children(func() {
+			if attachments.Supported && attachments.PickAttachment != nil && model.Phase == PhaseIdle {
+				if mgo.Button(c.Key("attach-image"), model.T("Attach image…")).Disabled(stopped).Clicked() {
+					attachments.PickAttachment()
+				}
+			}
 			mgo.Text(c, model.T(composerHint(model))).FontSize(11).TextColor(theme.TextMuted)
 			mgo.Spacer(c)
 			if model.Phase == PhaseRunning && model.CanCancel && model.Cancel != nil {
@@ -404,11 +458,10 @@ func composer(c *mgo.Context, model *Model) {
 				}
 			} else {
 				send := mgo.PrimaryButton(c.Key("send"), model.T("Send")).
-					Disabled(!canSend || strings.TrimSpace(model.Draft) == "")
+					Disabled(!canSend || !hasContent())
 				if send.Clicked() {
-					text := strings.TrimSpace(model.Draft)
-					if text != "" && canSend {
-						model.Send(text)
+					if canSend && hasContent() {
+						model.Send(model.Draft)
 					}
 				}
 			}

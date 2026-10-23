@@ -37,7 +37,7 @@ var chinese = map[string]string{
 	"Shift+Enter always adds a line. Commands pause while a dialog is open.": "Shift+Enter 始终换行；弹窗打开时暂停应用快捷键。",
 	"Preferences cannot be saved in this mode.":                              "当前模式无法保存偏好。",
 	"Reset preferences": "恢复默认", "Apply preferences": "应用偏好", "Cancel": "取消",
-	"Image": "图片", "Image attachment": "图片附件",
+	"Image": "图片", "Image attachment": "图片附件", "Attach image…": "附加图片…", "Remove": "移除", "No matching files": "没有匹配的文件",
 	"Image attachments are not supported by this host":        "当前 Host 不支持图片附件",
 	"Choose a PNG, JPEG, WebP or GIF image":                   "请选择 PNG、JPEG、WebP 或 GIF 图片",
 	"The image attachment is empty":                           "图片附件为空",

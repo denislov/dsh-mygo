@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -196,5 +198,76 @@ func TestMygoInitializeParsesAttachmentPolicy(t *testing.T) {
 	capabilities := client.params[0].(map[string]any)["capabilities"].([]string)
 	if !strings.Contains(strings.Join(capabilities, ","), "attachments") {
 		t.Fatalf("capabilities = %v", capabilities)
+	}
+}
+
+func TestAttachImageStagesValidDraft(t *testing.T) {
+	application, _ := newMygoSendApp(&fakeClient{})
+	application.attachImage("shot.png", attachment.MediaPNG, pngBytes(t))
+	pending := application.model.Attachments.Pending
+	if len(pending) != 1 || pending[0].Width != 2 || pending[0].Height != 2 || pending[0].Name != "shot.png" {
+		t.Fatalf("pending = %+v", pending)
+	}
+	if application.model.Attachments.Error != "" {
+		t.Fatalf("error = %q", application.model.Attachments.Error)
+	}
+}
+
+func TestAttachImageRefusesUnsupportedHost(t *testing.T) {
+	application, _ := newMygoSendApp(&fakeClient{})
+	application.acceptAttachments(nil)
+	application.attachImage("shot.png", attachment.MediaPNG, pngBytes(t))
+	if len(application.model.Attachments.Pending) != 0 {
+		t.Fatalf("pending = %+v", application.model.Attachments.Pending)
+	}
+	if application.model.Attachments.Error != attachment.ErrUnsupported.Error() {
+		t.Fatalf("error = %q", application.model.Attachments.Error)
+	}
+}
+
+func TestAttachImageRefusesOversizedImages(t *testing.T) {
+	application, _ := newMygoSendApp(&fakeClient{})
+	limits := testLimits()
+	limits.MaxImageBytes = 4
+	application.acceptAttachments(limits)
+	application.attachImage("shot.png", attachment.MediaPNG, pngBytes(t))
+	if len(application.model.Attachments.Pending) != 0 {
+		t.Fatalf("pending = %+v", application.model.Attachments.Pending)
+	}
+	if application.model.Attachments.Error != attachment.ErrTooLarge.Error() {
+		t.Fatalf("error = %q", application.model.Attachments.Error)
+	}
+}
+
+func TestAttachFilesStagesImagesAndReferences(t *testing.T) {
+	directory := t.TempDir()
+	imagePath := filepath.Join(directory, "shot.png")
+	if err := os.WriteFile(imagePath, pngBytes(t), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	textPath := filepath.Join(directory, "notes.txt")
+	if err := os.WriteFile(textPath, []byte("hello"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	application, updates := newMygoSendApp(&fakeClient{})
+	application.AttachFiles([]string{imagePath, textPath})
+	waitFor(t, application, updates, 2*time.Second, func() bool {
+		return len(application.model.Attachments.Pending) == 1 && strings.Contains(application.model.Draft, "@"+filepath.Clean(textPath))
+	})
+	pending := application.model.Attachments.Pending
+	if pending[0].MediaType != attachment.MediaPNG || pending[0].Width != 2 || pending[0].Height != 2 {
+		t.Fatalf("pending = %+v", pending)
+	}
+	if application.model.Attachments.Error != "" {
+		t.Fatalf("error = %q", application.model.Attachments.Error)
+	}
+}
+
+func TestAttachFilesRefusesUnsupportedHostWithoutReads(t *testing.T) {
+	application, _ := newMygoSendApp(&fakeClient{})
+	application.acceptAttachments(nil)
+	application.AttachFiles([]string{"C:/missing/shot.png"})
+	if application.model.Attachments.Error != attachment.ErrUnsupported.Error() {
+		t.Fatalf("error = %q", application.model.Attachments.Error)
 	}
 }

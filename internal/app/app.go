@@ -126,6 +126,7 @@ type App struct {
 	canHistoryWindow    bool
 	canRelease          bool
 	attachmentLimits    *attachment.Limits
+	mentionSeq          atomic.Uint64
 	retiredSessions     map[string]bool
 	drafts              map[string]string
 	local               *localEditingState
@@ -157,6 +158,10 @@ func New(options Options) *App {
 		app.model.SetActiveRoute(view.ModelRoute{Provider: options.Provider, Model: options.Model, Effort: options.ReasoningEffort})
 	}
 	app.model.Send = app.Send
+	app.model.Attachments.AttachImage = app.attachImage
+	app.model.Attachments.AttachFiles = app.AttachFiles
+	app.model.Attachments.PickAttachment = app.pickAttachment
+	app.model.QueryMentions = app.QueryMentions
 	app.model.DraftChanged = app.DraftChanged
 	app.model.Dismiss = app.DismissError
 	app.model.Cancel = app.Cancel

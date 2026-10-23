@@ -163,6 +163,11 @@ func main() {
 			}),
 		})
 		window.Store(win)
+		// Drops outside the composer still attach: the window sees what no
+		// element took and hands the paths to the same bounded loader.
+		win.OnFileDrop(func(e *mygo.FileDropEvent) {
+			application.AttachFiles(e.Paths)
+		})
 		win.OnClose(func(e *mygo.CloseEvent) {
 			if !application.ReadyToQuit() {
 				e.PreventDefault()
