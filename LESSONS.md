@@ -29,6 +29,15 @@
 - 做法：同一 Host 的 resync 恢复版本基线；新 Host 或切换会话时重建流投影。真实 Restart 回归断言新 Agent 的初始流版本为 0。
 - 固化：未固化
 
+## L-010 权限预设名称不等于实际执行策略
+
+- 出现次数：1
+- 来源：2026-10-23 权限模式真实 Host 验证
+- 现象：预设可以自定义名称/标签；危险程度只能从实际 sandbox/approval 判断。同时 never 不会替显式要求审批的工具自动批准，而是拒绝该请求。
+- 教训：界面确认不能只匹配 danger-full-access 名称，测试也不能把不弹窗当作执行被允许。
+- 做法：用公开 permissionPresets.resolve 与 sandboxPolicy/approval 的实际值确认权限；目标 sandbox 完全访问或 approval never 都要求显式确认，真实测试同时断言审批行为和拒绝后没有文件副作用。
+- 固化：未固化
+
 ## L-001 混淆设计文档的目标职责
 
 - 出现次数：2

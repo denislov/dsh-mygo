@@ -220,7 +220,7 @@ func TestMygoInitializeCreatesSessionAfterValidHandshake(t *testing.T) {
 			if test.valid {
 				params := client.params[0].(map[string]any)
 				capabilities := params["capabilities"].([]string)
-				if len(capabilities) != 11 || capabilities[0] != "session.cancel" || capabilities[1] != "approval" || capabilities[2] != "question" || capabilities[3] != "session.assistant-stream" || capabilities[4] != "session.history" || capabilities[5] != "session.resync" || capabilities[6] != "session.assistant-stream-baseline" || capabilities[7] != "session.rename" || capabilities[8] != "session.archive" || capabilities[9] != "model.selection" || capabilities[10] != "settings.configuration" {
+				if len(capabilities) != 12 || capabilities[0] != "session.cancel" || capabilities[1] != "approval" || capabilities[2] != "question" || capabilities[3] != "session.assistant-stream" || capabilities[4] != "session.history" || capabilities[5] != "session.resync" || capabilities[6] != "session.assistant-stream-baseline" || capabilities[7] != "session.rename" || capabilities[8] != "session.archive" || capabilities[9] != "model.selection" || capabilities[10] != "settings.configuration" || capabilities[11] != "session.permissions" {
 					t.Fatal("unimplemented capabilities advertised")
 				}
 			}

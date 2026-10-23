@@ -9,6 +9,7 @@ import { ModelSettings } from './models.mjs'
 import { Configuration } from './configuration.mjs'
 import { SessionManagement } from './sessions.mjs'
 import { AssistantStreamBaseline } from './stream-baseline.mjs'
+import { Permissions } from './permissions.mjs'
 
 const identity = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 if (!Number.isSafeInteger(identity.dshMygo?.protocolVersion)) {
@@ -48,6 +49,7 @@ export class MygoServer {
     this.models = new ModelSettings(this, Math.floor(maxFrameBytes / 2))
     this.configuration = new Configuration(this, credentialRef)
     this.management = new SessionManagement(this)
+    this.permissions = new Permissions(this, Math.floor(maxFrameBytes / 2))
     this.initialized = false
     this.stopping = false
     this.disposers = [
@@ -106,8 +108,13 @@ export class MygoServer {
     if (this.stopping) throw fault('host/stopping', 'Host is stopping')
     if (method === 'initialize') return this.initialize(params)
     if (!this.initialized) throw fault('protocol/not-initialized', 'Initialize the host first')
-    if (this.configuration.pending && ['session/create', 'session/resume', 'session/prompt', 'session/rename', 'session/archive', 'model/select'].includes(method)) throw fault('settings/busy', 'A configuration write is still pending')
+    if (this.configuration.pending && ['session/create', 'session/resume', 'session/prompt', 'session/rename', 'session/archive', 'model/select', 'permission/select'].includes(method)) throw fault('settings/busy', 'A configuration write is still pending')
+    if (['session/resume', 'session/prompt', 'session/rename', 'session/archive', 'model/select'].includes(method) && this.sessions.get(params.sessionId)?.permissionUncertain) throw fault('permission/refresh-required', 'Refresh permissions before continuing')
     switch (method) {
+      case 'permission/get':
+      case 'permission/select':
+        if (!this.capabilities.includes('session.permissions')) throw fault('protocol/capability-unavailable', 'Session permissions were not negotiated')
+        return method === 'permission/get' ? this.permissions.get(params) : this.permissions.select(params)
       case 'session/rename':
       case 'session/archive': {
         const operation = method.slice('session/'.length)
@@ -163,6 +170,7 @@ export class MygoServer {
     this.initialized = true
     this.capabilities = ['session.cancel', 'approval', 'question', 'session.assistant-stream'].filter((capability) => params.capabilities.includes(capability))
     const persistence = this.ctx.get('sessionPersistence')
+    if (params.capabilities.includes('session.permissions') && this.permissions.supported()) this.capabilities.push('session.permissions')
     if (params.capabilities.includes('settings.configuration') && this.configuration.supported()) this.capabilities.push('settings.configuration')
     if (params.capabilities.includes('model.selection') && typeof this.installModelSelection === 'function' && ['listProviders', 'listModels', 'resolveModelInfo', 'resolveCallConfig'].every((method) => typeof this.ctx.llm[method] === 'function')) this.capabilities.push('model.selection')
     if (params.capabilities.includes('session.history') && ['list', 'stat', 'open', 'flush'].every((method) => typeof persistence?.[method] === 'function') && typeof this.ctx.agents.resume === 'function') {
@@ -358,6 +366,7 @@ export class MygoServer {
     const records = [...this.sessions.values()]
     for (const record of records) record.abort?.abort()
     await this.management.drain()
+    await this.permissions.drain()
     this.history.close()
     for (const dispose of this.disposers.splice(0)) dispose()
     await Promise.allSettled(records.map((record) => record.resumeTask))

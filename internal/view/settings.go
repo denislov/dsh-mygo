@@ -64,16 +64,20 @@ func (model *Model) PrepareSettings(route ModelRoute) {
 }
 
 func (model *Model) CanEditSettings() bool {
-	return model.CanModels && model.Phase == PhaseIdle && !model.SessionBusy && !model.SessionPanel.Uncertain && model.SessionPanel.EditingID == "" && model.SessionPanel.ArchiveID == "" && !model.SessionsOpen && !model.SettingsBusy && len(model.Approvals) == 0 && len(model.Questions) == 0
+	return (model.CanModels || model.Permission.Available) && model.Phase == PhaseIdle && !model.SessionBusy && !model.SessionPanel.Uncertain && model.SessionPanel.EditingID == "" && model.SessionPanel.ArchiveID == "" && !model.SessionsOpen && !model.SettingsBusy && len(model.Approvals) == 0 && len(model.Questions) == 0
 }
 
 func settingsModal(c *mgo.Context, model *Model) {
-	if !model.SettingsOpen || !model.CanModels || len(model.Approvals) > 0 || len(model.Questions) > 0 {
+	if !model.SettingsOpen || !(model.CanModels || model.Permission.Available) || len(model.Approvals) > 0 || len(model.Questions) > 0 {
 		return
 	}
 	disabled := !model.CanEditSettings()
 	modal := mgo.Modal(c.Key("model-settings"), &model.SettingsOpen, func() {
-		mgo.Text(c, "Model settings").FontSize(18).Bold()
+		title := "Model settings"
+		if model.Permission.Available {
+			title = "Conversation settings"
+		}
+		mgo.Text(c, title).FontSize(18).Bold()
 		scope := "Current session only · next turn · launch defaults unchanged"
 		if model.CanConfigure {
 			scope = "Apply model: current session · Save default: future sessions"
@@ -89,6 +93,9 @@ func settingsModal(c *mgo.Context, model *Model) {
 					if model.SettingsWritingConfiguration {
 						label = "Saving configuration…"
 					}
+					if model.Permission.Writing {
+						label = "Applying permissions…"
+					}
 					mgo.Text(c, label).FontSize(12)
 				}
 				if model.SettingsError != "" {
@@ -100,54 +107,59 @@ func settingsModal(c *mgo.Context, model *Model) {
 				if model.Catalog.Reason != "" {
 					mgo.Text(c, model.Catalog.Reason).FontSize(11).TextColor(c.Theme().Warning)
 				}
-				providers := make([]string, 0, len(model.Catalog.Providers))
-				for _, provider := range model.Catalog.Providers {
-					providers = append(providers, provider.ID)
-				}
-				mgo.Text(c, "Provider route").FontSize(11).TextColor(c.Theme().TextMuted)
-				mgo.Select(c.Key("settings-provider"), &model.SettingsProvider, providers).Label("Provider").Disabled(disabled).OnChange(func() {
-					model.SettingsModel = ""
-					model.SettingsCatalogModel = ""
-					model.SettingsEffort = effortChoice("")
-					if model.RefreshSettings != nil {
-						model.RefreshSettings()
+				permissionControls(c, model, disabled)
+				if model.CanModels {
+					providers := make([]string, 0, len(model.Catalog.Providers))
+					for _, provider := range model.Catalog.Providers {
+						providers = append(providers, provider.ID)
 					}
-				})
-				models := []string{}
-				efforts := []string{effortChoice("")}
-				for _, entry := range model.Catalog.Models {
-					if !entry.Available {
-						mgo.Text(c, "Unavailable: "+entry.ID+" · "+entry.Reason).FontSize(11).TextColor(c.Theme().Warning)
-					}
-					if entry.Available {
-						models = append(models, entry.ID)
-					}
-					if entry.ID == model.SettingsModel && entry.Available {
-						for _, effort := range entry.Efforts {
-							efforts = append(efforts, effortChoice(effort.ID))
+					mgo.Text(c, "Provider route").FontSize(11).TextColor(c.Theme().TextMuted)
+					mgo.Select(c.Key("settings-provider"), &model.SettingsProvider, providers).Label("Provider").Disabled(disabled).OnChange(func() {
+						model.SettingsModel = ""
+						model.SettingsCatalogModel = ""
+						model.SettingsEffort = effortChoice("")
+						if model.RefreshSettings != nil {
+							model.RefreshSettings()
+						}
+					})
+					models := []string{}
+					efforts := []string{effortChoice("")}
+					for _, entry := range model.Catalog.Models {
+						if !entry.Available {
+							mgo.Text(c, "Unavailable: "+entry.ID+" · "+entry.Reason).FontSize(11).TextColor(c.Theme().Warning)
+						}
+						if entry.Available {
+							models = append(models, entry.ID)
+						}
+						if entry.ID == model.SettingsModel && entry.Available {
+							for _, effort := range entry.Efforts {
+								efforts = append(efforts, effortChoice(effort.ID))
+							}
 						}
 					}
+					if len(models) > 0 {
+						mgo.Text(c, "Catalog suggestion (optional)").FontSize(11).TextColor(c.Theme().TextMuted)
+						mgo.Select(c.Key("settings-model-catalog"), &model.SettingsCatalogModel, models).Label("Catalog model").Disabled(disabled).OnChange(func() {
+							model.SettingsModel = model.SettingsCatalogModel
+							model.SettingsEffort = effortChoice("")
+						})
+					}
+					mgo.Text(c, "Model ID (applied)").FontSize(11).TextColor(c.Theme().TextMuted)
+					mgo.TextInput(c.Key("settings-model-id"), &model.SettingsModel).Label("Model ID").Disabled(disabled).OnChange(func() { model.SettingsEffort = effortChoice("") })
+					mgo.Text(c, "Effort").FontSize(11).TextColor(c.Theme().TextMuted)
+					mgo.Select(c.Key("settings-effort"), &model.SettingsEffort, efforts).Label("Reasoning effort").Disabled(disabled)
+					mgo.Text(c, "Manual model IDs are validated by the Host. Apply model affects only this session.").FontSize(11).TextColor(c.Theme().TextMuted)
+					configurationControls(c, model, disabled)
 				}
-				if len(models) > 0 {
-					mgo.Text(c, "Catalog suggestion (optional)").FontSize(11).TextColor(c.Theme().TextMuted)
-					mgo.Select(c.Key("settings-model-catalog"), &model.SettingsCatalogModel, models).Label("Catalog model").Disabled(disabled).OnChange(func() {
-						model.SettingsModel = model.SettingsCatalogModel
-						model.SettingsEffort = effortChoice("")
-					})
-				}
-				mgo.Text(c, "Model ID (applied)").FontSize(11).TextColor(c.Theme().TextMuted)
-				mgo.TextInput(c.Key("settings-model-id"), &model.SettingsModel).Label("Model ID").Disabled(disabled).OnChange(func() { model.SettingsEffort = effortChoice("") })
-				mgo.Text(c, "Effort").FontSize(11).TextColor(c.Theme().TextMuted)
-				mgo.Select(c.Key("settings-effort"), &model.SettingsEffort, efforts).Label("Reasoning effort").Disabled(disabled)
-				mgo.Text(c, "Manual model IDs are validated by the Host. Apply model affects only this session.").FontSize(11).TextColor(c.Theme().TextMuted)
-				configurationControls(c, model, disabled)
 			})
 		})
 		mgo.Row(c).Gap(8).Children(func() {
 			mgo.Button(c.Key("settings-close"), "Close").Disabled(model.SettingsApplying || model.CloseSettings == nil).OnClick(func() { model.CloseSettings() })
 			mgo.Spacer(c)
 			mgo.Button(c.Key("settings-refresh"), "Refresh").Disabled(disabled || model.RefreshSettings == nil).OnClick(func() { model.RefreshSettings() })
-			mgo.PrimaryButton(c.Key("settings-apply"), "Apply model").Disabled(disabled || model.ModelUncertain || model.ConfigurationUncertain || model.ApplySettings == nil || strings.TrimSpace(model.SettingsProvider) == "" || strings.TrimSpace(model.SettingsModel) == "").OnClick(func() { model.ApplySettings() })
+			if model.CanModels {
+				mgo.PrimaryButton(c.Key("settings-apply"), "Apply model").Disabled(disabled || model.ModelUncertain || model.ConfigurationUncertain || model.Permission.Uncertain || model.ApplySettings == nil || strings.TrimSpace(model.SettingsProvider) == "" || strings.TrimSpace(model.SettingsModel) == "").OnClick(func() { model.ApplySettings() })
+			}
 		})
 	})
 	if modal.Dismissed() {

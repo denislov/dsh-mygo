@@ -131,6 +131,7 @@ func (a *App) loadSession(id string) {
 	cancel := a.sessionCancel
 	params := a.routeParams(a.model.CanConfigure)
 	method := "session/resume"
+	canPermissions := a.model.Permission.Available
 	if id == "" {
 		method = "session/create"
 		params["cwd"] = a.options.CWD
@@ -142,6 +143,7 @@ func (a *App) loadSession(id string) {
 		var summary sessionSummary
 		var transcript projection.Transcript
 		var nextSeq uint64
+		var permissions view.PermissionSnapshot
 		raw, err := client.Call(ctx, method, params)
 		if err != nil {
 			err = errors.New("Could not open the session. Check ownership, working directory and model route, then retry")
@@ -165,6 +167,12 @@ func (a *App) loadSession(id string) {
 				}
 			})
 			transcript, nextSeq, err = readSessionHistory(ctx, client, summary.ID, *summary.NextSeq)
+		}
+		if err == nil && canPermissions {
+			permissions, err = readPermissions(ctx, client, summary.ID)
+			if err == nil && permissions.NextSeq != nextSeq {
+				err = errors.New("Permission boundary changed while loading the session")
+			}
 		}
 		a.post(func() {
 			if !a.currentSessionOperation(operation) {
@@ -195,6 +203,9 @@ func (a *App) loadSession(id string) {
 			a.sessionID = summary.ID
 			a.model.SessionID = summary.ID
 			a.model.SessionCWD = summary.CWD
+			if canPermissions {
+				a.model.Permission.Accept(permissions)
+			}
 			a.model.SessionPanel.ActiveArchived = summary.Archived
 			a.upsertSession(summary.view())
 			a.nextSeq = nextSeq

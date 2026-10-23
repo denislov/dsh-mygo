@@ -162,6 +162,7 @@ func New(options Options) *App {
 	app.model.SaveDefaultModel = app.SaveDefaultModel
 	app.model.SaveCredential = app.SaveCredential
 	app.model.ClearCredential = app.ClearCredential
+	app.model.Permission.Apply = app.ApplyPermission
 	app.model.Restart = app.Restart
 	app.model.OpenLogs = app.OpenLogs
 	app.model.Quit = options.Quit
@@ -309,6 +310,13 @@ func (a *App) startHost(recover bool, resumeID string) {
 		a.model.SessionCWD = initialized.cwd
 		a.model.CanHistory = initialized.canHistory
 		a.model.CanResync = initialized.canResync
+		a.model.Permission.Available = initialized.permissions != nil
+		a.model.Permission.Ready = false
+		a.model.Permission.Uncertain = false
+		a.model.Permission.Confirm = false
+		if initialized.permissions != nil {
+			a.model.Permission.Accept(*initialized.permissions)
+		}
 		a.canStreamBaseline = initialized.canStreamBaseline
 		a.statusRevision = 0
 		a.hostStatus = ""
@@ -412,6 +420,7 @@ type initializedSession struct {
 	canHistory        bool
 	canResync         bool
 	canStreamBaseline bool
+	permissions       *view.PermissionSnapshot
 	canRename         bool
 	canArchive        bool
 	canModels         bool
@@ -443,7 +452,7 @@ func (a *App) initialize(ctx context.Context, client rpcClient, resumeID string)
 	result, err := client.Call(ctx, "initialize", map[string]any{
 		"protocolVersion": channel.ProtocolVersion,
 		"client":          map[string]string{"name": "dsh-mygo", "version": channel.ReleaseVersion, "platform": runtime.GOOS, "locale": "zh-CN"},
-		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history", "session.resync", "session.assistant-stream-baseline", "session.rename", "session.archive", "model.selection", "settings.configuration"},
+		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history", "session.resync", "session.assistant-stream-baseline", "session.rename", "session.archive", "model.selection", "settings.configuration", "session.permissions"},
 	})
 	if err != nil {
 		return initializedSession{}, err
@@ -477,6 +486,17 @@ func (a *App) initialize(ctx context.Context, client rpcClient, resumeID string)
 		return initializedSession{}, errors.New("invalid session/create response")
 	}
 	var selected view.ModelRoute
+	var permissions *view.PermissionSnapshot
+	if slices.Contains(initialized.Capabilities, "session.permissions") {
+		snapshot, err := readPermissions(ctx, client, created.Session.ID)
+		if err != nil {
+			return initializedSession{}, err
+		}
+		if snapshot.NextSeq != *created.Session.NextSeq {
+			return initializedSession{}, errors.New("Permission boundary changed during initialization")
+		}
+		permissions = &snapshot
+	}
 	if canConfigure {
 		if created.Session.Provider == nil || created.Session.Model == nil || created.Session.Effort == nil || !validModelLabel(*created.Session.Provider, false) || !validModelLabel(*created.Session.Model, false) || !validModelLabel(*created.Session.Effort, true) {
 			return initializedSession{}, errors.New("Invalid created session route")
@@ -485,6 +505,7 @@ func (a *App) initialize(ctx context.Context, client rpcClient, resumeID string)
 	}
 	return initializedSession{
 		sessionID: created.Session.ID, nextSeq: *created.Session.NextSeq, cwd: a.options.CWD,
+		permissions:       permissions,
 		detail:            initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
 		canCancel:         slices.Contains(initialized.Capabilities, "session.cancel"),
 		canApprove:        slices.Contains(initialized.Capabilities, "approval"),
@@ -544,11 +565,23 @@ func (a *App) resumeSession(ctx context.Context, client rpcClient, id string, in
 		cwd = a.options.CWD
 	}
 	selected := view.ModelRoute{}
+	var permissions *view.PermissionSnapshot
+	if slices.Contains(initialized.Capabilities, "session.permissions") {
+		snapshot, err := readPermissions(ctx, client, id)
+		if err != nil {
+			return initializedSession{}, err
+		}
+		if snapshot.NextSeq != nextSeq {
+			return initializedSession{}, errors.New("Permission boundary changed during restore")
+		}
+		permissions = &snapshot
+	}
 	if canConfigure {
 		selected = view.ModelRoute{Provider: summary.Provider, Model: summary.Model, Effort: summary.Effort}
 	}
 	return initializedSession{
 		sessionID: summary.ID, nextSeq: nextSeq, cwd: cwd, transcript: &transcript,
+		permissions:       permissions,
 		detail:            initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
 		canCancel:         slices.Contains(initialized.Capabilities, "session.cancel"),
 		canApprove:        slices.Contains(initialized.Capabilities, "approval"),
@@ -580,7 +613,7 @@ func validSessionID(value string) bool {
 // while the host is busy or not ready.
 func (a *App) Send(text string) {
 	text = strings.TrimSpace(text)
-	if text == "" || a.shuttingDown.Load() || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 || a.model.SessionBusy || a.model.SessionPanel.BlocksInput() || a.model.SettingsBusy || a.model.SettingsOpen || a.model.ModelUncertain || a.model.ConfigurationUncertain {
+	if text == "" || a.shuttingDown.Load() || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 || a.model.SessionBusy || a.model.SessionPanel.BlocksInput() || a.model.SettingsBusy || a.model.SettingsOpen || a.model.ModelUncertain || a.model.ConfigurationUncertain || a.model.Permission.Uncertain {
 		return
 	}
 	if a.model.SessionPanel.Refreshing {
@@ -793,6 +826,10 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 			}
 			a.nextSeq++
 			a.sessionCatalogDirty = true
+			if notification.Event.Type == "permission/preset" || notification.Event.Type == "sandbox/mode" || notification.Event.Type == "approval/policy" {
+				a.model.Permission.Ready = false
+				a.model.Permission.Confirm = false
+			}
 			if notification.Event.Type == "session/title" {
 				var data struct {
 					Title string `json:"title"`

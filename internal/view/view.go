@@ -105,6 +105,7 @@ type Model struct {
 	ApplySettings        func()
 
 	CanConfigure                 bool
+	Permission                   PermissionState
 	Configuration                Configuration
 	ConfigurationReady           bool
 	ConfigurationUncertain       bool
@@ -169,7 +170,7 @@ func header(c *mgo.Context, model *Model) {
 		if model.CanHistory && model.OpenSessions != nil {
 			mgo.Button(c.Key("sessions"), "Sessions").Disabled(!model.CanRefreshSessions()).OnClick(model.OpenSessions)
 		}
-		if model.CanModels && model.OpenSettings != nil {
+		if (model.CanModels || model.Permission.Available) && model.OpenSettings != nil {
 			mgo.Button(c.Key("settings"), "Settings").Disabled(!model.CanEditSettings()).OnClick(model.OpenSettings)
 		}
 		if model.ModelLabel != "" && !model.CanModels {
@@ -192,6 +193,13 @@ func header(c *mgo.Context, model *Model) {
 			mgo.Text(c, model.ActiveSessionLabel()).FontSize(11).TextColor(theme.TextMuted).SingleLine().Grow(1)
 			mgo.Text(c, model.SessionCWD).FontSize(11).TextColor(theme.TextMuted).SingleLine()
 		})
+	}
+	if model.Permission.Available {
+		label := "Permissions: refresh Settings"
+		if model.Permission.Ready {
+			label = "Permissions: " + model.Permission.Snapshot.Current + " · " + model.Permission.Snapshot.Sandbox + " / " + model.Permission.Snapshot.Approval
+		}
+		mgo.Text(c.Key("permission-current"), label).Padding(0, 20, 8, 20).FontSize(11).SingleLine().TextColor(theme.TextMuted)
 	}
 	mgo.Divider(c)
 }
@@ -324,7 +332,7 @@ func toolCard(c *mgo.Context, model *Model, item projection.Item) {
 func composer(c *mgo.Context, model *Model) {
 	theme := c.Theme()
 	stopped := model.Phase == PhaseStopped || model.Phase == PhaseFailed || model.Phase == PhaseResyncing || model.SessionSwitching || model.RecoveryOpen
-	canSend := model.Phase == PhaseIdle && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy && !model.SessionPanel.BlocksInput() && !model.SettingsOpen && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain
+	canSend := model.Phase == PhaseIdle && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy && !model.SessionPanel.BlocksInput() && !model.SettingsOpen && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain && !model.Permission.Uncertain
 	mgo.Column(c).Padding(12, 20, 16, 20).Gap(8).Children(func() {
 		mgo.TextArea(c.Key("composer-"+model.SessionID), &model.Draft).Lines(1, 8).
 			Label("Message").Placeholder("Message DeepSeek…").AutoFocus().Disabled(stopped).
@@ -366,6 +374,9 @@ func composer(c *mgo.Context, model *Model) {
 }
 
 func composerHint(model *Model) string {
+	if model.Permission.Uncertain && model.Phase == PhaseIdle {
+		return "Permissions unconfirmed · open Settings to refresh"
+	}
 	if (model.ModelUncertain || model.ConfigurationUncertain) && model.Phase == PhaseIdle {
 		return "Model selection unconfirmed · open Settings to refresh"
 	}

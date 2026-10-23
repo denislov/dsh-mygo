@@ -6,7 +6,7 @@
 
 | 类别 | 拥有者 | 存储 | 示例 |
 | --- | --- | --- | --- |
-| DSH 设置 | Host | `$DSH_HOME` 的 settings/credentials | 模型路由、权限模式 |
+| DSH 设置与会话事实 | Host | `$DSH_HOME` 的 settings/credentials/session log | 默认模型、凭据、会话权限 |
 | Profile 配置 | Host / 文件 | `$DSH_HOME/profiles/mygo` | bundle 列表、插件配置、`cordis.patch.yml` |
 | UI 偏好 | Go | MyGo `PathUserData` | 主题、语言、快捷键、窗口位置、最近会话、草稿 |
 
@@ -60,6 +60,8 @@ base 提供：
 | `configuration/get` | 默认模型与凭据安全状态 |
 | `configuration/default-model` | 固定默认模型行的 revision 写入 |
 | `configuration/credential` | 配置绑定的 DeepSeek 引用 set/unset |
+| `permission/get` | 已拥有会话的当前权限、实际 sandbox/approval 和可选预设 |
+| `permission/select` | 通过公开权限服务切换当前会话并落盘 |
 | `settings/get` | 按命名空间读取非 secret 设置 |
 | `settings/set` | 按命名空间写入白名单设置 |
 | `settings/open-document` | 由 Host 打开对应设置文档/编辑器 |
@@ -81,10 +83,13 @@ base 提供：
 
 ### 权限模式
 
-- 由 `permission-presets` 与 `DSH_PERMISSION_MODE` 决定。
-- 常用值：`workspace-write`、`danger-full-access`；`danger-full-access` 时 approval policy 为 `never`，其余默认 `ask`。
-- Settings 展示当前模式并允许切换；切换经 Host 写入，不只在本地改环境变量。
-- `danger-full-access` 需要明确确认；UI 不自行把 `ask` 降级为 `never`。
+- `permission-presets` 与部署配置（包括 `DSH_PERMISSION_MODE`）决定新会话初值；会话日志中的 `permission/preset`、`sandbox/mode`、`approval/policy` 是当前会话事实。切换保存于该会话，不改环境变量或未来会话默认值，恢复保留原权限。
+- `session.permissions` 独立协商 `permission/get|select`，不依赖模型目录能力。Host 使用公开 `permissionPresets.catalog/current/resolve/set`、`sandboxPolicy.resolve`、`approval.effectivePolicy` 与 `sessionPersistence.flush`；只操作本 Host 拥有的会话，不读取私有字段或自行重写工具策略。
+- 快照包括当前预设、实际 sandbox/approval、nextSeq 与有界选项；`custom` 仅显示，不可选。默认 workspace-write 为 workspace-write/ask，默认 danger-full-access 为 danger-full-access/never；自定义名称和标签不代表实际权限，以公开 resolve 的 bundle 为准。`never` 不弹出审批，但显式要求审批的操作会被 DSH 拒绝，不等于自动批准。
+- 首页在初始化、恢复、切换会话时从 Host 读取权限；Settings 刷新目录和实际状态。当前模式展示包括实际 knobs；收到权限事件或进入 resync 时使旧快照失效，不能继续标成当前值。实时恢复不推断遗漏的权限事件，显示刷新提示。
+- 切换要求所属会话 idle，无模型/元数据/配置写入。请求带 expectedNextSeq 检查会话边界；Host 读取目标预设的实际 bundle，如果 sandbox 是 danger-full-access 或 approval 是 never，必须有 confirmDangerous:true。UI 展示目标实际值、风险和默认不勾选的确认；改变选择、刷新、关闭或提交后清除确认。
+- 写入预占会话直至公开 set 和 flush 完成，期间拒绝 prompt/resume/history/模型或元数据写入，退出等待已接受任务结算。返回完整快照确认 current/knobs/nextSeq；幂等选择不要求产生新事件。UI 不乐观覆盖，保持草稿和当前会话，15 秒读取、60 秒写入，后台处理并拒绝过期结果。
+- 失败或超时后显示固定错误，禁止发送、会话导航及下一设置写入，必须 Refresh 成功后解除。Host 同样保留失败确认屏障，get 等待已有写入完成并重新 flush；不以 RPC 超时冒充底层写入取消。选项最多 32，快照最多 32 KiB 且不超过配置帧上限一半；只返回白名单字符串/枚举/计数，不返回 workspaceRoot、配置对象或原始异常。
 
 ## 凭据
 

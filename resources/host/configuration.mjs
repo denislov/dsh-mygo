@@ -65,6 +65,7 @@ export class Configuration {
   }
 
   assertIdle() {
+    if ([...this.server.sessions.values()].some((record) => record.permissionUncertain)) throw fault('permission/refresh-required', 'Refresh permissions before writing configuration')
     if (this.pending) throw fault('settings/busy', 'A configuration write is still pending')
     if (this.uncertain) throw fault('settings/refresh-required', 'Refresh configuration before retrying')
     if (this.server.management.pending.size > 0 || [...this.server.sessions.values()].some((record) => !record.handle || record.busy || record.modelUpdating || record.metadataUpdating || record.handle.agent.status !== 'idle')) throw fault('session/busy', 'Wait for all sessions to become idle')

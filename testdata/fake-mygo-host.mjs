@@ -146,6 +146,22 @@ if (process.argv.includes('--session-management')) {
     async unarchiveSession(id) { archived.delete(id) },
   }
 }
+if (process.argv.includes('--permissions')) {
+  const specs = { 'workspace-write': { sandbox: 'workspace-write', approval: 'ask' }, 'danger-full-access': { sandbox: 'danger-full-access', approval: 'never' } }
+  ctx.permissionPresets = {
+    catalog: () => ({ options: Object.keys(specs).map((value) => ({ value, name: value })) }),
+    resolve: (name) => specs[name],
+    current(session) { return stored.get(session.id).events.filter((event) => event.type === 'permission/preset').at(-1)?.data.preset ?? (process.argv.includes('--permission-full-start') ? 'danger-full-access' : 'workspace-write') },
+    set(session, preset) {
+      if (this.current(session) === preset) return
+      session.append('permission/preset', { preset })
+      session.append('sandbox/mode', { mode: specs[preset].sandbox })
+      session.append('approval/policy', { policy: specs[preset].approval })
+    },
+  }
+  ctx.sandboxPolicy = { resolve: ({ session }) => ({ mode: specs[ctx.permissionPresets.current(session)].sandbox }) }
+  ctx.approval = { effectivePolicy: (session) => specs[ctx.permissionPresets.current(session)].approval }
+}
 if (process.argv.includes('--models')) {
   ctx.llm.listProviders = () => [{ id: 'test', name: 'Test provider' }]
   ctx.llm.listModels = async (provider) => [{ provider, id: 'echo', name: 'Echo' }, { provider, id: 'route-probe', name: 'Route probe' }]

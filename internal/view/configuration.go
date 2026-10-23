@@ -40,7 +40,7 @@ func configurationControls(c *mgo.Context, model *Model, disabled bool) {
 	if !model.CanConfigure {
 		return
 	}
-	disabled = disabled || !model.ConfigurationReady || model.ConfigurationUncertain
+	disabled = disabled || !model.ConfigurationReady || model.ConfigurationUncertain || model.Permission.Uncertain
 	mgo.Text(c, "Persistent profile default").Bold().FontSize(12)
 	if model.ConfigurationReady {
 		selection := model.Configuration.Defaults

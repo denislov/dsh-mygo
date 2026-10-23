@@ -87,6 +87,7 @@ func (a *App) OpenSettings() {
 	a.model.ConfigurationReady = false
 	a.model.SettingsNotice = ""
 	a.model.ConfirmCredentialClear = false
+	a.model.Permission.Confirm = false
 	a.model.ClearCredentialDraft()
 	a.model.ToolInspector = nil
 	a.model.Catalog = view.ModelCatalog{}
@@ -102,6 +103,7 @@ func (a *App) CloseSettings() {
 	a.model.SettingsOpen = false
 	a.model.ClearCredentialDraft()
 	a.model.ConfirmCredentialClear = false
+	a.model.Permission.Confirm = false
 }
 
 func (a *App) cancelSettingsOperation() {
@@ -114,6 +116,7 @@ func (a *App) cancelSettingsOperation() {
 	a.model.SettingsBusy = false
 	a.model.SettingsApplying = false
 	a.model.SettingsWritingConfiguration = false
+	a.model.Permission.Writing = false
 }
 
 func (a *App) beginSettingsOperation() (context.Context, uint64) {
@@ -140,12 +143,22 @@ func (a *App) RefreshSettings() {
 	ctx, operation := a.beginSettingsOperation()
 	client, id, provider, cancel := a.currentClient(), a.sessionID, a.model.SettingsProvider, a.settingsCancel
 	canConfigure := a.model.CanConfigure
+	canModels, canPermissions := a.model.CanModels, a.model.Permission.Available
+	a.model.Permission.Confirm = false
 	go func() {
 		defer cancel()
-		catalog, err := readModelCatalog(ctx, client, id, provider)
+		var catalog view.ModelCatalog
+		var err error
+		if canModels {
+			catalog, err = readModelCatalog(ctx, client, id, provider)
+		}
 		var configuration view.Configuration
+		var permissions view.PermissionSnapshot
 		if err == nil && canConfigure {
 			configuration, err = readConfiguration(ctx, client)
+		}
+		if err == nil && canPermissions {
+			permissions, err = readPermissions(ctx, client, id)
 		}
 		a.post(func() {
 			if !a.currentSettingsOperation(operation, id) {
@@ -157,12 +170,21 @@ func (a *App) RefreshSettings() {
 				return
 			}
 			a.model.Catalog = catalog
+			if canPermissions {
+				if permissions.NextSeq != a.nextSeq {
+					a.model.SettingsError = "Session permissions changed. Refresh to retry"
+					return
+				}
+				a.model.Permission.Accept(permissions)
+			}
 			if canConfigure {
 				a.model.Configuration = configuration
 				a.model.ConfigurationReady = true
 				a.model.ConfigurationUncertain = false
 			}
-			a.model.SetActiveRoute(catalog.Selection)
+			if canModels {
+				a.model.SetActiveRoute(catalog.Selection)
+			}
 			a.model.ModelUncertain = false
 			a.model.SettingsProvider = catalog.Provider
 			if a.model.SettingsModel == "" {
@@ -178,10 +200,10 @@ func (a *App) RefreshSettings() {
 }
 
 func (a *App) ApplySettings() {
-	if !a.canEditSettings() || !a.model.SettingsOpen {
+	if !a.canEditSettings() || !a.model.SettingsOpen || !a.model.CanModels {
 		return
 	}
-	if a.model.ModelUncertain || a.model.ConfigurationUncertain {
+	if a.model.ModelUncertain || a.model.ConfigurationUncertain || a.model.Permission.Uncertain {
 		a.model.SettingsError = "Refresh to confirm the active route before retrying"
 		return
 	}

@@ -43,6 +43,8 @@ func (a *App) startResync() {
 	a.model.RecoveryOpen = false
 	a.model.Error = ""
 	a.model.ErrorDetail = ""
+	a.model.Permission.Ready = false
+	a.model.Permission.Confirm = false
 	a.clearStream()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	job := &resyncState{ctx: ctx, cancel: cancel, id: a.sessionID}

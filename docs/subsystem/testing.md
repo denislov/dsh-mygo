@@ -77,6 +77,7 @@ Go channel 与 Node transport 共用非法帧 fixture。`resources/host/tests/pr
 - `--stream` / `--stream-wait` / `--no-stream`：流式、取消流式与旧 Host 仅提交模式；`--sessions --stream-wait --stream-gap` 丢弃文本块起始帧，验证仅流式缺口的 baseline 恢复与取消。
 - `--tool-diff`、`--markdown` / `--markdown-wait`：工具详情与 Markdown 渲染。
 - `--sessions`、`--models`、`--configuration`：会话、模型与配置面板。
+- `--permissions` 配合 `--sessions` 提供权限读取和切换；`--permission-full-start` 仅在 fake Host 预置完全访问初值，供原生确认门禁和幂等保存检查，不修改用户 DSH 数据。
 - `--bad-version`、`--bad-session` 等错误注入。
 
 `testdata/fake-sdk-host.mjs` 是最小 SDK 协议 host，用于显式回归模式。fake host 只验证 UI/协议适配，不验证真实模型行为。
@@ -116,6 +117,8 @@ node --test resources/host/tests/*.test.mjs
 - `TestAgainstMygoSessionManagement`：fake/真实 Host 的目录启动加载、冷目标及当前会话重命名、提交确认、归档/恢复、草稿隔离与继续发送；真实组还覆盖归档当前会话后 kill/Restart、新建会话和恢复原草稿。Tester 覆盖侧栏/弹窗切换、标题过滤、归档筛选与表单身份，Windows UI Automation 验证原生按钮和输入流程。
 - `TestAgainstMygoResync`：fake Host 与真实 Host 传输过滤器丢弃持久通知或文本块起始帧，不修改日志；验证同一 Host/会话自动补齐、用户消息唯一、流式提交不重复、草稿保留、后续回合、审批/提问继续。baseline-complete/cancel 在真实模型 adapter 暂停时验证无需新 start 就恢复文本，并续流或取消。`resync_test.go`、`stream_baseline_test.go` 覆盖状态基线、流式续接/重放、分页变化、连续性重试上限、溢出、失败后迟到结果及取消确认屏障；Node 历史与 baseline 测试覆盖同步捕获、固定分页、能力隔离、资源限制和私有块内容排除。
 - `TestAgainstMygoRestart`：完成一个回合后 kill Host，等待恢复对话框，Restart 后 resume 同一会话、回放 transcript 并继续发送。
+- `TestAgainstMygoPermissions`：fake/真实 Host 的初始化快照、会话权限切换、草稿保持、新建默认不变和切回；真实组 kill/Restart 后冷恢复确认权限持久化。`TestAgainstMygoPermissionEnforcement` 以真实 approval-probe 对比 ask 弹出审批与 never 拒绝显式审批，均不执行被拒绝的临时标记写入。
+- 权限单元与 Tester：白名单载荷/实际 knobs/危险确认/seq 冲突/写入屏障/失败刷新/旧 Host 隐藏/独立于模型能力/最小窗口。Windows 原生检查验证未勾选时禁用、勾选后幂等保存、当前权限和宽窄布局；完整选项切换使用 Tester 与真实 Host 验证。
 - `node scripts/test-real-host.mjs --runtime`：同一组测试改用 `resources/runtime` 的 Node、DSH 闭包与私有入口；用于打包前后检查运行时闭包。
 
 需要真实模型与 key 的 `TestAgainstMygoRealModel` 默认跳过；运行前确认会产生 API 调用费用。

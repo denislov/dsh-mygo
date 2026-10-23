@@ -12,7 +12,7 @@
 ## 消息集与能力
 
 - UI/Host 发布版本 `0.1.0`、`protocolVersion: 1`、DSH `0.2.1-rc.2` 精确绑定；不匹配时拒绝进入 ready。
-- 请求方法：`initialize`、`session/create`、`session/list`、`session/resume`、`session/rename`、`session/archive`、`session/delete`、`session/fork`、`session/history`、`session/prompt`、`session/cancel`、`session/queue`、`session/wait`、`session/working-directory/get`、`session/working-directory/set`、`model/list`、`model/select`、`settings/get`、`settings/set`、`settings/open-document`、`configuration/get`、`configuration/default-model`、`configuration/credential`、`approval/respond`、`question/respond`、`question/cancel`、`shutdown`。
+- 请求方法：`initialize`、`session/create`、`session/list`、`session/resume`、`session/rename`、`session/archive`、`session/delete`、`session/fork`、`session/history`、`session/prompt`、`session/cancel`、`session/queue`、`session/wait`、`session/working-directory/get`、`session/working-directory/set`、`model/list`、`model/select`、`settings/get`、`settings/set`、`settings/open-document`、`configuration/get`、`configuration/default-model`、`configuration/credential`、`permission/get`、`permission/select`、`approval/respond`、`question/respond`、`question/cancel`、`shutdown`。
 - 通知：`session/event`、`session/assistant-stream`、`session/status`、`approval/request`、`approval/closed`、`question/request`、`question/closed`、`subagent/started`、`subagent/finished`、`host/notice`、`host/fatal`。
 - UI 声明 `session.cancel`，Host 仅在双方支持时返回该 capability；未协商时调用取消返回 `protocol/capability-unavailable`。旧 Host 不声明时，UI 不展示 Stop。UI 通过 `session.history` 协商 list/resume/history，并提供原生 Sessions 入口。
 - 文本流式通过 `session.assistant-stream` capability 启用；Host 只转发自己拥有的确切 agent 的公开流式帧。旧 Host/SDK 保持仅提交模式，不自动降级协议。Go 只展示 text，reasoning/工具参数不进入临时行。
@@ -22,6 +22,7 @@
 - 旧 SDK 的 `contentBlocks`、点分隔通知和隐式会话创建只在显式 `-sdk-protocol` 模式下启用，不自动降级。
 - UI 声明 `approval` / `question`，Host 返回双方交集；未协商时对应交互不可用，不能调用回答/取消提问方法。无 agent 提问使用空 `sessionId`，不冒用当前会话身份。阻塞提问与 timed/continued 提问都通过同一请求/回答通道。
 - `settings.configuration` 与 configuration/get/default-model/credential 在 Host 服务可用时协商；协议只允许固定默认模型与官方 provider 绑定的凭据配置，不暴露明文读取。通用设置通过 `settings/get` / `settings/set` 的命名空间白名单读写。
+- `session.permissions` 在公开权限预设、sandbox/approval 读取和持久化服务可用时独立协商，不依赖 model.selection；未协商不调用 permission/get/select。
 
 ## 传输
 
@@ -124,6 +125,8 @@
 | `configuration/get` | `{}`（需 settings.configuration） | `ConfigurationSnapshot` |
 | `configuration/default-model` | `{revision,provider,model,effort?}`（需 settings.configuration） | `ConfigurationSnapshot` |
 | `configuration/credential` | `{reference,operation:"set",value}` 或 `{reference,operation:"unset"}`（需 settings.configuration） | `ConfigurationSnapshot` |
+| `permission/get` | `{sessionId}`（需 session.permissions） | `PermissionSnapshot` |
+| `permission/select` | `{sessionId,preset,expectedNextSeq,confirmDangerous?}`（需 session.permissions） | `PermissionSnapshot` |
 | `settings/get` | `{ namespace? }` | `{ values }`（只返回非 secret） |
 | `settings/set` | `{ namespace, values }` | `{ values }` |
 | `settings/open-document` | `{ namespace }` | `{}`（由 Host 打开原生编辑器） |
@@ -131,6 +134,10 @@
 模型目录和当前会话选择通过 model.selection 协商；独立的 settings.configuration 保护固定范围的持久默认模型与凭据配置；通用设置走 settings/get/set 的命名空间白名单，不接受未声明命名空间写入。目录、范围、资源限制和凭据边界见 [设置与凭据](settings-credentials.md)。model/select 的 effort 省略或空字符串均代表清除显式 override；成功提交一个 model/selection 事件并返回新的 nextSeq，不修改历史消息或全局默认值。
 
 ConfigurationSnapshot 为 `{revision,defaults:{provider,model,effort},credential:{available,reference,configured,writable,source}}`，只包含安全白名单字段，Go 输入预算 8 KiB。revision 为非负安全整数；路由/引用最多 256 UTF-8 bytes；引用必须为 POSIX identifier；source 仅 none/managed/environment/fallback。凭据值仅出现在 set 请求（1–8192 bytes、无 ASCII 空白/控制字符），任何结果或错误都不能回传。默认模型写入使用 revision 乐观冲突检查；凭据 reference 必须等于 Host 当前官方 provider 的配置绑定。写入失败后必须 configuration/get 确认，未结束的写入不被读操作或下一写入越过；不承诺 RPC 超时取消底层持久化。
+
+`PermissionSnapshot` 为 `{sessionId,current,sandbox,approval,nextSeq,options:[{id,name,description,sandbox,approval,requiresConfirmation}]}`。sandbox 只允许 read-only/workspace-write/danger-full-access，approval 只允许 ask/never；nextSeq 为非负安全整数。选项最多 32 且身份唯一；id/name/current 最多 256 UTF-8 字节，description 最多 2048 字节；快照最多 32 KiB 且不超过配置帧上限一半，不携带根路径或完整配置。custom 可为当前值，不能成为选项或切换目标；非 custom 的当前 bundle 必须与目录一致。
+
+permission/select 仅接受所属 idle 会话，无并发模型/元数据/配置写入；expectedNextSeq 必须等于当前会话边界，否则返回 permission/conflict。目标实际 sandbox 为 danger-full-access 或 approval 为 never 时 requiresConfirmation 为 true，必须传 boolean confirmDangerous:true，否则返回 permission/confirmation-required；名称不参与风险判断。公开 set 后等待 flush，成功返回实际快照，幂等选择可保持原 nextSeq。写入保留会话预占直至底层结束；失败返回脱敏 permission/write-failed，之后 permission/get 成功确认前拒绝 prompt/导航/下一写入。读取等待尚未结束的权限写入，不以请求超时取消底层任务。具体所有权和 UI 确认规则见 [设置与凭据](settings-credentials.md#权限模式)。
 
 ### 交互
 

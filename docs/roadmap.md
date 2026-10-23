@@ -1,6 +1,6 @@
 # 开发进度与路线图
 
-> 统计基线：`9faa9b6`（2026-10-23 13:51）；能力进度包含本次 M3-1b 流式 baseline 变更，决策更新于 2026-10-23。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
+> 统计基线：`9faa9b6`（2026-10-23 13:51）；能力进度包含本次 M2-3 权限模式变更，决策更新于 2026-10-23。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
 
 ## 1. 结论
 
@@ -8,7 +8,7 @@
 
 一句话：**能开发、能演示、能在开发机上真实跑；还不能交给普通用户安装使用。**
 
-判断依据：协议与 UI 主链路已经闭环，M0 工程基线、M1 运行时/打包/安装器 smoke、自签名发布构建、手工崩溃恢复、会话管理 UI、持久事件自动补齐与流式 baseline 已完成；干净机器验收、大历史、权限模式 UI 与 Windows 发布工程仍是主要缺口；macOS 作为后续发布单元。
+判断依据：协议与 UI 主链路已经闭环，M0 工程基线、M1 运行时/打包/安装器 smoke、自签名发布构建、手工崩溃恢复、会话管理 UI、持久/流式缺口恢复与权限模式 UI 已完成；干净机器验收、大历史、UI 偏好持久化与 Windows 发布工程仍是主要缺口；macOS 作为后续发布单元。
 
 ## 2. 事实快照
 
@@ -56,6 +56,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 | 投影与渲染 | user/assistant/tool/diff/notice、原生 Markdown 流式与代码复制、工具折叠与只读 hunk | `internal/projection`、`internal/view/markdown.go`、`tools.go` |
 | 会话 UI | 宽窗口固定侧栏、窄窗口 Sessions 弹窗、标题搜索、归档筛选、重命名/归档/恢复；新建/刷新/恢复、草稿隔离与写入失败确认屏障 | `internal/view/sessions.go`、`internal/app/session_management.go`、`TestAgainstMygoSessionManagement`、`TestAgainstMygoSessionSwitching` |
 | 模型与设置 | `model.selection` 目录与 effort、`settings.configuration` 默认模型（revision）、DeepSeek 凭据只写 | `internal/app/settings.go`、`configuration.go`、`TestAgainstMygoConfiguration` |
+| 会话权限 | 独立能力、当前预设和实际 sandbox/approval、危险 bundle 确认、Host 公共服务切换/持久化、失败刷新门禁 | `resources/host/permissions.mjs`、`internal/app/permissions.go`、`internal/view/permissions.go`、`TestAgainstMygoPermissions` |
 | 回归入口 | 旧 SDK 链路保留为显式 `-sdk-protocol -profile sdk` | `main.go`、`testdata/fake-sdk-host.mjs` |
 | 工程基线 | 正式 identifier、版本单点、Windows/Linux CI、构建产物重建 | `versions.json`、`internal/version`、`.github/workflows/ci.yml` |
 | 运行时打包 | bundled Node + DSH 闭包 + 私有 `mygo-host` + 首启 profile seed + manifest 版本校验 | `resources/runtime/`、`scripts/build-runtime.mjs`、`internal/host/profile.go`、`internal/host/launch.go` |
@@ -78,7 +79,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 ### 4.2 产品体验缺口（能用，但不像完整桌面客户端）
 
 - **会话管理扩展**：侧栏、标题搜索、重命名/归档/恢复已接通；delete/fork 后置。冷目标重命名会先 resume 并占用 Host 的会话名额（当前最多 8 个）；冷元数据读取需要扫描有界日志，超出 20000 事件/32 MiB 的单会话会使目录查询明确失败，后续需独立投影索引、大历史和句柄释放方案。
-- **权限模式**：只有 `DSH_PERMISSION_MODE` 环境变量，UI 不能展示或切换，也没有危险模式确认。
+- **权限模式扩展**：当前会话展示/切换、危险确认和冷恢复已接通；未来会话默认权限编辑仍后置，UI 不更改部署环境。
 - **UI 偏好**：主题、语言、快捷键、最近会话、跨重启草稿未持久化（窗口尺寸/位置由 MyGo `StateKey` 处理）。
 - **附件与引用**：图片粘贴、文件拖放、`@path` 引用、`/` 命令均未实现；协议里 `attachments` 仍是后续契约。
 - **深度信息**：usage/context/compaction 不展示；`subagent/*` 协议表有定义但 Host 不发送、UI 不投影；plan/todo/goal 未投影。
@@ -136,7 +137,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 - 固定侧栏（已完成）：会话常驻列表、标题搜索、新建；宽度小于 820 时通过 Sessions 弹窗访问，搜索与表单状态共用。
 - 会话管理（已完成）：Host 与原生 UI 的重命名、归档/恢复、更新时间和最近活动排序；当前归档保留正文/草稿并禁用发送，写入失败需刷新确认，delete/fork 后置。
-- 权限模式 UI：展示与切换（走 Host，不本地改环境变量），`danger-full-access` 明确确认。
+- 权限模式 UI（已完成）：实际预设/sandbox/approval 展示与当前会话切换，危险 bundle 明确确认；Host 写入会话日志并等待落盘，失败必须刷新。
 - UI 偏好持久化：主题/语言/快捷键/最近会话/草稿，原子写；i18n 决策落地。
 - 附件与引用：图片（类型白名单、base64 限额）、`@path`、拖放；`/` 命令先留扩展。
 - 深度信息：usage/context 最小展示；subagent/plan/todo 先做投影。
@@ -169,7 +170,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 ## 6. 建议的下一批任务（PR 粒度）
 
-1. **M2-3 权限模式展示与切换**：沿用 Host 权限服务与独立能力协商，支持当前模式展示及危险模式确认；随后推进草稿/偏好持久化。
+1. **M2-4 草稿与 UI 偏好持久化**：按会话保存有界草稿和最近会话，原子写入设备配置并处理损坏回退；主题/语言/快捷键按范围分批接入。
 2. **M3-2 大历史与句柄预算**：增量历史加载及独立元数据索引，避免单个超预算会话阻塞整个目录；随后复用 baseline 推进运行中 attach。
 3. **M1-4 干净机器验收**：项目所有者因没有干净 Windows VM，决定本轮跳过并继续 M2；未验收，不标记通过。Windows 发布前重新安排离线首启与证书提示流程检查。
 
@@ -180,6 +181,8 @@ M2-2 会话侧栏及管理 UI 已完成：UI 协商两个管理能力，宽窄�
 M3-1a 持久事件自动补齐已完成：运行中 history 通过新 capability 返回固定序列与状态版本，Go 后台重建投影并有序消费缓冲，保留草稿、审批/提问和取消确认。新增丢帧 fixture 验证同一 Host/会话续接、普通/流式结果不重复、审批/提问继续及下一回合；失败和上限覆盖于单元测试。实际检查：`CGO_ENABLED=0 go test ./...`（253 项）、`go test -race ./internal/app ./internal/projection ./internal/view`、MyGo vet、Go vet、Node 测试（58/58）和 bundled runtime 完整真实组合均通过。另用 Node `--env-file=.env` 仅在测试子进程中加载凭据，实际跑过 `TestAgainstMygoRealModel`，DeepSeek flash 返回精确 pong 并正常关闭；默认完整组合不加载该文件，付费组仍 skip。Windows 原生窗口注入丢帧后回到 Ready，显示唯一用户消息与答案，无 Host 重启，截图及 UI Automation 检查通过。本轮未重建安装器，干净 VM 验收继续按决定跳过。
 
 M3-1b 流式 baseline 已完成：独立协商 `session.assistant-stream-baseline`，Host 从公开帧累计有界文本/块状态，live history 首页同步捕获持久/状态/流式边界并跨页固定；Go 恢复版本和 chunk offset、过滤旧帧，并对仅流式缺口执行同样的有界 resync。baseline 最多 128 KiB、128 块和 8000 rune，不携带 reasoning/工具参数，计入历史页和总预算。真实暂停 adapter 验证缺失文本块起始帧后，不等待新 start/提交就恢复前缀，并完成续流/取消及下一回合；Host 重启回归校验新 Agent 的版本空间重置。实际检查：`CGO_ENABLED=0 go test ./...`（264 项）、`go test -race ./internal/app ./internal/projection ./internal/view`（191 项）、MyGo vet、Go vet、Node Host/脚本（61/61）、bundled runtime 完整真实组合均通过；Windows 原生窗口注入流式缺口后显示临时前缀，Stop 返回 Ready，截图和 UI Automation 通过。本轮不调用付费模型，未读取或修改 `.env`，未重建安装器；干净 VM 验收继续跳过。
+
+M2-3 会话权限 UI 已完成：独立协商 permission/get/select，显示实际预设/sandbox/approval，按目标 bundle 提供危险确认；Host 公开服务写入和落盘，seq 冲突或失败要求刷新确认，保留草稿并禁止未确认时发送/导航/下一写入。新建默认不受影响，切换会话和 Host 冷恢复保留权限。实际检查：`CGO_ENABLED=0 go test ./...`（272 项）、`go test -race ./internal/app ./internal/view ./internal/projection`（199 项）、MyGo vet、Go vet、Node Host/脚本（64/64）、bundled runtime 完整真实组合均通过。真实 approval-probe 验证 ask 提问与 never 拒绝显式审批，不把 never 误当自动批准。Windows 原生 UI Automation 验证预置完全访问时确认门禁、幂等保存、当前状态和宽窄窗口；下拉选项的直接自动化选择受 MyGo 原生接口限制，完整切换由 Tester 与真实 Host 覆盖。本轮不调用付费模型、不读取或修改 `.env`，不重建安装器；干净 VM 验收继续跳过。
 
 ## 7. 风险与依赖
 

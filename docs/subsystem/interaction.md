@@ -84,12 +84,11 @@ Host `maxPendingQuestions` 默认 32，范围 1–64；Go 最多 64 个待处理
 
 ## 权限模式
 
-- 权限模式由 `@deepseek-ai/dsh-permission-presets` 与 `DSH_PERMISSION_MODE` 决定。
-- 常用值：`workspace-write`、`danger-full-access`。
-- `danger-full-access` 时 approval policy 为 `never`；其余默认 `ask`。
-- 模式切换经 Host 写入，不能只在本地改环境变量。
-- `danger-full-access` 的确认文案明确风险；不要默认选中。
-- UI 不自行把 `ask` 降级为 `never`。
+- 权限模式由公开 `permissionPresets` 服务写入会话日志；部署配置（包括 `DSH_PERMISSION_MODE`）提供初值，切换不会改变其他会话或新建默认值。
+- 默认 workspace-write 对应 workspace-write/ask，默认 danger-full-access 对应 danger-full-access/never；自定义预设以实际 sandbox/approval 为准，UI 展示这两个值。
+- `ask` 通过已协商的 answerer 询问；`never` 不询问，显式要求审批的操作由 DSH 拒绝，不提供隐式批准。
+- `session.permissions` 与 `permission/get|select` 的所属会话、idle、版本检查、写入屏障与失败刷新规则见 [设置与凭据](settings-credentials.md#权限模式)。
+- 目标实际 sandbox 为 danger-full-access 或 approval 为 never 时显示风险并显式确认，默认不勾选；Host 独立校验确认，不能只依赖 UI。UI 不自行把 ask 降级为 never。
 - sandbox 策略由 DSH 配置决定；UI 不提供绕过入口。
 
 ## 协议映射

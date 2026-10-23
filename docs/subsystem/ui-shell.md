@@ -168,7 +168,7 @@ App
 | 设置 | 来源 |
 | --- | --- |
 | Provider / Model / Effort | `model/list`、`model/select` |
-| 权限模式 | `DSH_PERMISSION_MODE` / Host 配置 |
+| 权限模式 | Host 会话权限快照；初值来自部署配置，切换写入当前会话日志 |
 | 语言 | 本地 + Host locale |
 | 主题 | MyGo 主题（跟随系统） |
 | 快捷键 | 本地 |
@@ -176,6 +176,8 @@ App
 | 更新 | MyGo updater |
 
 其余 DSH 设置通过 `settings/get` / `settings/set` 接入；不要一次性复刻 Web 设置页。所有权与凭据规则见 [设置与凭据](settings-credentials.md)。
+
+权限能力独立于模型目录，任一能力可打开 Settings；当前权限在会话页展示，权限表单排在可滚动正文首部。选择使用稳定 preset id，确认按目标 preset 绑定，默认不勾选；写入期间显示 Applying permissions，禁用关闭、重复提交和导航。失败后保留草稿，通过 Refresh 读取 Host 真相，发送区显示权限未确认提示。Close/Refresh 等页脚动作在最小窗口保持可达；具体风险判定和确认契约见 [权限模式](settings-credentials.md#权限模式)。
 
 ## 主题、语言与无障碍
 

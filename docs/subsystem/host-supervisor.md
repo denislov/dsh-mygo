@@ -51,7 +51,7 @@ Host 继承启动环境，并显式设置：
 | 变量 | 作用 |
 | --- | --- |
 | `DSH_HOME` | profile、会话、设置的根目录 |
-| `DSH_PERMISSION_MODE` | `workspace-write` / `danger-full-access` 等；由 UI 的权限选择写入 |
+| `DSH_PERMISSION_MODE` | 部署提供新会话权限初值；UI 的会话权限选择经 Host 服务写入日志，不重写环境变量 |
 | `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` | 模型凭据；也可由 DSH 的 `.env` 层解析 |
 | `LANG` / `LC_ALL` | Host 侧 locale；UI 自己也有 locale |
 | `PATH` | 让 Host 能找到 shell、git、pnpm 等工具；bundled 入口把 `resources/runtime/node/` 放在最前 |

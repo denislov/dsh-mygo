@@ -77,7 +77,7 @@ func (a *App) SaveDefaultModel() {
 }
 
 func (a *App) canWriteConfiguration() bool {
-	return a.canEditSettings() && a.model.SettingsOpen && a.model.CanConfigure && a.model.ConfigurationReady && !a.model.ConfigurationUncertain && !a.model.ModelUncertain
+	return a.canEditSettings() && a.model.SettingsOpen && a.model.CanConfigure && a.model.ConfigurationReady && !a.model.ConfigurationUncertain && !a.model.ModelUncertain && !a.model.Permission.Uncertain
 }
 
 func (a *App) SaveCredential() {

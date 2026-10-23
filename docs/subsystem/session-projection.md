@@ -152,6 +152,8 @@ idle
 
 ## 历史回放
 
+`permission/preset`、`sandbox/mode`、`approval/policy` 作为 Host 所有的会话元数据参与 seq 连续性检查，不把它们伪装成用户消息。当前权限从 permission/get/select 快照读取，权限事件使旧显示失效；初始化、冷恢复和切换会话重新读取确切身份的快照。确认快照中的 nextSeq 必须等于已收到的持久事件边界；改变权限必须推进边界，幂等切换允许边界不变。
+
 Host 通过 list/resume/history 提供历史，具体参数、快照边界和资源预算以 [通道协议](channel-protocol.md#host-历史能力) 为准。回放使用现有 Transcript.Apply，UI 不持久化副本。
 
 会话列表/弹窗显式打开旧会话或新建。后台先校验 resume/create 的确切身份、idle 或运行中状态、模型路由与 nextSeq，再从 seq 0 分页构建新的 Transcript；所有页成功并确认固定边界后，在主线程整体替换旧投影。加载失败不保留或展示部分新历史，旧会话/草稿保持原样。

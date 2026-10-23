@@ -182,7 +182,7 @@ Go 的 `SessionProjection` 从 `session/assistant-stream` 与 `session/event` �
 
 - **审批**：Host 的 `ctx.approval` 发起请求；`@dsh-mygo/host` 注册 answerer；通过 `approval/request` 发给 Go；Go 弹窗；`approval/respond` 返回 allow/deny。
 - **用户提问**：模型 `ask_user_question` → `ctx.userQuestions` → answerer → `question/request` → Go 表单 → `question/respond`。
-- **权限模式**：沿用 base 的 `dsh-permission-presets` 与 `DSH_PERMISSION_MODE`；UI 展示并切换，切换经 Host 写入，不自行放宽。
+- **权限模式**：沿用 base 的 `dsh-permission-presets`；部署环境提供初值，当前会话事实保存在日志。UI 独立协商 permission/get/select，展示实际 sandbox/approval，危险 bundle 经显式确认由 Host 公开服务切换，不自行放宽。
 - **Secret**：凭据只写不读；日志、错误、崩溃报告不得包含 token、API key、cookie。
 
 细节见 [交互](subsystem/interaction.md)。
