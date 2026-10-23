@@ -54,6 +54,7 @@ type AssistantStream struct {
 	truncated bool
 	terminal  bool
 	commitSeq *uint64
+	desynced  bool
 }
 
 func validStreamInteger(value *uint64) bool { return value != nil && *value <= maxStreamInteger }
@@ -107,6 +108,7 @@ func (stream *AssistantStream) Apply(raw json.RawMessage) error {
 	}
 	if stream.revision != previous+1 {
 		stream.Clear()
+		stream.desynced = true
 		return nil
 	}
 	if frame.AttemptID != stream.attemptID {
@@ -117,6 +119,7 @@ func (stream *AssistantStream) Apply(raw json.RawMessage) error {
 	}
 	if *frame.Index != stream.index {
 		stream.Clear()
+		stream.desynced = true
 		return nil
 	}
 	if frame.Type == "end" {
@@ -225,6 +228,7 @@ func (stream *AssistantStream) Commit(event Event) {
 }
 
 func (stream *AssistantStream) Clear() {
+	stream.desynced = false
 	stream.attemptID = ""
 	stream.index = 0
 	stream.blocks = nil

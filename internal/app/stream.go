@@ -118,6 +118,11 @@ func (a *App) handleStreamNotification(params json.RawMessage) {
 		go a.stopHost()
 		return
 	}
+	if a.canStreamBaseline && a.stream.NeedsResync() {
+		a.requireResync(errors.New("Assistant stream sequence gap"))
+		a.bufferResyncNotification("session/assistant-stream", params)
+		return
+	}
 	// A resync can already contain this attempt's commit before its buffered
 	// process-local end frame is replayed.
 	var settled struct {

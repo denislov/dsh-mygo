@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { MygoServer } from '../server.mjs'
+import { AssistantStreamBaseline } from '../stream-baseline.mjs'
 
 const handshake = {
   protocolVersion: 1,
@@ -65,6 +66,42 @@ function runtime(management = false) {
 }
 
 const resume = { sessionId: 'stored-1', provider: 'test', model: 'echo' }
+
+test('stream baseline shares the history cut, stays fixed across pages and requires negotiation', async () => {
+  const { server, ctx } = runtime()
+  const capabilities = ['session.history', 'session.resync', 'session.assistant-stream', 'session.assistant-stream-baseline']
+  await server.handle('initialize', { ...handshake, capabilities })
+  assert.ok(server.capabilities.includes('session.assistant-stream-baseline'))
+  await server.handle('session/resume', resume)
+  const stream = new AssistantStreamBaseline()
+  server.sessions.get(resume.sessionId).assistantStream = stream
+  stream.accept({ type: 'start', revision: 1, attemptId: 's:1', turn: 1, step: 1 })
+  // flush yields after the synchronous boundary; subsequent changes cannot leak.
+  ctx.sessionPersistence.flush = async () => { stream.accept({ type: 'end', revision: 2, attemptId: 's:1', index: 0 }) }
+  const params = { ...resume, live: true, assistantStream: true, limit: 2 }
+  const first = await server.handle('session/history', params)
+  assert.equal(first.assistantStream.revision, 1)
+  assert.equal(first.assistantStream.activeAttempt.attemptId, 's:1')
+  const second = await server.handle('session/history', { ...params, cursor: first.nextCursor })
+  assert.deepEqual(second.assistantStream, first.assistantStream)
+  await assert.rejects(server.handle('session/history', { ...params, assistantStream: false, cursor: first.nextCursor }), { kind: 'session/invalid-cursor' })
+  const plain = await server.handle('session/history', { ...resume, live: true })
+  assert.equal(plain.assistantStream, undefined)
+  await assert.rejects(server.handle('session/history', { ...params, assistantStream: null }), { code: -32602 })
+  stream.accept({ type: 'start', revision: 3, attemptId: 's:2', turn: 2, step: 1 })
+  server.history.maxPageBytes = Buffer.byteLength(JSON.stringify(stream.snapshot())) + Buffer.byteLength(JSON.stringify(first.events[0])) + 3
+  const budgeted = await server.handle('session/history', params)
+  assert.equal(budgeted.events.length, 1)
+  assert.ok(Buffer.byteLength(JSON.stringify(budgeted.events)) + Buffer.byteLength(JSON.stringify(budgeted.assistantStream)) <= server.history.maxPageBytes)
+  server.history.maxPageBytes = 8
+  await assert.rejects(server.handle('session/history', params), { kind: 'session/page-too-large' })
+  await server.shutdown()
+  const legacy = runtime().server
+  await legacy.handle('initialize', { ...handshake, capabilities: capabilities.filter((value) => value !== 'session.resync') })
+  assert.ok(!legacy.capabilities.includes('session.assistant-stream-baseline'))
+  await assert.rejects(legacy.handle('session/history', { ...resume, assistantStream: true }), { kind: 'protocol/capability-unavailable' })
+  await legacy.shutdown()
+})
 
 test('live history is negotiated and holds one sequence and status cut while the agent runs', async () => {
   const { server, stored, handles } = runtime()

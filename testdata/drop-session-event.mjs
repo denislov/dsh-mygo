@@ -1,9 +1,12 @@
 // Fault-injection transport used only by integration tests. The durable Host
-// log stays intact while one committed notification is lost on its way to Go.
+// log stays intact while one durable or stream notification is lost before Go.
 import { spawn } from 'node:child_process'
 import { createInterface } from 'node:readline'
 
-const [command, ...args] = process.argv.slice(2)
+const argumentsList = process.argv.slice(2)
+const streamGap = argumentsList[0] === '--stream-gap'
+if (streamGap) argumentsList.shift()
+const [command, ...args] = argumentsList
 const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true })
 process.stdin.pipe(child.stdin)
 child.stdin.on('error', () => {})
@@ -12,7 +15,10 @@ const lines = createInterface({ input: child.stdout })
 lines.on('line', (line) => {
   try {
     const frame = JSON.parse(line)
-    if (!dropped && frame.method === 'session/event' && frame.params?.event?.type === 'user/message') {
+    const missing = streamGap
+      ? frame.method === 'session/assistant-stream' && frame.params?.frame?.chunk?.type === 'block-start' && frame.params.frame.chunk.blockType === 'text'
+      : frame.method === 'session/event' && frame.params?.event?.type === 'user/message'
+    if (!dropped && missing) {
       dropped = true
       return
     }

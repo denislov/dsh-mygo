@@ -134,8 +134,7 @@ idle
 规则：
 
 - 每个 Host 所有的 agent 只有一个 attach 生命周期，revision 从 1 开始并保持高水位；重复/迟到帧忽略。新 start 可作为缺口后的恢复点；不因旧 start.revision == 1 回放旧答案。协议不提供重连/替换 agent 的显式 reset。
-- `revision` 不连续时，丢弃当前 attempt，等待下一次 `start` 或提交事件。
-- `chunk.index` 必须密集递增；缺口时丢弃草稿（不要拼接不连续内容）。
+- `revision` 或 `chunk.index` 不连续时清除草稿；协商流式 baseline 后自动补齐，未协商时等待下次 `start` 或提交事件，不拼接不连续内容。版本高水位只在切换 Agent 或重启 Host 时重置。
 - 提交事件（`assistant/message` / `assistant/attempt`）到达后，用其 `stream` 或 `message` 替换草稿；提交事件是权威。
 - DSH 先提交再发 end，不能等待结束帧才去重。Go 按当前 turn/step 识别提交；end 先到时按 seq 等待提交。assistant/attempt 不伪造可见历史。临时行使用 `stream:<attemptId>`，提交行使用 durable seq；最终界面只有一份答案。
 - history 补齐可以先包含某个 assistant 提交，再回放它的临时帧；迟到 `end.committed.seq` 小于当前 nextSeq 时清除对应临时 attempt，最终 idle 清理预览，不能在完整答案后重复显示一条 Streaming 行。
@@ -146,9 +145,10 @@ idle
 
 ### 重连
 
-- `session/resume` / `session/history` 可返回 `assistantStream` baseline：`revision` + `activeAttempt`（含已累计 stream）。
-- UI 从 baseline 的 `revision` 继续接收；baseline 之前的内容不重放。
-- 没有 baseline 时按 idle 处理；如果随后收到 `chunk` 而没有 `start`，丢弃并等待 `start`。
+- `session/history` 通过 `session.assistant-stream-baseline` 协商并显式请求临时快照；`session/resume` 的运行中 attach 可复用该快照机制。字段与预算见 [通道协议](channel-protocol.md#流式-baseline)。
+- Host 从公开帧保留有界文本/块状态，快照包含 revision、activeAttempt 的身份/turn/step/nextIndex、按序 blocks 与 truncated，不包含 reasoning/工具参数。持久提交同步清除匹配 attempt，历史首页同步捕获持久、状态及流式边界，分页固定。
+- UI 从 baseline 的 revision/nextIndex 继续接收；旧帧不重放。基线在后台整体校验后与历史一起发布，不显示半份状态；校验缓冲中的流式连续性，后续缺口共用历史重读上限。
+- activeAttempt 缺省表示流式空闲，回合状态仍由 status/statusRevision 决定；未协商 baseline 且收到缺少 start 的 chunk 时丢弃，等待新 start 或提交。baseline 文字截断与普通临时行共用 8000 rune/128 块限制，不落盘。
 
 ## 历史回放
 

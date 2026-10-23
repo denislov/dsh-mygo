@@ -100,12 +100,12 @@ export class SessionHistory {
     return key
   }
 
-  page(values, limit) {
+  page(values, limit, maxBytes = this.maxPageBytes) {
     const result = []
     let bytes = 2
     for (const value of values.slice(0, limit)) {
       const size = Buffer.byteLength(JSON.stringify(value)) + 1
-      if (bytes + size > this.maxPageBytes) {
+      if (bytes + size > maxBytes) {
         if (result.length === 0) throw fault('session/page-too-large', 'A history event or session summary exceeds the channel page budget')
         break
       }
@@ -164,8 +164,12 @@ export class SessionHistory {
     const state = params.cursor === undefined ? {
       kind: 'history', id, offset: 0, nextSeq: record.handle.agent.session.seq, live,
       ...(live ? { status: record.busy || record.handle.agent.status !== 'idle' ? 'running' : 'idle', statusRevision: record.statusRevision ?? 0 } : {}),
+      ...(params.assistantStream ? { assistantStream: record.assistantStream?.snapshot() ?? { revision: 0 } } : {}),
     } : this.cursor(params.cursor, 'history', id)
     if (state.live !== live) throw fault('session/invalid-cursor', 'History cursor mode does not match')
+    if ((state.assistantStream !== undefined) !== (params.assistantStream === true)) throw fault('session/invalid-cursor', 'History cursor stream mode does not match')
+    const baselineBytes = state.assistantStream ? Buffer.byteLength(JSON.stringify(state.assistantStream)) : 0
+    if (baselineBytes > Math.min(128 * 1024, this.maxPageBytes)) throw fault('session/page-too-large', 'Stream baseline exceeds the channel snapshot budget')
     const persistence = this.ctx.get('sessionPersistence')
     let events
     try {
@@ -181,10 +185,10 @@ export class SessionHistory {
     if (events.length !== expected || events.some((event, index) => event.seq !== state.offset + index)) {
       throw fault('session/history-failed', 'Stored history does not match the captured sequence boundary')
     }
-    const page = this.page(events, limit)
+    const page = this.page(events, limit, this.maxPageBytes - baselineBytes)
     const offset = state.offset + page.length
     const hasMore = offset < state.nextSeq
-    return { events: page, nextSeq: state.nextSeq, hasMore, ...(live ? { status: state.status, statusRevision: state.statusRevision } : {}), ...(hasMore ? { nextCursor: this.save({ ...state, offset }) } : {}) }
+    return { events: page, nextSeq: state.nextSeq, hasMore, ...(live ? { status: state.status, statusRevision: state.statusRevision } : {}), ...(state.assistantStream ? { assistantStream: state.assistantStream } : {}), ...(hasMore ? { nextCursor: this.save({ ...state, offset }) } : {}) }
   }
 
   close() { this.cursors.clear(); this.metadata.clear() }

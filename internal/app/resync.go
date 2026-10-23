@@ -127,20 +127,57 @@ func resyncBufferContinuous(buffer []hostNotification, next uint64) (bool, error
 	return true, nil
 }
 
+func resyncStreamContinuous(buffer []hostNotification, snapshot *historySnapshot) (bool, error) {
+	var stream projection.AssistantStream
+	if err := stream.Restore(snapshot.Baseline); err != nil {
+		return false, err
+	}
+	for _, notification := range buffer {
+		switch notification.method {
+		case "session/assistant-stream":
+			var envelope struct {
+				Frame json.RawMessage `json:"frame"`
+			}
+			if json.Unmarshal(notification.params, &envelope) != nil {
+				return false, errors.New("Invalid buffered stream")
+			}
+			if err := stream.Apply(envelope.Frame); err != nil {
+				return false, err
+			}
+			if stream.NeedsResync() {
+				return false, nil
+			}
+		case "session/event":
+			event, err := projection.DecodeNotification(notification.params)
+			if err != nil {
+				return false, err
+			}
+			if event.Event.Seq >= snapshot.NextSeq {
+				stream.Commit(event.Event)
+			}
+		}
+	}
+	return true, nil
+}
+
 func (a *App) readResync(job *resyncState) {
 	job.attempts++
-	client, minimumSeq := a.currentClient(), a.nextSeq
+	client, minimumSeq, wantStream := a.currentClient(), a.nextSeq, a.canStreamBaseline
+	minimumRevision := a.stream.Revision()
 	go func() {
-		snapshot, err := readHistorySnapshot(job.ctx, client, job.id, minimumSeq, true)
+		snapshot, err := readHistorySnapshot(job.ctx, client, job.id, minimumSeq, true, wantStream)
 		a.post(func() {
 			if a.resync != job || a.shuttingDown.Load() || a.sessionID != job.id || a.model.Phase == view.PhaseFailed {
 				return
 			}
-			if err != nil || snapshot.StatusRevision < a.statusRevision {
+			if err != nil || snapshot.StatusRevision < a.statusRevision || wantStream && snapshot.Stream.Revision() < minimumRevision {
 				a.failResync()
 				return
 			}
 			continuous, invalid := resyncBufferContinuous(job.buffer, snapshot.NextSeq)
+			if continuous && invalid == nil && wantStream {
+				continuous, invalid = resyncStreamContinuous(job.buffer, &snapshot)
+			}
 			if invalid != nil {
 				a.failResync()
 				return
@@ -154,6 +191,9 @@ func (a *App) readResync(job *resyncState) {
 				return
 			}
 			a.transcript = snapshot.Transcript
+			if wantStream {
+				a.stream = snapshot.Stream
+			}
 			a.nextSeq = snapshot.NextSeq
 			a.statusRevision = snapshot.StatusRevision
 			a.hostStatus = snapshot.Status

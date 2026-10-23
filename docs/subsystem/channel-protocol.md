@@ -81,7 +81,7 @@
 | `session/archive` | `{ sessionId, archived? }`（需 `session.archive`；默认 true，false 取消归档） | `{}` |
 | `session/delete` | `{ sessionId }` | `{}`（需要 capability `session.delete`） |
 | `session/fork` | `{ sessionId, messageId? }` | `{ session: SessionSummary }` |
-| `session/history` | `{ sessionId, cursor?, limit?, direction?, live? }`（live:true 需 `session.resync`） | `{ events: SessionEvent[], nextCursor?, hasMore, nextSeq, status?, statusRevision? }` |
+| `session/history` | `{ sessionId, cursor?, limit?, direction?, live?, assistantStream? }`（live:true 需 `session.resync`；assistantStream:true 需流式 baseline 能力） | `{ events: SessionEvent[], nextCursor?, hasMore, nextSeq, status?, statusRevision?, assistantStream? }` |
 | `session/prompt` | `{ sessionId, content: ContentBlock[] }` | `{ messageId }` |
 | `session/cancel` | `{ sessionId }`（需 capability `session.cancel`） | `{ cancelled: boolean, status: "idle" }` |
 | `session/queue` | `{ sessionId, action: "list"|"edit"|"remove"|"steer", ... }` | `{ queue: QueuedInput[] }` |
@@ -113,7 +113,7 @@
 - 游标是连接内不透明 UUID，绑定方法/会话/快照边界；最多保留 32 个，5 分钟失效，重启全部失效；过期/淘汰/伪造返回 session/invalid-cursor，客户端须重新开始分页。列表快照最多 1000 条且 256 KiB，超出返回 session/catalog-too-large，不静默漏项。
 - Go 侧提供原生列表、新建、冷恢复和草稿隔离。切换只在 idle 无交互时开始；历史读取全部在后台，单次操作超时 60 秒。列表输入总预算 1 MiB/1000 条，历史总预算 32 MiB/20000 事件/1024 页；超限或任何页错误不发布半份历史，保留原会话并提示重试。
 - Go 校验摘要字段、类型、字符串长度与安全整数；历史页需明确 events/hasMore/nextSeq，逐条验证 seq/time/type/data，禁止缺口、边界变化、重复游标、空页停滞与多余末页游标。未知事件可通过序列校验，但由投影忽略。
-- 目标会话加载期间的 durable/status/交互通知有界缓冲（1024 条/8 MiB），临时流式不作为历史或 baseline；成功切换后按原顺序从历史 nextSeq 衔接，重复 durable 事件丢弃。溢出、实时缺口或无法安全处理的并发会话活动触发 resync；resync 失败才停止 Host，不猜测或静默丢失真相。
+- 目标会话加载期间的 durable/status/交互通知有界缓冲（1024 条/8 MiB），不从零散临时帧猜测历史或 baseline；运行中的临时流以 Host 同步快照续接。成功切换后按原顺序从历史 nextSeq 衔接，重复 durable 事件丢弃。溢出、实时缺口或无法安全处理的并发会话活动触发 resync；resync 失败才停止 Host，不猜测或静默丢失真相。
 
 ### 模型与设置
 
@@ -179,11 +179,19 @@ type AssistantStreamFrame =
              | { kind: 'abandoned' } }
 ```
 
-- `revision` 在一次 Agent attach 生命周期内单调；每次 attach 从 1 开始。Host 不替换正在运行的 agent；Go 保留该连接的 revision 高水位并忽略重复/迟到帧。重连时使用 `assistantStream` baseline（`revision` + `activeAttempt`，含已累计 stream）；baseline 之前的内容不重放，没有 baseline 时按 idle 处理。
-- `chunk.index` 从 0 开始、密集递增；UI 发现缺口时丢弃当前 attempt，等待下一次 `start` 或提交事件。
+- `revision` 在一次 Agent attach 生命周期内单调；每次 attach 从 1 开始。Host 不替换正在运行的 agent；Go 保留该 Agent 的 revision 高水位并忽略重复/迟到帧。新 Host 或切换 Agent 时重置高水位，同一 Host 的 resync 不重置。
+- `chunk.index` 从 0 开始、密集递增；UI 发现 revision/index 缺口时清除当前 attempt，并在协商流式 baseline 后自动 resync；旧 Host 等待下一次 `start` 或提交事件。
 - 真实 DSH 先提交对应 `seq` 的 `assistant/message` / `assistant/attempt`，再发送 `end.committed`，不是结束帧先到。Go 在同 turn/step 的提交到达时替换/清理草稿，迟到 end 不恢复旧行；也容忍 end 先到，保留前缀直到对应提交、idle 或退出，不把 end 本身当历史。
 - `end.abandoned` 表示没有提交事件；UI 丢弃该 attempt 的草稿。
-- 临时状态最多 128 个块、8000 个可见 Unicode 字符；超长文本只截断显示。帧结构/类型非法使连接失败；revision/index 缺口或块关联异常只丢弃当前临时 attempt，提交日志仍按原有 seq 校验继续。
+- 临时状态最多 128 个块、8000 个可见 Unicode 字符；超长文本只截断显示。帧结构/类型非法使连接失败；块关联异常清除临时 attempt，提交日志仍按原有 seq 校验继续。
+
+### 流式 baseline
+
+- 独立 capability `session.assistant-stream-baseline` 依赖 `session.resync` 与 `session.assistant-stream`。协商后，`session/history` 的 `live:true, assistantStream:true` 请求同时捕获持久边界、状态版本与流式快照；未协商或非 live 请求携带 true 返回 capability-unavailable。省略/false 保持原结果；标志必须为 boolean，游标绑定两个模式，不得跨模式复用。
+- 快照形状为 `{revision, activeAttempt?:{attemptId,turn,step,nextIndex,blocks:[{index,type,text?,ended}],truncated}}`。`revision` 为非负安全整数；activeAttempt 缺省表示没有可续接的临时流（不改变回合 running/idle），不能为 null。其余计数为安全整数，nextIndex 是下一 chunk offset 且小于 revision。块按出现顺序排列，index 不重复；text 只属于 text 块。ended/truncated 必须为 boolean。
+- Host 只从公开 `agent/assistant-stream` 累计文本和块边界，不读取 Agent 私有字段，也不保留 reasoning、工具参数或完整帧列表。文本最多 8000 rune，最多 128 块；文字超限标记 truncated，块超限或关联错误清除 attempt 直到下个 start。匹配 turn/step 的持久 assistant 提交及 turn/end 同步清除 attempt，避免提交与 end 之间捕获重复预览。
+- 历史首页在第一次 await 前同步捕获快照；后续页返回同一份 baseline，不能混入之后的 chunk。baseline JSON 最多 128 KiB，并从历史单页事件预算中扣除，超限或剩余预算无法容纳单事件时明确返回 page-too-large；仍计入 Go 的历史总字节预算。连接内游标数量/有效期沿用历史规则。
+- Go 在后台严格校验、整体恢复 revision/块状态/nextIndex；不接受低于本 Agent 已见版本的快照。缓冲流只应用更高 revision，整体发布前校验连续衔接；新缺口与持久缺口共用最多 3 次重读和 60 秒预算，非法 baseline 走失败恢复。提交事件替换临时文本，不把 baseline 写入历史。
 
 ## 事件顺序
 
@@ -196,7 +204,7 @@ type AssistantStreamFrame =
   3. 合并后继续消费实时事件；失败则停止连接并提示重启。
 - `session.resync` 依赖 `session.history`；旧 Host 未协商时保留手工重启恢复，不发送 live 请求。自动补齐期间保持当前投影、草稿和交互队列，暂停发送/导航/设置，隐藏交互弹窗，后台从 seq 0 回放固定前缀；后续 durable/status/stream/交互通知及未完成取消的 UI 确认在同一有界队列中按接收顺序保留（1024 项/8 MiB）。未知会话通知不混入当前会话。
 - 全部历史页成功且缓冲持久事件能够连续衔接后，整体替换投影并回放通知；重复 durable 事件丢弃，状态仅接受更新的 revision，旧 RPC 确认不能覆盖最新 Host 状态。新缺口使客户端重新捕获快照，最多 3 次，共用 60 秒预算；非法页/通知、缓冲溢出或预算耗尽停止 Host 并显示恢复。模型/配置/会话元数据写入交叉时走失败恢复，不冒充已撤销写入。
-- 临时流在补齐开始时清除；缓冲帧缺少完整 start 时等待下一 start 或持久提交。已被快照包含的 assistant 提交不能因迟到 end/临时帧重新显示第二份答案；最终 idle 不保留临时行。完整 `revision/activeAttempt` baseline 的交付独立于持久事件补齐能力。
+- 临时流在补齐开始时清除，协商 baseline 后随快照整体恢复，并从快照 revision/nextIndex 衔接缓冲；未协商时缺少完整 start 就等待下一 start 或持久提交。已被快照包含的 assistant 提交不能因迟到 end/临时帧重新显示第二份答案；最终 idle 不保留临时行。
 - 禁止把不连续的事件拼成“当前状态”。
 
 ## 取消与超时

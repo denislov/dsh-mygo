@@ -115,6 +115,7 @@ type App struct {
 	resync              *resyncState
 	statusRevision      uint64
 	hostStatus          string
+	canStreamBaseline   bool
 	drafts              map[string]string
 	settingsOperation   uint64
 	settingsCancel      context.CancelFunc
@@ -295,6 +296,7 @@ func (a *App) startHost(recover bool, resumeID string) {
 		a.clearApprovals()
 		a.clearQuestions()
 		a.clearStream()
+		a.stream = projection.AssistantStream{}
 		a.model.ToolInspector = nil
 		if initialized.transcript != nil {
 			a.transcript = *initialized.transcript
@@ -307,6 +309,7 @@ func (a *App) startHost(recover bool, resumeID string) {
 		a.model.SessionCWD = initialized.cwd
 		a.model.CanHistory = initialized.canHistory
 		a.model.CanResync = initialized.canResync
+		a.canStreamBaseline = initialized.canStreamBaseline
 		a.statusRevision = 0
 		a.hostStatus = ""
 		a.model.SessionPanel.CanRename = initialized.canRename
@@ -397,22 +400,23 @@ func (a *App) OpenLogs() {
 }
 
 type initializedSession struct {
-	sessionID    string
-	nextSeq      uint64
-	cwd          string
-	transcript   *projection.Transcript
-	detail       string
-	canCancel    bool
-	canApprove   bool
-	canQuestion  bool
-	canStream    bool
-	canHistory   bool
-	canResync    bool
-	canRename    bool
-	canArchive   bool
-	canModels    bool
-	canConfigure bool
-	route        view.ModelRoute
+	sessionID         string
+	nextSeq           uint64
+	cwd               string
+	transcript        *projection.Transcript
+	detail            string
+	canCancel         bool
+	canApprove        bool
+	canQuestion       bool
+	canStream         bool
+	canHistory        bool
+	canResync         bool
+	canStreamBaseline bool
+	canRename         bool
+	canArchive        bool
+	canModels         bool
+	canConfigure      bool
+	route             view.ModelRoute
 }
 
 func (a *App) initialize(ctx context.Context, client rpcClient, resumeID string) (initializedSession, error) {
@@ -439,7 +443,7 @@ func (a *App) initialize(ctx context.Context, client rpcClient, resumeID string)
 	result, err := client.Call(ctx, "initialize", map[string]any{
 		"protocolVersion": channel.ProtocolVersion,
 		"client":          map[string]string{"name": "dsh-mygo", "version": channel.ReleaseVersion, "platform": runtime.GOOS, "locale": "zh-CN"},
-		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history", "session.resync", "session.rename", "session.archive", "model.selection", "settings.configuration"},
+		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history", "session.resync", "session.assistant-stream-baseline", "session.rename", "session.archive", "model.selection", "settings.configuration"},
 	})
 	if err != nil {
 		return initializedSession{}, err
@@ -481,17 +485,18 @@ func (a *App) initialize(ctx context.Context, client rpcClient, resumeID string)
 	}
 	return initializedSession{
 		sessionID: created.Session.ID, nextSeq: *created.Session.NextSeq, cwd: a.options.CWD,
-		detail:       initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
-		canCancel:    slices.Contains(initialized.Capabilities, "session.cancel"),
-		canApprove:   slices.Contains(initialized.Capabilities, "approval"),
-		canQuestion:  slices.Contains(initialized.Capabilities, "question"),
-		canStream:    slices.Contains(initialized.Capabilities, "session.assistant-stream"),
-		canHistory:   slices.Contains(initialized.Capabilities, "session.history"),
-		canResync:    slices.Contains(initialized.Capabilities, "session.resync"),
-		canRename:    slices.Contains(initialized.Capabilities, "session.rename"),
-		canArchive:   slices.Contains(initialized.Capabilities, "session.archive"),
-		canModels:    slices.Contains(initialized.Capabilities, "model.selection"),
-		canConfigure: canConfigure, route: selected,
+		detail:            initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
+		canCancel:         slices.Contains(initialized.Capabilities, "session.cancel"),
+		canApprove:        slices.Contains(initialized.Capabilities, "approval"),
+		canQuestion:       slices.Contains(initialized.Capabilities, "question"),
+		canStream:         slices.Contains(initialized.Capabilities, "session.assistant-stream"),
+		canHistory:        slices.Contains(initialized.Capabilities, "session.history"),
+		canResync:         slices.Contains(initialized.Capabilities, "session.resync"),
+		canStreamBaseline: slices.Contains(initialized.Capabilities, "session.assistant-stream-baseline"),
+		canRename:         slices.Contains(initialized.Capabilities, "session.rename"),
+		canArchive:        slices.Contains(initialized.Capabilities, "session.archive"),
+		canModels:         slices.Contains(initialized.Capabilities, "model.selection"),
+		canConfigure:      canConfigure, route: selected,
 	}, nil
 }
 
@@ -544,17 +549,18 @@ func (a *App) resumeSession(ctx context.Context, client rpcClient, id string, in
 	}
 	return initializedSession{
 		sessionID: summary.ID, nextSeq: nextSeq, cwd: cwd, transcript: &transcript,
-		detail:       initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
-		canCancel:    slices.Contains(initialized.Capabilities, "session.cancel"),
-		canApprove:   slices.Contains(initialized.Capabilities, "approval"),
-		canQuestion:  slices.Contains(initialized.Capabilities, "question"),
-		canStream:    slices.Contains(initialized.Capabilities, "session.assistant-stream"),
-		canHistory:   true,
-		canResync:    slices.Contains(initialized.Capabilities, "session.resync"),
-		canRename:    slices.Contains(initialized.Capabilities, "session.rename"),
-		canArchive:   slices.Contains(initialized.Capabilities, "session.archive"),
-		canModels:    slices.Contains(initialized.Capabilities, "model.selection"),
-		canConfigure: canConfigure, route: selected,
+		detail:            initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
+		canCancel:         slices.Contains(initialized.Capabilities, "session.cancel"),
+		canApprove:        slices.Contains(initialized.Capabilities, "approval"),
+		canQuestion:       slices.Contains(initialized.Capabilities, "question"),
+		canStream:         slices.Contains(initialized.Capabilities, "session.assistant-stream"),
+		canHistory:        true,
+		canResync:         slices.Contains(initialized.Capabilities, "session.resync"),
+		canStreamBaseline: slices.Contains(initialized.Capabilities, "session.assistant-stream-baseline"),
+		canRename:         slices.Contains(initialized.Capabilities, "session.rename"),
+		canArchive:        slices.Contains(initialized.Capabilities, "session.archive"),
+		canModels:         slices.Contains(initialized.Capabilities, "model.selection"),
+		canConfigure:      canConfigure, route: selected,
 	}, nil
 }
 

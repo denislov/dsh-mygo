@@ -318,6 +318,9 @@ func TestAgainstMygoRestart(t *testing.T) {
 	if application.Model().Error != "" {
 		t.Fatalf("restart left an error: %q", application.Model().Error)
 	}
+	if application.stream.Revision() != 0 {
+		t.Fatal("new Host inherited the previous Agent stream revision")
+	}
 	if len(application.Model().Items) != itemsBefore {
 		t.Fatalf("recovered items = %d, want %d", len(application.Model().Items), itemsBefore)
 	}

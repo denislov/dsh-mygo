@@ -124,15 +124,19 @@ type historySnapshot struct {
 	NextSeq        uint64
 	Status         string
 	StatusRevision uint64
+	Stream         projection.AssistantStream
+	Baseline       json.RawMessage
 }
 
 func readSessionHistory(ctx context.Context, client rpcClient, id string, minimumSeq uint64) (projection.Transcript, uint64, error) {
-	snapshot, err := readHistorySnapshot(ctx, client, id, minimumSeq, false)
+	snapshot, err := readHistorySnapshot(ctx, client, id, minimumSeq, false, false)
 	return snapshot.Transcript, snapshot.NextSeq, err
 }
 
-func readHistorySnapshot(ctx context.Context, client rpcClient, id string, minimumSeq uint64, live bool) (historySnapshot, error) {
+func readHistorySnapshot(ctx context.Context, client rpcClient, id string, minimumSeq uint64, live, wantStream bool) (historySnapshot, error) {
 	var transcript projection.Transcript
+	var stream projection.AssistantStream
+	var baseline json.RawMessage
 	if !validSessionID(id) || minimumSeq > maxSessionEvents {
 		return historySnapshot{}, errors.New("Session history exceeds the supported event budget")
 	}
@@ -147,6 +151,9 @@ func readHistorySnapshot(ctx context.Context, client rpcClient, id string, minim
 		if live {
 			params["live"] = true
 		}
+		if wantStream {
+			params["assistantStream"] = true
+		}
 		if cursor != "" {
 			params["cursor"] = cursor
 		}
@@ -156,12 +163,13 @@ func readHistorySnapshot(ctx context.Context, client rpcClient, id string, minim
 		}
 		totalBytes += len(raw)
 		var page struct {
-			Events         []json.RawMessage `json:"events"`
-			NextSeq        *uint64           `json:"nextSeq"`
-			HasMore        *bool             `json:"hasMore"`
-			NextCursor     json.RawMessage   `json:"nextCursor"`
-			Status         string            `json:"status"`
-			StatusRevision *uint64           `json:"statusRevision"`
+			Events          []json.RawMessage `json:"events"`
+			NextSeq         *uint64           `json:"nextSeq"`
+			HasMore         *bool             `json:"hasMore"`
+			NextCursor      json.RawMessage   `json:"nextCursor"`
+			Status          string            `json:"status"`
+			StatusRevision  *uint64           `json:"statusRevision"`
+			AssistantStream json.RawMessage   `json:"assistantStream"`
 		}
 		if totalBytes > maxSessionHistoryBytes || json.Unmarshal(raw, &page) != nil || page.Events == nil || len(page.Events) > 64 || page.NextSeq == nil || *page.NextSeq > maxSessionEvents || page.HasMore == nil {
 			return historySnapshot{}, errors.New("Invalid history page or history exceeds the supported budget")
@@ -172,6 +180,15 @@ func readHistorySnapshot(ctx context.Context, client rpcClient, id string, minim
 			if page.StatusRevision != nil {
 				statusRevision = *page.StatusRevision
 			}
+			if wantStream {
+				if err := stream.Restore(page.AssistantStream); err != nil {
+					return historySnapshot{}, err
+				}
+				baseline = page.AssistantStream
+			}
+		}
+		if wantStream && !bytes.Equal(baseline, page.AssistantStream) {
+			return historySnapshot{}, errors.New("Stream baseline changed during pagination")
 		}
 		if live && (page.Status != "idle" && page.Status != "running" || page.StatusRevision == nil || *page.StatusRevision > maxSafeInteger || page.Status != status || *page.StatusRevision != statusRevision) {
 			return historySnapshot{}, errors.New("Invalid live history status boundary")
@@ -196,7 +213,7 @@ func readHistorySnapshot(ctx context.Context, client rpcClient, id string, minim
 			return historySnapshot{}, errors.New("Invalid history pagination")
 		}
 		if !*page.HasMore {
-			return historySnapshot{Transcript: transcript, NextSeq: boundary, Status: status, StatusRevision: statusRevision}, nil
+			return historySnapshot{Transcript: transcript, NextSeq: boundary, Status: status, StatusRevision: statusRevision, Stream: stream, Baseline: baseline}, nil
 		}
 		cursors[cursor] = true
 	}

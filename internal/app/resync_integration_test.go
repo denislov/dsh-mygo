@@ -14,7 +14,7 @@ import (
 )
 
 func TestAgainstMygoResync(t *testing.T) {
-	for _, mode := range []string{"fake", "real", "approval", "question", "stream-cancel"} {
+	for _, mode := range []string{"fake", "real", "approval", "question", "stream-cancel", "baseline-complete", "baseline-cancel"} {
 		t.Run(mode, func(t *testing.T) {
 			var launch host.Config
 			var root string
@@ -37,19 +37,23 @@ func TestAgainstMygoResync(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				launch.Args = append([]string{filter, launch.Command}, launch.Args...)
+				prefix := []string{filter}
+				if mode == "baseline-complete" || mode == "baseline-cancel" {
+					prefix = append(prefix, "--stream-gap")
+				}
+				launch.Args = append(append(prefix, launch.Command), launch.Args...)
 				if mode == "approval" {
 					model = "approval-probe"
 				}
 				if mode == "question" {
 					model = "question-probe"
 				}
-				if mode == "stream-cancel" {
+				if mode == "stream-cancel" || mode == "baseline-complete" || mode == "baseline-cancel" {
 					model = "stream-probe"
 				}
 			}
 			var connections chan net.Conn
-			if mode == "stream-cancel" {
+			if mode == "stream-cancel" || mode == "baseline-complete" || mode == "baseline-cancel" {
 				listener, err := net.Listen("tcp", "127.0.0.1:0")
 				if err != nil {
 					t.Fatal(err)
@@ -89,6 +93,9 @@ func TestAgainstMygoResync(t *testing.T) {
 				if mode == "stream-cancel" {
 					return sawResync && a.resync == nil && a.model.Phase == view.PhaseRunning
 				}
+				if mode == "baseline-complete" || mode == "baseline-cancel" {
+					return sawResync && a.resync == nil && hasStreamingText(a.model.Items, "Live prefix")
+				}
 				return sawResync && a.resync == nil && a.model.Phase == view.PhaseIdle && assistantAnswers(a) == 1
 			}
 			waitFor(t, a, updates, 30*time.Second, settled)
@@ -97,7 +104,7 @@ func TestAgainstMygoResync(t *testing.T) {
 				a.RespondApproval(a.model.Approvals[0].RequestID, "deny")
 			case "question":
 				a.RespondQuestion(a.model.Questions[0].RequestID, true)
-			case "stream-cancel":
+			case "stream-cancel", "baseline-complete", "baseline-cancel":
 				var connection net.Conn
 				select {
 				case connection = <-connections:
@@ -109,9 +116,21 @@ func TestAgainstMygoResync(t *testing.T) {
 				if line, err := bufio.NewReader(connection).ReadString('\n'); err != nil || line != "paused\n" {
 					t.Fatal("stream pause missing")
 				}
-				a.Cancel()
+				if mode == "baseline-complete" {
+					if _, err := connection.Write([]byte("continue\n")); err != nil {
+						t.Fatal(err)
+					}
+				} else {
+					a.Cancel()
+				}
 			}
 			waitFor(t, a, updates, 30*time.Second, func() bool { return a.model.Phase == view.PhaseIdle })
+			if mode == "baseline-complete" || mode == "baseline-cancel" {
+				assertOneSettledAssistant(t, a)
+				if mode == "baseline-complete" && !hasAssistantText(a.model.Items, "Live prefix complete") {
+					t.Fatal("baseline did not continue into committed text")
+				}
+			}
 			users := 0
 			for _, item := range a.model.Items {
 				if item.Kind == projection.KindUser && item.Text == "recover this prompt" {

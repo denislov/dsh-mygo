@@ -24,7 +24,7 @@ func hasStreamingText(items []projection.Item, text string) bool {
 }
 
 func TestAgainstMygoFakeStreaming(t *testing.T) {
-	for _, mode := range []string{"complete", "cancel", "old-host"} {
+	for _, mode := range []string{"complete", "cancel", "old-host", "baseline-cancel"} {
 		t.Run(mode, func(t *testing.T) {
 			node, err := exec.LookPath("node")
 			if err != nil {
@@ -37,6 +37,9 @@ func TestAgainstMygoFakeStreaming(t *testing.T) {
 			args := []string{fakeHost, "--stream"}
 			if mode == "cancel" {
 				args[1] = "--stream-wait"
+			}
+			if mode == "baseline-cancel" {
+				args = []string{fakeHost, "--sessions", "--stream-wait", "--stream-gap"}
 			}
 			if mode == "old-host" {
 				args = append(args, "--no-stream")
@@ -59,7 +62,7 @@ func TestAgainstMygoFakeStreaming(t *testing.T) {
 				}
 			}
 			application.Model().Draft = "next draft"
-			if mode == "cancel" {
+			if mode == "cancel" || mode == "baseline-cancel" {
 				application.Cancel()
 			}
 			waitFor(t, application, updates, 10*time.Second, func() bool { return application.Model().Phase == view.PhaseIdle })

@@ -176,6 +176,10 @@ if (process.argv.includes('--configuration')) {
 }
 const server = new MygoServer(ctx, {
   notify: (method, params) => {
+    if (process.argv.includes('--stream-gap') && method === 'session/assistant-stream' && params.frame.chunk?.type === 'block-start' && params.frame.chunk.blockType === 'text' && !server.streamGapInjected) {
+      server.streamGapInjected = true
+      return
+    }
     if (process.argv.includes('--event-gap') && method === 'session/event' && params.event.type === 'user/message' && !server.gapInjected) {
       server.gapInjected = true
       return

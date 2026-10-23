@@ -8,6 +8,7 @@ import { SessionHistory, sessionID, sessionSummary } from './history.mjs'
 import { ModelSettings } from './models.mjs'
 import { Configuration } from './configuration.mjs'
 import { SessionManagement } from './sessions.mjs'
+import { AssistantStreamBaseline } from './stream-baseline.mjs'
 
 const identity = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 if (!Number.isSafeInteger(identity.dshMygo?.protocolVersion)) {
@@ -53,12 +54,18 @@ export class MygoServer {
       ctx.on('agent/assistant-stream', ({ agent, frame }) => {
         if (this.stopping || !this.capabilities.includes('session.assistant-stream')) return
         const sessionId = String(agent.session.id)
-        if (this.sessions.get(sessionId)?.handle?.agent !== agent) return
+        const record = this.sessions.get(sessionId)
+        if (record?.handle?.agent !== agent) return
+        if (this.capabilities.includes('session.assistant-stream-baseline')) {
+          record.assistantStream ??= new AssistantStreamBaseline()
+          record.assistantStream.accept(frame)
+        }
         this.notify('session/assistant-stream', { sessionId, frame })
       }),
       ctx.on('session/event', (session, event) => {
         const record = this.sessions.get(String(session.id))
         if (record?.handle?.agent.session !== session) return
+        record.assistantStream?.commit(event)
         record.metadata = {
           ...record.metadata,
           updatedAt: Math.max(record.metadata?.updatedAt ?? session.header.createdAt, event.time),
@@ -125,6 +132,8 @@ export class MygoServer {
         if (method === 'session/history') {
           if (params.live !== undefined && typeof params.live !== 'boolean') throw fault('protocol/invalid-params', 'Invalid live history flag', -32602)
           if (params.live && !this.capabilities.includes('session.resync')) throw fault('protocol/capability-unavailable', 'Live history was not negotiated')
+          if (params.assistantStream !== undefined && typeof params.assistantStream !== 'boolean') throw fault('protocol/invalid-params', 'Invalid stream baseline flag', -32602)
+          if (params.assistantStream && (!params.live || !this.capabilities.includes('session.assistant-stream-baseline'))) throw fault('protocol/capability-unavailable', 'Stream baseline was not negotiated for live history')
         }
         if (method === 'session/list') return this.history.list(params)
         return method === 'session/resume' ? this.resume(params) : this.history.history(params)
@@ -160,6 +169,7 @@ export class MygoServer {
       this.capabilities.push('session.history')
       if (params.capabilities.includes('session.resync')) this.capabilities.push('session.resync')
     }
+    if (params.capabilities.includes('session.assistant-stream-baseline') && this.capabilities.includes('session.resync') && this.capabilities.includes('session.assistant-stream')) this.capabilities.push('session.assistant-stream-baseline')
     if (['stat', 'open', 'flush'].every((method) => typeof persistence?.[method] === 'function')) {
       if (params.capabilities.includes('session.rename') && typeof this.ctx.get('sessionTitle')?.rename === 'function') this.capabilities.push('session.rename')
       const registry = this.ctx.get('workspaceRegistry')
