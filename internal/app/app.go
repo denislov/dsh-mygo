@@ -39,6 +39,8 @@ const (
 
 // Options describes one host session and how to publish view updates.
 type Options struct {
+	ApplyTheme  func(string)
+	ApplyLocale func(string)
 	// Launch is the resolved host process configuration.
 	Launch host.Config
 	// CWD is recorded on the Host session header.
@@ -84,6 +86,7 @@ type rpcClient interface {
 // App owns one window's host process, protocol client, and projected
 // transcript.
 type App struct {
+	hostLocale atomic.Value
 	options    Options
 	model      *view.Model
 	transcript projection.Transcript
@@ -146,6 +149,8 @@ func New(options Options) *App {
 	}
 	app := &App{options: options, sessionID: options.SessionID, stopped: make(chan struct{}), pendingUI: make(chan struct{}, maxPendingUIUpdates)}
 	app.model = view.NewModel()
+	app.hostLocale.Store("en-US")
+	app.model.Prefs.Apply = app.ApplyUIPreferences
 	if options.Provider != "" && options.Model != "" {
 		app.model.SetActiveRoute(view.ModelRoute{Provider: options.Provider, Model: options.Model, Effort: options.ReasoningEffort})
 	}
@@ -491,7 +496,7 @@ func (a *App) initializeSession(ctx context.Context, client rpcClient, resumeID 
 	}
 	result, err := client.Call(ctx, "initialize", map[string]any{
 		"protocolVersion": channel.ProtocolVersion,
-		"client":          map[string]string{"name": "dsh-mygo", "version": channel.ReleaseVersion, "platform": runtime.GOOS, "locale": "zh-CN"},
+		"client":          map[string]string{"name": "dsh-mygo", "version": channel.ReleaseVersion, "platform": runtime.GOOS, "locale": a.currentLocale()},
 		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history", "session.history-window", "session.release", "session.resync", "session.assistant-stream-baseline", "session.rename", "session.archive", "model.selection", "settings.configuration", "session.permissions"},
 	})
 	if err != nil {
@@ -669,6 +674,9 @@ func validSessionID(value string) bool {
 // Send queues one user prompt. It runs on the main thread and ignores calls
 // while the host is busy or not ready.
 func (a *App) Send(text string) {
+	if a.model.Prefs.Open {
+		return
+	}
 	original := originalSubmittedText(a.model.Draft, text)
 	text = strings.TrimSpace(text)
 	if text == "" || a.shuttingDown.Load() || a.model.LocalState.Closing || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 || a.model.SessionBusy || a.model.History.Detached || a.model.SessionPanel.BlocksInput() || a.model.SettingsBusy || a.model.SettingsOpen || a.model.ModelUncertain || a.model.ConfigurationUncertain || a.model.Permission.Uncertain {
@@ -1067,6 +1075,7 @@ func (a *App) fail(summary string, err error) {
 }
 
 func (a *App) setFailure(summary string, err error) {
+	a.model.Prefs.Open = false
 	if a.model.Phase == view.PhaseFailed {
 		return
 	}

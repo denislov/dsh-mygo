@@ -113,13 +113,17 @@ UI 偏好属于 Go 进程，持久化在 `PathUserData`，写入使用原子替�
 
 ```json
 {
-  "version": 1,
-  "window": { "width": 1100, "height": 760, "sidebar": true },
-  "theme": "system",
-  "locale": "zh-CN",
+  "version": 2,
   "lastSessionId": "...",
   "drafts": { "<sessionId>": "..." },
-  "shortcuts": { "send": "Enter", "cancel": "Escape" }
+  "ui": {
+    "theme": "system",
+    "locale": "en-US",
+    "send": "Enter",
+    "newSession": "Ctrl+N",
+    "preferences": "Ctrl+,",
+    "stop": "Ctrl+."
+  }
 }
 ```
 
@@ -128,10 +132,20 @@ UI 偏好属于 Go 进程，持久化在 `PathUserData`，写入使用原子替�
 - 草稿按会话有界保存，退出/切换后仍可恢复；编辑状态的确切格式和预算见下节。
 - 主题默认跟随系统；语言与 Host locale 可以不同。
 
+### 界面偏好面板
+
+- Preferences 是设备级入口，不依赖 Host 的模型/权限 capability。加载编辑文件后可打开；表单保存自己的草稿，Cancel/Escape 丢弃表单变更，Reset 只重置表单，Apply 校验后才切换运行状态并立即请求后台保存。不操作 DSH 设置、会话模型、权限或凭据。
+- theme 只接受 system/light/dark，locale 只接受 en-US/zh-CN；默认保留英文和 Enter 发送。主题通过 MyGo Theme.SetSource 与原生语义调色板生效；语言通过集中词表与 App.SetLocale 同步内建控件，MyGo 自身文案的简体中文由主程序链接 `github.com/egoist/mygo/locales/zh-Hans` 词表包提供，不随应用词表重写。编辑文件是权威来源，MyGo 自动保存的 locale 仅为运行时镜像，启动时以编辑文件覆盖；窗口尺寸/位置仍由 StateKey 管理。
+- 语言即时作用于应用标签、状态和提示，技术诊断允许保留原文；用户消息、代码、会话标题、提问内容/选项、工具参数/结果与 provider/model id 不经过翻译。下拉绑定稳定值，仅展示标签随语言变化；切换不重写日志、发送内容或权限判断依据。
+- Host 握手使用启动前已加载的 locale；运行中切换只改变本机界面与下次启动的 client.locale，不为此重启 Host。后台初始化通过独立同步的 locale 值读取，不能依赖尚未执行的 UI 回调。
+- send 允许 Enter 或 Ctrl+Enter，Shift+Enter 始终换行。三个命令只接受 None、Ctrl+N、Ctrl+Shift+N、Ctrl+,、Ctrl+Shift+P、Ctrl+.、Ctrl+Shift+X，启用的组合不得重复；None 可重复。默认新建 Ctrl+N、偏好 Ctrl+,、停止 Ctrl+.；不重绑 Escape，不接受任意按键/脚本。
+- 命令只在前台原生视图声明，并复用动作的能力、busy 和审批/提问门禁；任意模态打开时暂停命令。界面偏好打开时禁止背后发送/导航；工作中可编辑设备偏好，新审批/提问或 Host 失败优先关闭该面板，不自动应用表单。
+- 应用变更后文件失败不撤销正在使用的界面，也不假报保存成功：显示统一的本机状态错误，保留草稿和上次文件；修正后可重试，退出遵守原保存屏障。SDK/无 PreferencesPath 模式只临时应用，明确提示无法保存。
+
 ### 编辑状态文件
 
-- 编辑状态独立存放于 `PathUserData/editing-<scope>.json`，scope 由规范化绝对 DSH_HOME 与 profile 计算；Windows 路径按大小写不敏感处理，跨目录/profile 不复用会话 id。`-ui-state-dir` 可隔离测试/开发目录。SDK 回归不读写这份状态，程序化 App 的 PreferencesPath 为空时关闭持久化。
-- schema version 1 只包含 `{version:1,lastSessionId,drafts:{sessionId:text}}`，不混入 transcript、Host 权限、模型、凭据或附件。会话 id 使用协议身份约束；字符串必须为有效 UTF-8，拒绝 null、未知字段和非法类型。每份草稿最多 64 KiB UTF-8、全部最多 1 MiB、最多 128 份；JSON 输入最多 8 MiB，保留转义空间。超限保留内存原文和旧文件，提示缩减，不截断或静默淘汰其他会话。
+- 编辑状态独立存放于 `PathUserData/editing-<scope>.json`，scope 由规范化绝对 DSH_HOME 与 profile 计算；Windows 路径按大小写不敏感处理，跨目录/profile 不复用会话 id。`-ui-state-dir` 同时设置 MyGo PathUserData，隔离编辑、框架 locale 镜像与窗口状态，避免 smoke/原生测试写入用户偏好。SDK 回归不读写这份编辑状态，程序化 App 的 PreferencesPath 为空时关闭持久化。
+- schema version 2 包含 version/lastSessionId/drafts/ui，ui 的六个字符串字段均为上述枚举；v1 缺少 ui，加载时补默认偏好并保留所有草稿，后续原子写为 v2。更高版本只读，旧应用也必须拒绝覆盖 v2。非法偏好枚举或冲突保留原文件只读，不因错误配置覆盖有效草稿；结构性损坏按下述备份规则处理。不混入 transcript、Host 权限、模型、凭据或附件；会话 id、UTF-8、null、未知字段和类型严格校验。每份草稿最多 64 KiB UTF-8、全部最多 1 MiB、最多 128 份；JSON 输入最多 8 MiB，保留转义空间。超限保留内存原文和旧文件，不截断或静默淘汰其他会话。
 - 输入绑定更新后提交不可变快照，后台按 400 ms 静默期合并保存；切换会话和确认发送也更新快照，文件 I/O 不在 UI 线程。写入采用同目录临时文件、Sync、Close、rename 替换；失败清理临时文件，不先删除有效文件。文件创建权限为 0600，目录为 0700；不承诺 Windows ACL 加密或系统 vault。
 - 本应用进程间用独立 lock 文件串行检查/替换，并比较加载/上次保存的内容摘要；检测到其他窗口改变文件时拒绝覆盖，提示复制未保存文字后重启，不自动合并同一会话。lock 文件不保存草稿。损坏文件先把完整原文件保留为 `.corrupt`，已有备份不覆盖，再回退默认值；新版本 schema 保持只读，不降级覆盖。读取或备份失败不直接覆盖文件，恢复访问后可重试读取并保留本窗口编辑。
 - 启动先后台加载编辑状态，再通过 Host 协商并尝试 resume 最近会话、读取真实历史；冷恢复路由采用当前默认模型或显式启动 flags，不能把本地草稿当历史。未知、归档、占用或不可读的最近会话恢复失败时尝试新建，保留旧草稿并提示从 Sessions 重试；有旧草稿时允许显式 Copy previous draft here，合并到当前编辑框供审阅，不自动发送。

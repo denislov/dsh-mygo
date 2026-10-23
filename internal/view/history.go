@@ -45,18 +45,18 @@ func historyControls(c *mgo.Context, model *Model) {
 	mgo.Column(c.Key("history-controls")).Padding(6, 20).Gap(4).Children(func() {
 		mgo.Row(c).Gap(8).Children(func() {
 			if h.Start > 0 {
-				mgo.Button(c.Key("earlier"), "Load earlier messages").Disabled(!model.CanLoadHistory() || h.LoadEarlier == nil).OnClick(h.LoadEarlier)
+				mgo.Button(c.Key("earlier"), model.T("Load earlier messages")).Disabled(!model.CanLoadHistory() || h.LoadEarlier == nil).OnClick(h.LoadEarlier)
 			}
-			mgo.Button(c.Key("latest"), "Return to latest").Disabled(!model.CanLoadHistory() || h.Latest == nil).OnClick(h.Latest)
+			mgo.Button(c.Key("latest"), model.T("Return to latest")).Disabled(!model.CanLoadHistory() || h.Latest == nil).OnClick(h.Latest)
 			if h.Busy {
-				mgo.Text(c, "Loading history…").FontSize(11)
+				mgo.Text(c, model.T("Loading history…")).FontSize(11)
 			}
 		})
 		if h.Detached {
-			mgo.Text(c, "Viewing earlier history. Return to latest before sending.").FontSize(11).TextColor(c.Theme().TextMuted)
+			mgo.Text(c, model.T("Viewing earlier history. Return to latest before sending.")).FontSize(11).TextColor(c.Theme().TextMuted)
 		}
 		if h.Error != "" {
-			mgo.Text(c, h.Error).FontSize(11).TextColor(c.Theme().Danger)
+			mgo.Text(c, model.T(h.Error)).FontSize(11).TextColor(c.Theme().Danger)
 		}
 	})
 }

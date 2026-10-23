@@ -42,9 +42,11 @@ func (a *App) configureLocalState() {
 		})
 	})
 	a.local = local
+	a.model.Prefs.Ready = false
 	a.model.LocalState.Retry = a.SaveLocalState
 	a.model.LocalState.QuitWithoutSaving = func() { a.RequestQuit(true) }
 	if a.options.PreferencesUnavailable {
+		a.model.Prefs.Ready = true
 		local.ready = true
 		local.loadError = preferences.ErrUnavailable
 		a.model.LocalState.Error = preferences.ErrUnavailable.Error()
@@ -61,17 +63,23 @@ func (a *App) loadLocalState() string {
 		return ""
 	}
 	state, notice, err := a.local.store.Load()
+	if err == nil {
+		a.hostLocale.Store(state.UI.Locale)
+	}
 	a.post(func() {
 		if a.shuttingDown.Load() {
 			return
 		}
 		a.local.ready = true
+		a.model.Prefs.Ready = true
 		a.local.loadError = err
 		if err != nil {
 			a.model.LocalState.Error = err.Error()
 			return
 		}
 		a.drafts = state.Drafts
+		a.acceptUIPreferences(state.UI)
+		a.model.Prefs.Persisted = true
 		a.local.lastSession = state.LastSessionID
 		a.model.LocalState.Notice = notice
 	})
@@ -83,6 +91,7 @@ func (a *App) loadLocalState() string {
 
 func (a *App) localSnapshot() preferences.Snapshot {
 	state := preferences.Empty()
+	state.UI = a.model.Prefs.Value
 	for id, text := range a.drafts {
 		if validSessionID(id) && text != "" {
 			state.Drafts[id] = text
@@ -188,6 +197,10 @@ func (a *App) retryLocalLoad() {
 				}
 			}
 			a.local.loadError = nil
+			if !a.model.Prefs.Dirty {
+				a.acceptUIPreferences(state.UI)
+			}
+			a.model.Prefs.Persisted = true
 			a.model.LocalState.Notice = notice
 			a.SaveLocalState()
 		})

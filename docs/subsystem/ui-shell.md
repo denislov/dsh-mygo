@@ -16,6 +16,7 @@ UI 壳层是 MyGo 进程里的原生界面：
 | 文件 | 责任 |
 | --- | --- |
 | `internal/view/view.go` | `Model`、页面布局、transcript 行、composer、状态栏、错误横幅 |
+| `internal/view/preferences.go`、`internal/i18n/` | 设备级偏好、受门禁约束的命令、集中双语文案 |
 | `internal/app/app.go` | Host 启动/停止、版本握手、`session/create` / `session/prompt`、有界通知分发、`Window.Update` |
 | `internal/app/sessions.go` / `session_reader.go` | 会话操作、草稿隔离、列表/历史分页校验与后台回放 |
 | `internal/view/sessions.go` | 原生固定侧栏、窄窗口弹窗、标题搜索、会话管理表单与 transcript 控件重置 |
@@ -142,6 +143,7 @@ App
 - `@` 引用：文件/目录补全；引用在发送时解析为 Host 可见的路径。
 - `/` 命令：提供命令补全与执行；不要伪造不存在的命令。
 - 发送失败：保留草稿，显示错误；不要丢失用户输入。
+- 独立 Preferences 面板配置主题、语言、发送键和应用命令，不依赖会话 Settings 能力。表单与已应用值分离，底部取消/重置/应用动作在最小窗口保持可达；滚动只包围表单内容。固定状态、菜单标签、无障碍名称随语言切换，原始消息/代码/提问与工具载荷保留原文。
 
 ## 审批与提问
 
@@ -186,8 +188,8 @@ App
 
 ## 主题、语言与无障碍
 
-- 主题：`c.Theme()`；跟随系统明暗；自定义强调色需谨慎，优先使用 MyGo 的语义色。
-- 语言：UI 字符串集中管理；Host locale 通过 `initialize.client.locale` 传入；两者可以不同。
+- 主题：c.Theme() 的语义色，允许跟随系统或固定浅色/深色；选择不直接修改控件的持久状态或绘制回调。窗口外观通过 MyGo Theme.SetSource 同步，视图使用对应原生调色板。
+- 语言：应用字符串集中管理，支持英文/简体中文并同步 MyGo 内建控件；不翻译数据载荷。Host locale 通过 initialize.client.locale 传入，运行中切换在 Host 下次启动采用；格式与持久化契约见 [界面偏好面板](settings-credentials.md#界面偏好面板)。
 - 无障碍：为按钮、输入、列表行、弹窗提供名称/角色/描述；不要把关键操作只放在图标上。
 - 高对比度/减少动态：遵循系统设置；流式淡入可关闭。
 
@@ -198,6 +200,7 @@ App
 - 弹窗：Escape、Tab、Enter；焦点回到触发控件。
 - 使用 `ui.Handle` 绑定持久身份；用 `FocusBind` 表达“希望聚焦”，不要直接操作元素。
 - 快捷键冲突时以当前焦点/模态为准；不要在后台窗口抢键。
+- 发送键与新建/界面偏好/停止命令使用有限选项，校验重复和禁用项；应用命令通过 c.OnShortcut 绑定当前视图可执行动作，所有模态/审批/提问期间暂停，不覆盖输入法或 Escape 的既有语义。Composer 提示和空会话说明始终反映所选发送方式；Shift+Enter 保持换行。
 
 ## 性能
 

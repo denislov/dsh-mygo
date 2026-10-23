@@ -9,6 +9,13 @@ import (
 	"github.com/egoist/mygo/ui/editor"
 )
 
+func (model *Model) toolTitle(title string) string {
+	if strings.HasPrefix(title, "Tool · ") {
+		return model.T("Tool · ") + strings.TrimPrefix(title, "Tool · ")
+	}
+	return model.T(title)
+}
+
 type ToolCardState struct{ Expanded bool }
 
 type ToolInspectorState struct {
@@ -75,17 +82,17 @@ func toolInspectorModal(c *mgo.Context, model *Model) {
 		inspector.Diff = nil
 	}
 	modal := mgo.Modal(c.Key("tool-inspector-"+inspector.ID), &inspector.Open, func() {
-		mgo.Text(c, "Tool details").FontSize(18).Bold()
+		mgo.Text(c, model.T("Tool details")).FontSize(18).Bold()
 		mgo.Text(c, item.Title).FontSize(13)
 		mgo.Row(c).Gap(8).Children(func() {
 			for index, label := range []string{"Arguments", "Result", "Changes"} {
-				if mgo.Button(c.Key(label), label).Clicked() {
+				if mgo.Button(c.Key(label), model.T(label)).Clicked() {
 					inspector.Tab = index
 				}
 			}
 		})
 		if item.ToolEvicted {
-			mgo.Text(c, "Full details evicted from the bounded cache; only previews remain.").TextColor(c.Theme().Warning)
+			mgo.Text(c, model.T("Full details evicted from the bounded cache; only previews remain.")).TextColor(c.Theme().Warning)
 		}
 		if item.Tool != nil && item.Tool.Notice != "" {
 			mgo.Text(c, item.Tool.Notice).TextColor(c.Theme().Warning)
@@ -96,7 +103,7 @@ func toolInspectorModal(c *mgo.Context, model *Model) {
 			if item.Tool != nil {
 				text, truncated = item.Tool.Arguments, item.Tool.ArgumentsTruncated
 			}
-			toolDetailText(c, "arguments", text, truncated)
+			toolDetailText(c, model, "arguments", text, truncated)
 		case 1:
 			if item.IsError {
 				mgo.Text(c, "Tool error: "+item.Detail).TextColor(c.Theme().Danger)
@@ -105,11 +112,11 @@ func toolInspectorModal(c *mgo.Context, model *Model) {
 			if item.Tool != nil {
 				text, truncated = item.Tool.Result, item.Tool.ResultTruncated
 			}
-			toolDetailText(c, "result", text, truncated)
+			toolDetailText(c, model, "result", text, truncated)
 		case 2:
-			toolChanges(c, inspector, item.Tool)
+			toolChanges(c, model, inspector, item.Tool)
 		}
-		if mgo.Button(c.Key("close-tool-details"), "Close details").Clicked() {
+		if mgo.Button(c.Key("close-tool-details"), model.T("Close details")).Clicked() {
 			inspector.Open = false
 		}
 	})
@@ -118,55 +125,55 @@ func toolInspectorModal(c *mgo.Context, model *Model) {
 	}
 }
 
-func toolDetailText(c *mgo.Context, key, text string, truncated bool) {
+func toolDetailText(c *mgo.Context, model *Model, key, text string, truncated bool) {
 	if truncated {
-		mgo.Text(c, "Truncated: only the first 64 KiB is retained.").TextColor(c.Theme().Warning)
+		mgo.Text(c, model.T("Truncated: only the first 64 KiB is retained.")).TextColor(c.Theme().Warning)
 	}
 	if text == "" {
-		mgo.Text(c, "No recorded text.").FontSize(12)
+		mgo.Text(c, model.T("No recorded text.")).FontSize(12)
 		return
 	}
 	mgo.Scroll(c.Key(key)).MaxHeight(300).FillWidth().Selectable().Children(func() { mgo.Text(c, text).FontSize(12) })
 }
 
-func toolChanges(c *mgo.Context, inspector *ToolInspectorState, details *projection.ToolDetails) {
+func toolChanges(c *mgo.Context, model *Model, inspector *ToolInspectorState, details *projection.ToolDetails) {
 	if details == nil || len(details.Diffs) == 0 {
 		message := "No structured diff metadata was recorded; see Result."
 		if details != nil && details.DiffNotice != "" {
 			message = details.DiffNotice
 		}
-		mgo.Text(c, message).FontSize(12)
+		mgo.Text(c, model.T(message)).FontSize(12)
 		return
 	}
 	if inspector.Change >= len(details.Diffs) {
 		inspector.Change = 0
 	}
 	mgo.Row(c).Gap(8).Children(func() {
-		if mgo.Button(c.Key("previous-change"), "Previous change").Disabled(inspector.Change == 0).Clicked() && inspector.Change > 0 {
+		if mgo.Button(c.Key("previous-change"), model.T("Previous change")).Disabled(inspector.Change == 0).Clicked() && inspector.Change > 0 {
 			inspector.Change--
 		}
-		if mgo.Button(c.Key("next-change"), "Next change").Disabled(inspector.Change+1 >= len(details.Diffs)).Clicked() && inspector.Change+1 < len(details.Diffs) {
+		if mgo.Button(c.Key("next-change"), model.T("Next change")).Disabled(inspector.Change+1 >= len(details.Diffs)).Clicked() && inspector.Change+1 < len(details.Diffs) {
 			inspector.Change++
 		}
-		mgo.Text(c, fmt.Sprintf("Recorded hunk %d of %d", inspector.Change+1, len(details.Diffs))).FontSize(11)
+		mgo.Text(c, fmt.Sprintf(model.T("Recorded hunk %d of %d"), inspector.Change+1, len(details.Diffs))).FontSize(11)
 	})
 	change := details.Diffs[inspector.Change]
 	mgo.Text(c, change.Path).FontSize(12).Bold().SingleLine()
-	mgo.Text(c, "Recorded context, not a complete file snapshot. Read-only.").FontSize(11)
+	mgo.Text(c, model.T("Recorded context, not a complete file snapshot. Read-only.")).FontSize(11)
 	if change.OldTextMissing {
-		mgo.Text(c, "Insertion: no old text was recorded for this hunk.").FontSize(11)
+		mgo.Text(c, model.T("Insertion: no old text was recorded for this hunk.")).FontSize(11)
 	}
 	inspector.prepareDiff(details)
 	if inspector.Diff != nil {
-		editor.DiffView(c.Key(fmt.Sprintf("diff-%d", inspector.Change)), inspector.Diff).Height(260).FillWidth().Label("Recorded change")
+		editor.DiffView(c.Key(fmt.Sprintf("diff-%d", inspector.Change)), inspector.Diff).Height(260).FillWidth().Label(model.T("Recorded change"))
 		return
 	}
-	mgo.Text(c, "Large hunk: read-only before/after text (not a computed diff).").FontSize(11)
+	mgo.Text(c, model.T("Large hunk: read-only before/after text (not a computed diff).")).FontSize(11)
 	mgo.Scroll(c.Key("large-diff")).MaxHeight(260).FillWidth().Selectable().Children(func() {
 		mgo.Column(c).Gap(6).Children(func() {
-			mgo.Text(c, "Before").Bold()
+			mgo.Text(c, model.T("Before")).Bold()
 			mgo.Text(c, change.OldText).FontSize(12)
-			mgo.Text(c, "After").Bold()
+			mgo.Text(c, model.T("After")).Bold()
 			mgo.Text(c, change.NewText).FontSize(12)
 		})
 	})

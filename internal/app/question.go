@@ -13,6 +13,9 @@ import (
 func (a *App) publishQuestions() {
 	a.model.Questions = a.questions.Items()
 	a.model.QuestionOpen = len(a.model.Questions) > 0
+	if a.model.QuestionOpen {
+		a.model.Prefs.Open = false
+	}
 }
 
 func (a *App) clearQuestions() {

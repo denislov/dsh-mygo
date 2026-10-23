@@ -64,6 +64,9 @@ func (model *Model) PrepareSettings(route ModelRoute) {
 }
 
 func (model *Model) CanEditSettings() bool {
+	if model.Prefs.Open {
+		return false
+	}
 	return (model.CanModels || model.Permission.Available) && model.Phase == PhaseIdle && !model.LocalState.Closing && !model.SessionBusy && !model.SessionPanel.Uncertain && model.SessionPanel.EditingID == "" && model.SessionPanel.ArchiveID == "" && !model.SessionsOpen && !model.SettingsBusy && len(model.Approvals) == 0 && len(model.Questions) == 0
 }
 
@@ -77,12 +80,12 @@ func settingsModal(c *mgo.Context, model *Model) {
 		if model.Permission.Available {
 			title = "Conversation settings"
 		}
-		mgo.Text(c, title).FontSize(18).Bold()
+		mgo.Text(c, model.T(title)).FontSize(18).Bold()
 		scope := "Current session only · next turn · launch defaults unchanged"
 		if model.CanConfigure {
 			scope = "Apply model: current session · Save default: future sessions"
 		}
-		mgo.Text(c, scope).FontSize(11).TextColor(c.Theme().TextMuted)
+		mgo.Text(c, model.T(scope)).FontSize(11).TextColor(c.Theme().TextMuted)
 		mgo.Scroll(c.Key("settings-body")).MaxHeight(230).FillWidth().Children(func() {
 			mgo.Column(c).Gap(4).Children(func() {
 				if model.SettingsBusy {
@@ -96,13 +99,13 @@ func settingsModal(c *mgo.Context, model *Model) {
 					if model.Permission.Writing {
 						label = "Applying permissions…"
 					}
-					mgo.Text(c, label).FontSize(12)
+					mgo.Text(c, model.T(label)).FontSize(12)
 				}
 				if model.SettingsError != "" {
-					mgo.Text(c, model.SettingsError).FontSize(12).TextColor(c.Theme().Danger)
+					mgo.Text(c, model.T(model.SettingsError)).FontSize(12).TextColor(c.Theme().Danger)
 				}
 				if model.SettingsNotice != "" {
-					mgo.Text(c, model.SettingsNotice).FontSize(11)
+					mgo.Text(c, model.T(model.SettingsNotice)).FontSize(11)
 				}
 				if model.Catalog.Reason != "" {
 					mgo.Text(c, model.Catalog.Reason).FontSize(11).TextColor(c.Theme().Warning)
@@ -113,8 +116,8 @@ func settingsModal(c *mgo.Context, model *Model) {
 					for _, provider := range model.Catalog.Providers {
 						providers = append(providers, provider.ID)
 					}
-					mgo.Text(c, "Provider route").FontSize(11).TextColor(c.Theme().TextMuted)
-					mgo.Select(c.Key("settings-provider"), &model.SettingsProvider, providers).Label("Provider").Disabled(disabled).OnChange(func() {
+					mgo.Text(c, model.T("Provider route")).FontSize(11).TextColor(c.Theme().TextMuted)
+					mgo.Select(c.Key("settings-provider"), &model.SettingsProvider, providers).Label(model.T("Provider")).Disabled(disabled).OnChange(func() {
 						model.SettingsModel = ""
 						model.SettingsCatalogModel = ""
 						model.SettingsEffort = effortChoice("")
@@ -138,27 +141,27 @@ func settingsModal(c *mgo.Context, model *Model) {
 						}
 					}
 					if len(models) > 0 {
-						mgo.Text(c, "Catalog suggestion (optional)").FontSize(11).TextColor(c.Theme().TextMuted)
-						mgo.Select(c.Key("settings-model-catalog"), &model.SettingsCatalogModel, models).Label("Catalog model").Disabled(disabled).OnChange(func() {
+						mgo.Text(c, model.T("Catalog suggestion (optional)")).FontSize(11).TextColor(c.Theme().TextMuted)
+						mgo.Select(c.Key("settings-model-catalog"), &model.SettingsCatalogModel, models).Label(model.T("Catalog model")).Disabled(disabled).OnChange(func() {
 							model.SettingsModel = model.SettingsCatalogModel
 							model.SettingsEffort = effortChoice("")
 						})
 					}
-					mgo.Text(c, "Model ID (applied)").FontSize(11).TextColor(c.Theme().TextMuted)
-					mgo.TextInput(c.Key("settings-model-id"), &model.SettingsModel).Label("Model ID").Disabled(disabled).OnChange(func() { model.SettingsEffort = effortChoice("") })
-					mgo.Text(c, "Effort").FontSize(11).TextColor(c.Theme().TextMuted)
-					mgo.Select(c.Key("settings-effort"), &model.SettingsEffort, efforts).Label("Reasoning effort").Disabled(disabled)
-					mgo.Text(c, "Manual model IDs are validated by the Host. Apply model affects only this session.").FontSize(11).TextColor(c.Theme().TextMuted)
+					mgo.Text(c, model.T("Model ID (applied)")).FontSize(11).TextColor(c.Theme().TextMuted)
+					mgo.TextInput(c.Key("settings-model-id"), &model.SettingsModel).Label(model.T("Model ID")).Disabled(disabled).OnChange(func() { model.SettingsEffort = effortChoice("") })
+					mgo.Text(c, model.T("Effort")).FontSize(11).TextColor(c.Theme().TextMuted)
+					mgo.Select(c.Key("settings-effort"), &model.SettingsEffort, efforts).Label(model.T("Reasoning effort")).Disabled(disabled)
+					mgo.Text(c, model.T("Manual model IDs are validated by the Host. Apply model affects only this session.")).FontSize(11).TextColor(c.Theme().TextMuted)
 					configurationControls(c, model, disabled)
 				}
 			})
 		})
 		mgo.Row(c).Gap(8).Children(func() {
-			mgo.Button(c.Key("settings-close"), "Close").Disabled(model.SettingsApplying || model.CloseSettings == nil).OnClick(func() { model.CloseSettings() })
+			mgo.Button(c.Key("settings-close"), model.T("Close")).Disabled(model.SettingsApplying || model.CloseSettings == nil).OnClick(func() { model.CloseSettings() })
 			mgo.Spacer(c)
-			mgo.Button(c.Key("settings-refresh"), "Refresh").Disabled(disabled || model.RefreshSettings == nil).OnClick(func() { model.RefreshSettings() })
+			mgo.Button(c.Key("settings-refresh"), model.T("Refresh")).Disabled(disabled || model.RefreshSettings == nil).OnClick(func() { model.RefreshSettings() })
 			if model.CanModels {
-				mgo.PrimaryButton(c.Key("settings-apply"), "Apply model").Disabled(disabled || model.ModelUncertain || model.ConfigurationUncertain || model.Permission.Uncertain || model.ApplySettings == nil || strings.TrimSpace(model.SettingsProvider) == "" || strings.TrimSpace(model.SettingsModel) == "").OnClick(func() { model.ApplySettings() })
+				mgo.PrimaryButton(c.Key("settings-apply"), model.T("Apply model")).Disabled(disabled || model.ModelUncertain || model.ConfigurationUncertain || model.Permission.Uncertain || model.ApplySettings == nil || strings.TrimSpace(model.SettingsProvider) == "" || strings.TrimSpace(model.SettingsModel) == "").OnClick(func() { model.ApplySettings() })
 			}
 		})
 	})

@@ -11,6 +11,7 @@ import (
 	"github.com/egoist/mygo/ui/markdown"
 
 	"dsh-mygo/internal/interaction"
+	"dsh-mygo/internal/preferences"
 	"dsh-mygo/internal/projection"
 )
 
@@ -35,6 +36,7 @@ const (
 // Model is the window's state. The app mutates it on the main thread and
 // keeps the transcript and draft outside the view.
 type Model struct {
+	Prefs                PreferencesState
 	Items                []projection.Item
 	History              HistoryState
 	Draft                string
@@ -127,15 +129,24 @@ type Model struct {
 func NewModel() *Model {
 	model := &Model{Phase: PhaseStarting,
 		Markdown:            markdown.Options{Theme: &markdown.Theme{FontSize: 13}, Reveal: &markdown.Reveal{Unit: markdown.AtOnce, Fade: -1}},
-		InterruptedMarkdown: markdown.Options{Theme: &markdown.Theme{FontSize: 13}, CodeBlock: interruptedCodeBlock},
+		InterruptedMarkdown: markdown.Options{Theme: &markdown.Theme{FontSize: 13}},
 	}
 	model.List.FollowEnd = true
+	model.InterruptedMarkdown.CodeBlock = model.interruptedCodeBlock
+	model.Prefs = PreferencesState{Value: preferences.DefaultUI(), Ready: true}
 	model.List.Key = func(row int) any { return model.Items[row].ID }
 	return model
 }
 
 // View builds the whole window.
 func View(c *mgo.Context, model *Model) {
+	switch model.Prefs.Value.Theme {
+	case "light":
+		c.SetTheme(lightTheme)
+	case "dark":
+		c.SetTheme(darkTheme)
+	}
+	applicationShortcuts(c, model)
 	theme := c.Theme()
 	services := c.Services()
 	model.Markdown.OnLink = func(address string) {
@@ -168,28 +179,24 @@ func View(c *mgo.Context, model *Model) {
 	sessionsModal(c, model)
 	settingsModal(c, model)
 	recoveryModal(c, model)
+	preferenceModal(c, model)
 }
 
 func header(c *mgo.Context, model *Model) {
 	theme := c.Theme()
 	mgo.Row(c).Padding(14, 20).Gap(12).AlignItems(mgo.Center).Children(func() {
-		mgo.Text(c, "dsh-mygo").FontSize(15).Bold()
+		mgo.Text(c, model.T("dsh-mygo")).FontSize(15).Bold()
+		mgo.Button(c.Key("ui-preferences"), model.T("Preferences")).Disabled(!model.CanOpenPreferences()).OnClick(model.OpenPreferences)
 		if model.CanHistory && model.OpenSessions != nil {
-			mgo.Button(c.Key("sessions"), "Sessions").Disabled(!model.CanRefreshSessions()).OnClick(model.OpenSessions)
+			mgo.Button(c.Key("sessions"), model.T("Sessions")).Disabled(!model.CanRefreshSessions()).OnClick(model.OpenSessions)
 		}
 		if (model.CanModels || model.Permission.Available) && model.OpenSettings != nil {
-			mgo.Button(c.Key("settings"), "Settings").Disabled(!model.CanEditSettings()).OnClick(model.OpenSettings)
-		}
-		if model.ModelLabel != "" && !model.CanModels {
-			mgo.Text(c, model.ModelLabel).FontSize(12).TextColor(theme.TextMuted)
+			mgo.Button(c.Key("settings"), model.T("Settings")).Disabled(!model.CanEditSettings()).OnClick(model.OpenSettings)
 		}
 		mgo.Spacer(c)
-		if model.Detail != "" && !model.CanModels {
-			mgo.Text(c, model.Detail).FontSize(11).TextColor(theme.TextMuted)
-		}
-		mgo.Text(c, phaseLabel(model.Phase)).FontSize(12).TextColor(phaseColor(model.Phase, theme))
+		mgo.Text(c, model.T(phaseLabel(model.Phase))).FontSize(12).TextColor(phaseColor(model.Phase, theme))
 	})
-	if model.CanModels {
+	if model.ModelLabel != "" || model.Detail != "" {
 		mgo.Row(c.Key("model-route")).Padding(0, 20, 8, 20).Gap(12).Children(func() {
 			mgo.Text(c, model.ModelLabel).FontSize(12).TextColor(theme.TextMuted).SingleLine().Grow(1)
 			mgo.Text(c, model.Detail).FontSize(11).TextColor(theme.TextMuted).SingleLine()
@@ -202,9 +209,9 @@ func header(c *mgo.Context, model *Model) {
 		})
 	}
 	if model.Permission.Available {
-		label := "Permissions: refresh Settings"
+		label := model.T("Permissions: refresh Settings")
 		if model.Permission.Ready {
-			label = "Permissions: " + model.Permission.Snapshot.Current + " · " + model.Permission.Snapshot.Sandbox + " / " + model.Permission.Snapshot.Approval
+			label = model.T("Permissions: ") + model.Permission.Snapshot.Current + " · " + model.Permission.Snapshot.Sandbox + " / " + model.Permission.Snapshot.Approval
 		}
 		mgo.Text(c.Key("permission-current"), label).Padding(0, 20, 8, 20).FontSize(11).SingleLine().TextColor(theme.TextMuted)
 	}
@@ -216,15 +223,15 @@ func errorBanner(c *mgo.Context, model *Model) {
 	mgo.Column(c).Margin(12, 20).Padding(10, 12).Gap(4).Radius(8).
 		Background(theme.Surface).Border(1, theme.Danger).Children(func() {
 		mgo.Row(c).Gap(8).AlignItems(mgo.Center).Children(func() {
-			mgo.Text(c, "Host error").FontSize(12).Bold().TextColor(theme.Danger)
+			mgo.Text(c, model.T("Host error")).FontSize(12).Bold().TextColor(theme.Danger)
 			mgo.Spacer(c)
-			if model.Dismiss != nil && mgo.Button(c, "Dismiss").Clicked() {
+			if model.Dismiss != nil && mgo.Button(c, model.T("Dismiss")).Clicked() {
 				model.Dismiss()
 			}
 		})
 		banner := mgo.Column(c).Gap(4).Selectable()
 		banner.Children(func() {
-			mgo.Text(c, model.Error).FontSize(13)
+			mgo.Text(c, model.T(model.Error)).FontSize(13)
 			if model.ErrorDetail != "" {
 				mgo.Text(c, model.ErrorDetail).FontSize(11).TextColor(theme.TextMuted)
 			}
@@ -240,11 +247,15 @@ func transcript(c *mgo.Context, model *Model) {
 			theme := c.Theme()
 			mgo.Column(c).Gap(4).Children(func() {
 				if model.History.Start > 0 {
-					mgo.Text(c, "No visible messages in this history window.").FontSize(13)
+					mgo.Text(c, model.T("No visible messages in this history window.")).FontSize(13)
 					return
 				}
-				mgo.Text(c, "Start a conversation").FontSize(14).Bold()
-				mgo.Text(c, "Enter sends, Shift+Enter adds a line.").FontSize(12).TextColor(theme.TextMuted)
+				mgo.Text(c, model.T("Start a conversation")).FontSize(14).Bold()
+				hint := "Enter sends, Shift+Enter adds a line."
+				if model.Prefs.Value.Send == "Ctrl+Enter" {
+					hint = "Ctrl+Enter sends, Enter adds a line."
+				}
+				mgo.Text(c, model.T(hint)).FontSize(12).TextColor(theme.TextMuted)
 			})
 		}
 	})
@@ -270,7 +281,7 @@ func message(c *mgo.Context, model *Model, item projection.Item) {
 		if item.IsError {
 			color = theme.Danger
 		}
-		mgo.Text(c, item.Text).Key(item.ID).FontSize(12).TextColor(color).
+		mgo.Text(c, model.T(item.Text)).Key(item.ID).FontSize(12).TextColor(color).
 			TextAlign(mgo.Center).FillWidth()
 	}
 }
@@ -290,15 +301,15 @@ func card(c *mgo.Context, model *Model, item projection.Item, fromUser bool) {
 	}
 	container.Children(func() {
 		mgo.Row(c).Gap(8).Children(func() {
-			mgo.Text(c, item.Title).FontSize(11).Bold().TextColor(theme.TextMuted)
+			mgo.Text(c, model.T(item.Title)).FontSize(11).Bold().TextColor(theme.TextMuted)
 			if item.Detail != "" {
-				mgo.Text(c, item.Detail).FontSize(11).TextColor(theme.TextMuted)
+				mgo.Text(c, model.T(item.Detail)).FontSize(11).TextColor(theme.TextMuted)
 			}
 			mgo.Spacer(c)
 			messageCopyButton(c, model, item, fromUser)
 		})
 		if item.Truncated {
-			mgo.Text(c, "Truncated message: only the visible prefix is available.").FontSize(11).TextColor(theme.Warning)
+			mgo.Text(c, model.T("Truncated message: only the visible prefix is available.")).FontSize(11).TextColor(theme.Warning)
 		}
 		if fromUser || item.Truncated {
 			mgo.Text(c, item.Text).FontSize(13).Selectable()
@@ -321,20 +332,20 @@ func toolCard(c *mgo.Context, model *Model, item projection.Item) {
 	mgo.Column(c).MaxWidth(680).Padding(8, 12).Gap(4).Radius(8).
 		Background(theme.Surface).Border(1, theme.Border).Selectable().Children(func() {
 		mgo.Row(c).Gap(8).AlignItems(mgo.Center).Children(func() {
-			mgo.Collapsible(c.Key("tool-disclosure"), item.Title, &model.toolCardState(item.ID).Expanded, func() {
+			mgo.Collapsible(c.Key("tool-disclosure"), model.toolTitle(item.Title), &model.toolCardState(item.ID).Expanded, func() {
 				if item.Text != "" {
 					mgo.Text(c, item.Text).FontSize(11).TextColor(theme.TextMuted)
 				}
 				if item.Detail != "" {
 					mgo.Text(c, item.Detail).FontSize(12)
 				}
-				if mgo.Button(c.Key("tool-details"), "View details").Clicked() {
+				if mgo.Button(c.Key("tool-details"), model.T("View details")).Clicked() {
 					model.OpenToolDetails(item.ID)
 				}
 			}).Grow(1)
 			mgo.Spacer(c)
 			if item.State != "" {
-				mgo.Text(c, toolState(item.State)).FontSize(11).TextColor(stateColor)
+				mgo.Text(c, model.T(toolState(item.State))).FontSize(11).TextColor(stateColor)
 			}
 		})
 	})
@@ -342,18 +353,22 @@ func toolCard(c *mgo.Context, model *Model, item projection.Item) {
 
 func composer(c *mgo.Context, model *Model) {
 	theme := c.Theme()
-	stopped := model.Phase == PhaseStopped || model.Phase == PhaseFailed || model.Phase == PhaseResyncing || model.SessionSwitching || model.RecoveryOpen || model.LocalState.Closing
-	canSend := model.Phase == PhaseIdle && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy && !model.History.Detached && !model.SessionPanel.BlocksInput() && !model.SettingsOpen && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain && !model.Permission.Uncertain && !model.LocalState.Closing
+	stopped := model.Phase == PhaseStopped || model.Phase == PhaseFailed || model.Phase == PhaseResyncing || model.SessionSwitching || model.RecoveryOpen || model.LocalState.Closing || model.Prefs.Open
+	canSend := model.Phase == PhaseIdle && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy && !model.History.Detached && !model.SessionPanel.BlocksInput() && !model.SettingsOpen && !model.Prefs.Open && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain && !model.Permission.Uncertain && !model.LocalState.Closing
 	mgo.Column(c).Padding(12, 20, 16, 20).Gap(8).Children(func() {
 		mgo.TextArea(c.Key("composer-"+model.SessionID), &model.Draft).Lines(1, 8).
-			Label("Message").Placeholder("Message DeepSeek…").AutoFocus().Disabled(stopped).
+			Label(model.T("Message")).Placeholder(model.T("Message DeepSeek…")).AutoFocus().Disabled(stopped).
 			OnChange(func() {
 				if model.DraftChanged != nil {
 					model.DraftChanged()
 				}
 			}).
 			OnTextKey(func(key mgo.TextKey) bool {
-				if key.Key != mgo.KeyEnter || key.Mods != 0 {
+				mods := mgo.Modifiers(0)
+				if model.Prefs.Value.Send == "Ctrl+Enter" {
+					mods = mgo.Ctrl
+				}
+				if key.Key != mgo.KeyEnter || key.Mods != mods || model.Prefs.Open {
 					return false
 				}
 				text := strings.TrimSpace(key.Text())
@@ -365,18 +380,18 @@ func composer(c *mgo.Context, model *Model) {
 				return true
 			})
 		mgo.Row(c).Gap(8).AlignItems(mgo.Center).Children(func() {
-			mgo.Text(c, composerHint(model)).FontSize(11).TextColor(theme.TextMuted)
+			mgo.Text(c, model.T(composerHint(model))).FontSize(11).TextColor(theme.TextMuted)
 			mgo.Spacer(c)
 			if model.Phase == PhaseRunning && model.CanCancel && model.Cancel != nil {
 				label := "Stop"
 				if model.CancelPending {
 					label = "Stopping…"
 				}
-				if mgo.Button(c.Key("stop"), label).Disabled(model.CancelPending).Clicked() && !model.CancelPending {
+				if mgo.Button(c.Key("stop"), model.T(label)).Disabled(model.CancelPending).Clicked() && !model.CancelPending {
 					model.Cancel()
 				}
 			} else {
-				send := mgo.PrimaryButton(c.Key("send"), "Send").
+				send := mgo.PrimaryButton(c.Key("send"), model.T("Send")).
 					Disabled(!canSend || strings.TrimSpace(model.Draft) == "")
 				if send.Clicked() {
 					text := strings.TrimSpace(model.Draft)
@@ -390,6 +405,9 @@ func composer(c *mgo.Context, model *Model) {
 }
 
 func composerHint(model *Model) string {
+	if model.Phase == PhaseIdle && model.Prefs.Value.Send == "Ctrl+Enter" && !model.Permission.Uncertain && !model.ModelUncertain && !model.ConfigurationUncertain && !model.SessionSwitching {
+		return "Ctrl+Enter sends · Enter adds a line"
+	}
 	if model.Permission.Uncertain && model.Phase == PhaseIdle {
 		return "Permissions unconfirmed · open Settings to refresh"
 	}

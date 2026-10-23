@@ -46,20 +46,20 @@ func permissionControls(c *mgo.Context, model *Model, disabled bool) {
 	if !state.Available {
 		return
 	}
-	mgo.Text(c, "Session permissions").Bold().FontSize(12)
-	mgo.Text(c, "Current conversation only · saved in session history").FontSize(11).TextColor(c.Theme().TextMuted)
+	mgo.Text(c, model.T("Session permissions")).Bold().FontSize(12)
+	mgo.Text(c, model.T("Current conversation only · saved in session history")).FontSize(11).TextColor(c.Theme().TextMuted)
 	if !state.Ready {
-		mgo.Text(c, "Refresh to load session permissions.").FontSize(11)
+		mgo.Text(c, model.T("Refresh to load session permissions.")).FontSize(11)
 		return
 	}
 	snapshot := state.Snapshot
-	mgo.Text(c, "Current: "+snapshot.Current+" · "+snapshot.Sandbox+" / "+snapshot.Approval).FontSize(11)
+	mgo.Text(c, model.T("Current: ")+snapshot.Current+" · "+snapshot.Sandbox+" / "+snapshot.Approval).FontSize(11)
 	disabled = disabled || state.Uncertain || model.ModelUncertain || model.ConfigurationUncertain
 	choices := make([]string, 0, len(snapshot.Options))
 	for _, option := range snapshot.Options {
 		choices = append(choices, option.ID)
 	}
-	mgo.Select(c.Key("permission-preset"), &state.Selected, choices).Label("Permission preset").Disabled(disabled).OnChange(func() { state.Confirm = false })
+	mgo.Select(c.Key("permission-preset"), &state.Selected, choices).Label(model.T("Permission preset")).Disabled(disabled).OnChange(func() { state.Confirm = false })
 	option := state.SelectedOption()
 	if option != nil {
 		mgo.Text(c, option.Sandbox+" / "+option.Approval).FontSize(11)
@@ -67,9 +67,9 @@ func permissionControls(c *mgo.Context, model *Model, disabled bool) {
 			mgo.Text(c, option.Description).FontSize(11)
 		}
 		if option.RequiresConfirmation {
-			mgo.Text(c, "This preset permits unrestricted file access or disables approval prompts. It applies to future operations in this conversation.").FontSize(11).TextColor(c.Theme().Warning)
-			mgo.Checkbox(c.Key("permission-confirm-"+option.ID), &state.Confirm, "I understand this permission change").Disabled(disabled)
+			mgo.Text(c, model.T("This preset permits unrestricted file access or disables approval prompts. It applies to future operations in this conversation.")).FontSize(11).TextColor(c.Theme().Warning)
+			mgo.Checkbox(c.Key("permission-confirm-"+option.ID), &state.Confirm, model.T("I understand this permission change")).Disabled(disabled)
 		}
 	}
-	mgo.Button(c.Key("permission-apply"), "Apply permissions").Disabled(disabled || option == nil || option.RequiresConfirmation && !state.Confirm || state.Apply == nil).OnClick(func() { state.Apply() })
+	mgo.Button(c.Key("permission-apply"), model.T("Apply permissions")).Disabled(disabled || option == nil || option.RequiresConfirmation && !state.Confirm || state.Apply == nil).OnClick(func() { state.Apply() })
 }

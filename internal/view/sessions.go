@@ -41,10 +41,10 @@ func (panel *SessionPanelState) BlocksInput() bool {
 func (model *Model) ActiveSessionLabel() string {
 	for _, session := range model.Sessions {
 		if session.ID == model.SessionID {
-			return sessionLabel(session)
+			return model.sessionLabel(session)
 		}
 	}
-	return sessionLabel(SessionSummary{ID: model.SessionID})
+	return model.sessionLabel(SessionSummary{ID: model.SessionID})
 }
 
 func (model *Model) FilteredSessions() []SessionSummary {
@@ -54,7 +54,7 @@ func (model *Model) FilteredSessions() []SessionSummary {
 		if session.Archived && !model.SessionPanel.ShowArchived {
 			continue
 		}
-		if query != "" && !strings.Contains(strings.ToLower(sessionLabel(session)), query) {
+		if query != "" && !strings.Contains(strings.ToLower(model.sessionLabel(session)), query) {
 			continue
 		}
 		sessions = append(sessions, session)
@@ -67,24 +67,27 @@ func (model *Model) CanChooseSession() bool {
 }
 
 func (model *Model) CanRefreshSessions() bool {
+	if model.Prefs.Open {
+		return false
+	}
 	return model.CanHistory && model.Phase == PhaseIdle && !model.LocalState.Closing && !model.SessionBusy && !model.SessionPanel.Writing && !model.SettingsOpen && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain && !model.Permission.Uncertain && len(model.Approvals) == 0 && len(model.Questions) == 0
 }
 
 func sessionSidebar(c *mgo.Context, model *Model) {
 	mgo.Column(c.Key("session-sidebar")).Width(260).FillHeight().Padding(12).Gap(8).Background(c.Theme().Surface).Children(func() {
-		mgo.Text(c, "Conversations").FontSize(16).Bold()
-		mgo.Button(c.Key("new"), "New conversation").FillWidth().Disabled(!model.CanChooseSession() || model.NewSession == nil).OnClick(model.NewSession)
+		mgo.Text(c, model.T("Conversations")).FontSize(16).Bold()
+		mgo.Button(c.Key("new"), model.T("New conversation")).FillWidth().Disabled(!model.CanChooseSession() || model.NewSession == nil).OnClick(model.NewSession)
 		sessionPanel(c, model, false)
-		mgo.Button(c.Key("refresh"), "Refresh sessions").FillWidth().Disabled(!model.CanRefreshSessions() || model.RefreshSessions == nil).OnClick(model.RefreshSessions)
+		mgo.Button(c.Key("refresh"), model.T("Refresh sessions")).FillWidth().Disabled(!model.CanRefreshSessions() || model.RefreshSessions == nil).OnClick(model.RefreshSessions)
 	})
 }
 
 func sessionPanel(c *mgo.Context, model *Model, modal bool) {
 	panel := &model.SessionPanel
 	disabled := !model.CanChooseSession()
-	mgo.TextInput(c.Key("session-search"), &panel.Search).Placeholder("Search titles").Label("Search titles").FillWidth()
+	mgo.TextInput(c.Key("session-search"), &panel.Search).Placeholder(model.T("Search titles")).Label(model.T("Search titles")).FillWidth()
 	if panel.CanArchive {
-		mgo.Checkbox(c.Key("archived-filter"), &panel.ShowArchived, "Show archived")
+		mgo.Checkbox(c.Key("archived-filter"), &panel.ShowArchived, model.T("Show archived"))
 	}
 	if model.SessionBusy || panel.Refreshing {
 		label := "Loading sessions…"
@@ -94,17 +97,17 @@ func sessionPanel(c *mgo.Context, model *Model, modal bool) {
 		if panel.Writing {
 			label = "Saving conversation…"
 		}
-		mgo.Text(c, label).FontSize(12)
+		mgo.Text(c, model.T(label)).FontSize(12)
 	}
 	if model.SessionsError != "" {
-		mgo.Text(c, model.SessionsError).FontSize(12).TextColor(c.Theme().Danger)
+		mgo.Text(c, model.T(model.SessionsError)).FontSize(12).TextColor(c.Theme().Danger)
 	}
 	if panel.ActiveArchived {
-		mgo.Text(c, "This conversation is archived. Restore it or choose another.").FontSize(12)
+		mgo.Text(c, model.T("This conversation is archived. Restore it or choose another.")).FontSize(12)
 	}
 	sessions := model.FilteredSessions()
 	if len(sessions) == 0 && !model.SessionBusy && !panel.Refreshing && model.SessionsError == "" {
-		mgo.Text(c, "No matching conversations.").FontSize(12)
+		mgo.Text(c, model.T("No matching conversations.")).FontSize(12)
 	}
 	list := mgo.List(c.Key("session-list"), &model.SessionList, len(sessions)).FillWidth()
 	if modal {
@@ -115,9 +118,9 @@ func sessionPanel(c *mgo.Context, model *Model, modal bool) {
 	list.ItemKey(func(row int) any { return sessions[row].ID }).Rows(func(row mgo.ListRow) {
 		session := sessions[row.Index]
 		mgo.Column(c.Key(session.ID)).Gap(3).Padding(6, 0).Children(func() {
-			label := sessionLabel(session)
+			label := model.sessionLabel(session)
 			if session.ID == model.SessionID {
-				label = "Current · " + label
+				label = model.T("Current · ") + label
 			}
 			mgo.Button(c.Key("select"), label).FillWidth().Disabled(disabled || session.Archived || model.SwitchSession == nil).OnClick(func() { model.SwitchSession(session.ID) })
 			updated := session.UpdatedAt
@@ -128,36 +131,36 @@ func sessionPanel(c *mgo.Context, model *Model, modal bool) {
 			if session.Archived {
 				status = "archived"
 			}
-			mgo.Text(c, time.UnixMilli(updated).Format("2006-01-02 15:04")+" · "+status).FontSize(11).TextColor(c.Theme().TextMuted)
+			mgo.Text(c, time.UnixMilli(updated).Format("2006-01-02 15:04")+" · "+model.T(status)).FontSize(11).TextColor(c.Theme().TextMuted)
 			if session.MetadataIncomplete {
-				mgo.Text(c, "Open to rebuild metadata").FontSize(11).TextColor(c.Theme().TextMuted)
+				mgo.Text(c, model.T("Open to rebuild metadata")).FontSize(11).TextColor(c.Theme().TextMuted)
 			} else if session.MetadataCached {
-				mgo.Text(c, "Cached metadata").FontSize(11).TextColor(c.Theme().TextMuted)
+				mgo.Text(c, model.T("Cached metadata")).FontSize(11).TextColor(c.Theme().TextMuted)
 			}
 			if session.CWD != "" {
 				mgo.Text(c, session.CWD).FontSize(11).TextColor(c.Theme().TextMuted).SingleLine()
 			}
 			mgo.Row(c).Gap(6).Children(func() {
 				if panel.CanRename && !session.Archived {
-					mgo.Button(c.Key("rename"), "Rename").Disabled(disabled || panel.OpenRename == nil).OnClick(func() { panel.OpenRename(session.ID) })
+					mgo.Button(c.Key("rename"), model.T("Rename")).Disabled(disabled || panel.OpenRename == nil).OnClick(func() { panel.OpenRename(session.ID) })
 				}
 				if panel.CanArchive {
 					label := "Archive"
 					if session.Archived {
 						label = "Restore"
 					}
-					mgo.Button(c.Key("archive"), label).Disabled(disabled || panel.SetArchived == nil).OnClick(func() { panel.ArchiveID = session.ID; panel.ArchiveValue = !session.Archived })
+					mgo.Button(c.Key("archive"), model.T(label)).Disabled(disabled || panel.SetArchived == nil).OnClick(func() { panel.ArchiveID = session.ID; panel.ArchiveValue = !session.Archived })
 				}
 			})
 		})
 	})
 	if panel.EditingID != "" {
 		mgo.Column(c.Key("rename-" + panel.EditingID)).Gap(6).Children(func() {
-			mgo.Text(c, "Rename conversation").Bold().FontSize(12)
-			mgo.TextInput(c.Key("title"), &panel.Title).Label("Conversation title").FillWidth().Disabled(panel.Writing).Placeholder("Conversation title")
+			mgo.Text(c, model.T("Rename conversation")).Bold().FontSize(12)
+			mgo.TextInput(c.Key("title"), &panel.Title).Label(model.T("Conversation title")).FillWidth().Disabled(panel.Writing).Placeholder(model.T("Conversation title"))
 			mgo.Row(c).Gap(6).Children(func() {
-				mgo.Button(c, "Cancel rename").Disabled(panel.Writing || panel.CancelEdit == nil).OnClick(panel.CancelEdit)
-				mgo.PrimaryButton(c, "Save title").Disabled(panel.Writing || panel.Uncertain || strings.TrimSpace(panel.Title) == "" || panel.SaveRename == nil).OnClick(panel.SaveRename)
+				mgo.Button(c, model.T("Cancel rename")).Disabled(panel.Writing || panel.CancelEdit == nil).OnClick(panel.CancelEdit)
+				mgo.PrimaryButton(c, model.T("Save title")).Disabled(panel.Writing || panel.Uncertain || strings.TrimSpace(panel.Title) == "" || panel.SaveRename == nil).OnClick(panel.SaveRename)
 			})
 		})
 	}
@@ -166,10 +169,10 @@ func sessionPanel(c *mgo.Context, model *Model, modal bool) {
 		if !panel.ArchiveValue {
 			label = "Restore conversation"
 		}
-		mgo.Text(c, label+"?").FontSize(12).Bold()
+		mgo.Text(c, model.T(label)+"?").FontSize(12).Bold()
 		mgo.Row(c).Gap(6).Children(func() {
-			mgo.Button(c, "Cancel archive").Disabled(panel.Writing).OnClick(func() { panel.ArchiveID = "" })
-			mgo.PrimaryButton(c, label).Disabled(panel.Writing || panel.Uncertain || panel.SetArchived == nil).OnClick(func() { panel.SetArchived(panel.ArchiveID, panel.ArchiveValue) })
+			mgo.Button(c, model.T("Cancel archive")).Disabled(panel.Writing).OnClick(func() { panel.ArchiveID = "" })
+			mgo.PrimaryButton(c, model.T(label)).Disabled(panel.Writing || panel.Uncertain || panel.SetArchived == nil).OnClick(func() { panel.SetArchived(panel.ArchiveID, panel.ArchiveValue) })
 		})
 	}
 }
@@ -195,23 +198,31 @@ func sessionLabel(session SessionSummary) string {
 	return "Session " + identity
 }
 
+func (model *Model) sessionLabel(session SessionSummary) string {
+	label := sessionLabel(session)
+	if session.Title == "" {
+		return model.T("Session ") + strings.TrimPrefix(label, "Session ")
+	}
+	return label
+}
+
 func sessionsModal(c *mgo.Context, model *Model) {
 	if !model.CanHistory || !model.SessionsOpen || len(model.Approvals) > 0 || len(model.Questions) > 0 {
 		return
 	}
 	disabled := !model.CanChooseSession()
 	modal := mgo.Modal(c.Key("session-picker"), &model.SessionsOpen, func() {
-		mgo.Text(c, "Conversations").FontSize(18).Bold()
-		mgo.Text(c, fmt.Sprintf("%d sessions · current profile", len(model.Sessions))).FontSize(11).TextColor(c.Theme().TextMuted)
-		mgo.Text(c, "Resume uses the launch model and stored directory.").FontSize(11).TextColor(c.Theme().TextMuted)
+		mgo.Text(c, model.T("Conversations")).FontSize(18).Bold()
+		mgo.Text(c, fmt.Sprintf(model.T("%d sessions · current profile"), len(model.Sessions))).FontSize(11).TextColor(c.Theme().TextMuted)
+		mgo.Text(c, model.T("Resume uses the launch model and stored directory.")).FontSize(11).TextColor(c.Theme().TextMuted)
 
 		_, height := c.Size()
 		mgo.Scroll(c.Key("session-panel-scroll")).MaxHeight(max(160, height-180)).FillWidth().Children(func() { sessionPanel(c, model, true) })
 		mgo.Row(c).Gap(8).Children(func() {
-			mgo.Button(c.Key("close-sessions"), "Close").Disabled(model.SessionSwitching || model.SessionPanel.Writing || model.CloseSessions == nil).OnClick(func() { model.CloseSessions() })
+			mgo.Button(c.Key("close-sessions"), model.T("Close")).Disabled(model.SessionSwitching || model.SessionPanel.Writing || model.CloseSessions == nil).OnClick(func() { model.CloseSessions() })
 			mgo.Spacer(c)
-			mgo.Button(c.Key("refresh-sessions"), "Refresh").Disabled(!model.CanRefreshSessions() || model.RefreshSessions == nil).OnClick(func() { model.RefreshSessions() })
-			mgo.PrimaryButton(c.Key("new-session"), "New conversation").Disabled(disabled || model.NewSession == nil).OnClick(func() { model.NewSession() })
+			mgo.Button(c.Key("refresh-sessions"), model.T("Refresh")).Disabled(!model.CanRefreshSessions() || model.RefreshSessions == nil).OnClick(func() { model.RefreshSessions() })
+			mgo.PrimaryButton(c.Key("new-session"), model.T("New conversation")).Disabled(disabled || model.NewSession == nil).OnClick(func() { model.NewSession() })
 		})
 	})
 	if modal.Dismissed() {

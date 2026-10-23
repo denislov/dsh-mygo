@@ -22,18 +22,19 @@ const MaxDrafts = 128
 const maxFileBytes = 8 * 1024 * 1024
 
 var ErrBudget = errors.New("Draft storage limit reached (64 KiB per draft, 1 MiB total, 128 conversations)")
-var ErrConflict = errors.New("Local drafts changed in another window; copy unsaved text before restarting")
+var ErrConflict = errors.New("Local state changed in another window; copy unsaved text before restarting")
 var ErrVersion = errors.New("Local state belongs to a newer app version and will not be overwritten")
-var ErrUnavailable = errors.New("Could not save local drafts; keep this window open and retry")
+var ErrUnavailable = errors.New("Could not save local state; keep this window open and retry")
 var errInvalid = errors.New("Invalid local state")
 
 type Snapshot struct {
 	Version       int               `json:"version"`
 	LastSessionID string            `json:"lastSessionId"`
 	Drafts        map[string]string `json:"drafts"`
+	UI            UISettings        `json:"ui"`
 }
 
-func Empty() Snapshot { return Snapshot{Version: 1, Drafts: make(map[string]string)} }
+func Empty() Snapshot { return Snapshot{Version: 2, Drafts: make(map[string]string), UI: DefaultUI()} }
 func Clone(state Snapshot) Snapshot {
 	result := state
 	result.Drafts = make(map[string]string, len(state.Drafts))
@@ -54,7 +55,14 @@ func validID(id string) bool {
 	return true
 }
 func Validate(state Snapshot) error {
-	if state.Version != 1 || state.Drafts == nil || state.LastSessionID != "" && !validID(state.LastSessionID) {
+	if state.Version != 1 && state.Version != 2 || state.Drafts == nil || state.LastSessionID != "" && !validID(state.LastSessionID) {
+		return errInvalid
+	}
+	if state.Version == 2 {
+		if err := state.UI.Validate(); err != nil {
+			return err
+		}
+	} else if state.UI != (UISettings{}) {
 		return errInvalid
 	}
 	if len(state.Drafts) > MaxDrafts {
@@ -78,12 +86,25 @@ func decode(raw []byte) (Snapshot, error) {
 		Version *int               `json:"version"`
 		Last    *string            `json:"lastSessionId"`
 		Drafts  map[string]*string `json:"drafts"`
+		UI      *UISettings        `json:"ui"`
 	}
 	if len(raw) > maxFileBytes || !utf8.Valid(raw) || json.Unmarshal(raw, &required) != nil || required.Version == nil {
 		return state, errInvalid
 	}
-	if *required.Version > 1 {
+	if *required.Version > 2 {
 		return state, ErrVersion
+	}
+	if *required.Version == 1 {
+		var fields map[string]json.RawMessage
+		if json.Unmarshal(raw, &fields) != nil {
+			return state, errInvalid
+		}
+		if _, present := fields["ui"]; present {
+			return state, errInvalid
+		}
+	}
+	if *required.Version == 2 && required.UI == nil || *required.Version == 1 && required.UI != nil {
+		return state, errInvalid
 	}
 	if required.Last == nil || required.Drafts == nil {
 		return state, errInvalid
@@ -98,7 +119,14 @@ func decode(raw []byte) (Snapshot, error) {
 	if decoder.Decode(&state) != nil {
 		return Snapshot{}, errInvalid
 	}
-	return state, Validate(state)
+	if err := Validate(state); err != nil {
+		return state, err
+	}
+	if state.Version == 1 {
+		state.Version = 2
+		state.UI = DefaultUI()
+	}
+	return state, nil
 }
 func StatePath(root, home, profile string) string {
 	absolute, err := filepath.Abs(home)
@@ -156,7 +184,7 @@ func (store *Store) Load() (Snapshot, string, error) {
 	notice := ""
 	if existed {
 		state, err = decode(raw)
-		if err == ErrVersion {
+		if err == ErrVersion || err == ErrUI {
 			return Empty(), "", err
 		}
 		if err != nil {
@@ -182,6 +210,10 @@ func (store *Store) Load() (Snapshot, string, error) {
 func (store *Store) Save(state Snapshot) error {
 	if err := Validate(state); err != nil {
 		return err
+	}
+	if state.Version == 1 {
+		state.Version = 2
+		state.UI = DefaultUI()
 	}
 	raw, err := json.Marshal(state)
 	if err != nil || len(raw) > maxFileBytes {

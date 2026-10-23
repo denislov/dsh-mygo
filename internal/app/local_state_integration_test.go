@@ -25,6 +25,11 @@ func TestAgainstMygoLocalEditingState(t *testing.T) {
 	firstID := first.sessionID
 	first.model.Draft = "first conversation draft\n你好"
 	first.DraftChanged()
+	first.model.OpenPreferences()
+	first.model.Prefs.Draft.Theme = "dark"
+	first.model.Prefs.Draft.Locale = "zh-CN"
+	first.model.Prefs.Draft.Send = "Ctrl+Enter"
+	first.ApplyUIPreferences()
 	first.NewSession()
 	waitFor(t, first, updates, 30*time.Second, func() bool { return !first.model.SessionBusy && first.sessionID != firstID })
 	secondID := first.sessionID
@@ -33,6 +38,9 @@ func TestAgainstMygoLocalEditingState(t *testing.T) {
 	first.Shutdown(10 * time.Second)
 
 	second, updates := open()
+	if second.model.Prefs.Value.Theme != "dark" || second.model.Prefs.Value.Locale != "zh-CN" || second.model.Prefs.Value.Send != "Ctrl+Enter" {
+		t.Fatal("UI preferences did not survive restart")
+	}
 	if second.sessionID != secondID || second.model.Draft != "second conversation draft" {
 		t.Fatal("restart did not reopen the last conversation and its draft")
 	}

@@ -57,7 +57,7 @@ func TestStoreCorruptionBacksUpOnceAndProtectsNewerVersions(t *testing.T) {
 	if err := store.Save(state); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(`{"version":2,"future":"keep"}`), 0600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"version":3,"future":"keep"}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	newer := NewStore(path)

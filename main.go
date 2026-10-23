@@ -13,6 +13,9 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+	// Ship the Simplified Chinese text of MyGo's own controls, such as the
+	// code-copy button; the catalog is linked only when the app imports it.
+	_ "github.com/egoist/mygo/locales/zh-Hans"
 	"github.com/egoist/mygo/ui"
 
 	"dsh-mygo/internal/app"
@@ -111,12 +114,19 @@ func main() {
 	stateRoot, stateErr := mygo.App.Path(mygo.PathUserData)
 	if *stateDirFlag != "" {
 		stateRoot, stateErr = filepath.Abs(*stateDirFlag)
+		if stateErr == nil {
+			mygo.App.SetPath(mygo.PathUserData, stateRoot)
+		}
 	}
+	mygo.App.SetLanguages("en-US", "zh-CN")
+	mygo.App.SetLocale("en-US")
 	statePath := ""
 	if stateErr == nil && !*sdkProtocol {
 		statePath = preferences.StatePath(stateRoot, dshHomePath, *profile)
 	}
 	application := app.New(app.Options{
+		ApplyTheme:             func(value string) { mygo.Theme.SetSource(mygo.ThemeSource(value)) },
+		ApplyLocale:            mygo.App.SetLocale,
 		Launch:                 launch,
 		CWD:                    cwd,
 		Provider:               *provider,

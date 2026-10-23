@@ -41,33 +41,33 @@ func configurationControls(c *mgo.Context, model *Model, disabled bool) {
 		return
 	}
 	disabled = disabled || !model.ConfigurationReady || model.ConfigurationUncertain || model.Permission.Uncertain
-	mgo.Text(c, "Persistent profile default").Bold().FontSize(12)
+	mgo.Text(c, model.T("Persistent profile default")).Bold().FontSize(12)
 	if model.ConfigurationReady {
 		selection := model.Configuration.Defaults
 		mgo.Text(c, selection.Provider+" / "+selection.Model+" / "+effortChoice(selection.Effort)).FontSize(11)
 	}
-	mgo.Text(c, "New conversations and cold restores use this default unless route flags override it. Current sessions stay unchanged.").FontSize(11).TextColor(c.Theme().TextMuted)
-	mgo.Button(c.Key("settings-save-default"), "Save selection as default").Disabled(disabled || model.SaveDefaultModel == nil || model.ModelUncertain).OnClick(func() { model.SaveDefaultModel() })
-	mgo.Text(c, "DeepSeek API credential").Bold().FontSize(12)
+	mgo.Text(c, model.T("New conversations and cold restores use this default unless route flags override it. Current sessions stay unchanged.")).FontSize(11).TextColor(c.Theme().TextMuted)
+	mgo.Button(c.Key("settings-save-default"), model.T("Save selection as default")).Disabled(disabled || model.SaveDefaultModel == nil || model.ModelUncertain).OnClick(func() { model.SaveDefaultModel() })
+	mgo.Text(c, model.T("DeepSeek API credential")).Bold().FontSize(12)
 	credential := model.Configuration.Credential
 	if !model.ConfigurationReady {
-		mgo.Text(c, "Refresh to load credential status.").FontSize(11)
+		mgo.Text(c, model.T("Refresh to load credential status.")).FontSize(11)
 		return
 	}
 	if !credential.Available {
-		mgo.Text(c, "This profile does not expose a supported DeepSeek credential binding.").FontSize(11)
+		mgo.Text(c, model.T("This profile does not expose a supported DeepSeek credential binding.")).FontSize(11)
 		return
 	}
 	status := "Not configured"
 	if credential.Configured {
 		status = "Configured (not validated)"
 	}
-	mgo.Text(c, credential.Reference+" · "+status+" · "+credential.Source).FontSize(11)
-	mgo.Text(c, "Saved locally by DSH, not an encrypted OS vault. Clear removes only the managed value; environment/.env fallback may remain.").FontSize(11).TextColor(c.Theme().Warning)
-	mgo.TextInput(c.Key(fmt.Sprintf("credential-input-%d", model.CredentialVersion)), &model.CredentialDraft.value).Password().Label("New API key").Placeholder("New API key (write only)").Disabled(disabled || !credential.Writable)
+	mgo.Text(c, credential.Reference+" · "+model.T(status)+" · "+credential.Source).FontSize(11)
+	mgo.Text(c, model.T("Saved locally by DSH, not an encrypted OS vault. Clear removes only the managed value; environment/.env fallback may remain.")).FontSize(11).TextColor(c.Theme().Warning)
+	mgo.TextInput(c.Key(fmt.Sprintf("credential-input-%d", model.CredentialVersion)), &model.CredentialDraft.value).Password().Label(model.T("New API key")).Placeholder(model.T("New API key (write only)")).Disabled(disabled || !credential.Writable)
 	mgo.Row(c).Gap(8).Children(func() {
-		mgo.Button(c.Key("credential-save"), "Save key").Disabled(disabled || !credential.Writable || model.SaveCredential == nil || model.CredentialDraft.value == "").OnClick(func() { model.SaveCredential() })
-		mgo.Button(c.Key("credential-clear"), "Clear managed key").Disabled(disabled || !credential.Writable || model.ClearCredential == nil || !model.ConfirmCredentialClear).OnClick(func() { model.ClearCredential() })
+		mgo.Button(c.Key("credential-save"), model.T("Save key")).Disabled(disabled || !credential.Writable || model.SaveCredential == nil || model.CredentialDraft.value == "").OnClick(func() { model.SaveCredential() })
+		mgo.Button(c.Key("credential-clear"), model.T("Clear managed key")).Disabled(disabled || !credential.Writable || model.ClearCredential == nil || !model.ConfirmCredentialClear).OnClick(func() { model.ClearCredential() })
 	})
-	mgo.Checkbox(c.Key("credential-confirm-clear"), &model.ConfirmCredentialClear, "Confirm removing the managed key").Disabled(disabled || !credential.Writable)
+	mgo.Checkbox(c.Key("credential-confirm-clear"), &model.ConfirmCredentialClear, model.T("Confirm removing the managed key")).Disabled(disabled || !credential.Writable)
 }

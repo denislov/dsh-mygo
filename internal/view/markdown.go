@@ -44,19 +44,19 @@ func messageCopyButton(c *mgo.Context, model *Model, item projection.Item, fromU
 		label = "Message copied"
 	}
 	services := c.Services()
-	mgo.Button(c.Key("copy-message"), label).OnClick(func() {
+	mgo.Button(c.Key("copy-message"), model.T(label)).OnClick(func() {
 		services.WriteClipboard(item.Text)
 		model.CopiedMessageID = item.ID
 		model.CopiedMessageText = item.Text
 	})
 }
 
-func interruptedCodeBlock(c *mgo.Context, block *markdown.CodeBlockView) {
+func (model *Model) interruptedCodeBlock(c *mgo.Context, block *markdown.CodeBlockView) {
 	mgo.Column(c).Gap(6).FillWidth().Children(func() {
 		mgo.Row(c).Gap(8).Children(func() {
 			mgo.Text(c, block.Language).FontSize(11)
-			mgo.Text(c, "Interrupted code (copy disabled)").FontSize(11).TextColor(c.Theme().Warning)
-			mgo.Button(c, "Copy code").Disabled(true)
+			mgo.Text(c, model.T("Interrupted code (copy disabled)")).FontSize(11).TextColor(c.Theme().Warning)
+			mgo.Button(c, model.T("Copy code")).Disabled(true)
 		})
 		block.Body(c)
 	})
