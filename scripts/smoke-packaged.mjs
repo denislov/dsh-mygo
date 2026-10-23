@@ -85,7 +85,7 @@ else fail('packaged resources real suite')
 const work = await mkdtemp(join(tmpdir(), 'dsh-mygo-smoke-'))
 const dshHome = join(work, 'dsh-home')
 const logs = join(work, 'logs')
-const child = spawn(exe, ['-dsh-home', dshHome, '-log-dir', logs], {
+const child = spawn(exe, ['-dsh-home', dshHome, '-log-dir', logs, '-ui-state-dir', join(work, 'ui-state')], {
   env: { ...process.env, PATH: '' },
   stdio: ['ignore', 'pipe', 'pipe'],
 })

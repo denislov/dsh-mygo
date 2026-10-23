@@ -66,7 +66,7 @@ func (model *Model) CanChooseSession() bool {
 }
 
 func (model *Model) CanRefreshSessions() bool {
-	return model.CanHistory && model.Phase == PhaseIdle && !model.SessionBusy && !model.SessionPanel.Writing && !model.SettingsOpen && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain && !model.Permission.Uncertain && len(model.Approvals) == 0 && len(model.Questions) == 0
+	return model.CanHistory && model.Phase == PhaseIdle && !model.LocalState.Closing && !model.SessionBusy && !model.SessionPanel.Writing && !model.SettingsOpen && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain && !model.Permission.Uncertain && len(model.Approvals) == 0 && len(model.Questions) == 0
 }
 
 func sessionSidebar(c *mgo.Context, model *Model) {

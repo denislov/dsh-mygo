@@ -8,7 +8,7 @@ func recoveryModal(c *mgo.Context, model *Model) {
 	if !model.RecoveryOpen || (model.Phase != PhaseFailed && model.Phase != PhaseResyncing) {
 		return
 	}
-	disabled := model.Restarting
+	disabled := model.Restarting || model.LocalState.Closing
 	modal := mgo.Modal(c.Key("host-recovery"), &model.RecoveryOpen, func() {
 		title := "Host stopped"
 		if model.Phase == PhaseResyncing {
@@ -17,7 +17,11 @@ func recoveryModal(c *mgo.Context, model *Model) {
 		mgo.Text(c, title).FontSize(18).Bold()
 		mgo.Text(c, model.Error).FontSize(13)
 		if model.ErrorDetail != "" {
-			mgo.Scroll(c.Key("recovery-detail")).MaxHeight(260).FillWidth().Children(func() {
+			detailHeight := float32(260)
+			if model.LocalState.Error != "" {
+				detailHeight = 160
+			}
+			mgo.Scroll(c.Key("recovery-detail")).MaxHeight(detailHeight).FillWidth().Children(func() {
 				mgo.Text(c, model.ErrorDetail).FontSize(11).TextColor(c.Theme().TextMuted).Selectable()
 			})
 		}
@@ -27,6 +31,9 @@ func recoveryModal(c *mgo.Context, model *Model) {
 		if model.Restarting {
 			mgo.Text(c, "Restarting the host…").FontSize(11).TextColor(c.Theme().TextMuted)
 		}
+		if model.LocalState.Error != "" {
+			mgo.Text(c, model.LocalState.Error).FontSize(11).TextColor(c.Theme().Warning)
+		}
 		mgo.Row(c).Gap(8).Children(func() {
 			if model.CanOpenLogs && model.OpenLogs != nil {
 				if mgo.Button(c.Key("recovery-logs"), "View logs").Disabled(disabled).Clicked() && !disabled {
@@ -35,8 +42,12 @@ func recoveryModal(c *mgo.Context, model *Model) {
 			}
 			mgo.Spacer(c)
 			if model.Quit != nil {
-				if mgo.Button(c.Key("recovery-quit"), "Quit").Disabled(disabled).Clicked() && !disabled {
-					model.Quit()
+				label, quit := "Quit", model.Quit
+				if model.LocalState.Error != "" && model.LocalState.QuitWithoutSaving != nil {
+					label, quit = "Quit without saving drafts", model.LocalState.QuitWithoutSaving
+				}
+				if mgo.Button(c.Key("recovery-quit"), label).Disabled(disabled).Clicked() && !disabled {
+					quit()
 				}
 			}
 			if model.Recoverable && model.Restart != nil {

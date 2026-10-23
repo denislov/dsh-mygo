@@ -117,6 +117,8 @@ node --test resources/host/tests/*.test.mjs
 - `TestAgainstMygoSessionManagement`：fake/真实 Host 的目录启动加载、冷目标及当前会话重命名、提交确认、归档/恢复、草稿隔离与继续发送；真实组还覆盖归档当前会话后 kill/Restart、新建会话和恢复原草稿。Tester 覆盖侧栏/弹窗切换、标题过滤、归档筛选与表单身份，Windows UI Automation 验证原生按钮和输入流程。
 - `TestAgainstMygoResync`：fake Host 与真实 Host 传输过滤器丢弃持久通知或文本块起始帧，不修改日志；验证同一 Host/会话自动补齐、用户消息唯一、流式提交不重复、草稿保留、后续回合、审批/提问继续。baseline-complete/cancel 在真实模型 adapter 暂停时验证无需新 start 就恢复文本，并续流或取消。`resync_test.go`、`stream_baseline_test.go` 覆盖状态基线、流式续接/重放、分页变化、连续性重试上限、溢出、失败后迟到结果及取消确认屏障；Node 历史与 baseline 测试覆盖同步捕获、固定分页、能力隔离、资源限制和私有块内容排除。
 - `TestAgainstMygoRestart`：完成一个回合后 kill Host，等待恢复对话框，Restart 后 resume 同一会话、回放 transcript 并继续发送。
+- `TestAgainstMygoLocalEditingState`：三个真实 Host 实例共享临时 DSH_HOME 与本机编辑文件，验证两会话草稿、最近会话自动恢复、确认发送后只清除对应草稿，以及历史仍来自 Host。单元测试覆盖无效最近会话回退/显式复制、未确认提交与后续编辑、退出最终保存及失败不关闭。
+- `internal/preferences`：严格 schema/UTF-8/上限、scope 隔离、完整损坏备份、新版本保护、原子替换、OS 文件锁和内容冲突、失败后重试，以及合并保存/不可变快照。Tester 验证原生绑定回调、关闭期间禁用编辑、最小窗口保存错误动作及 Host 恢复对话框的放弃入口。
 - `TestAgainstMygoPermissions`：fake/真实 Host 的初始化快照、会话权限切换、草稿保持、新建默认不变和切回；真实组 kill/Restart 后冷恢复确认权限持久化。`TestAgainstMygoPermissionEnforcement` 以真实 approval-probe 对比 ask 弹出审批与 never 拒绝显式审批，均不执行被拒绝的临时标记写入。
 - 权限单元与 Tester：白名单载荷/实际 knobs/危险确认/seq 冲突/写入屏障/失败刷新/旧 Host 隐藏/独立于模型能力/最小窗口。Windows 原生检查验证未勾选时禁用、勾选后幂等保存、当前权限和宽窄布局；完整选项切换使用 Tester 与真实 Host 验证。
 - `node scripts/test-real-host.mjs --runtime`：同一组测试改用 `resources/runtime` 的 Node、DSH 闭包与私有入口；用于打包前后检查运行时闭包。
@@ -125,7 +127,7 @@ node --test resources/host/tests/*.test.mjs
 
 ## 打包测试
 
-- 打包目录 smoke：`node scripts/smoke-packaged.mjs` 验证 manifest/版本、打包资源真实回合（composition + restart）、干净 `DSH_HOME` 首启、session 与应用日志。
+- 打包目录 smoke：`node scripts/smoke-packaged.mjs` 验证 manifest/版本、打包资源真实回合（composition + restart）、干净 `DSH_HOME` 首启、session 与应用日志；两个 smoke 脚本都通过 `-ui-state-dir` 隔离编辑文件，避免写入用户偏好。
 - 安装包 smoke：窗口打开、Host ready、完成一个不调用模型的回合。
 - 签名：Windows `signtool verify`；macOS `codesign --verify` 与公证。
 - 更新：旧版本 → 新版本，会话/设置保留；delta 校验。

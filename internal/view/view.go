@@ -37,6 +37,8 @@ const (
 type Model struct {
 	Items                []projection.Item
 	Draft                string
+	DraftChanged         func()
+	LocalState           LocalStateStatus
 	Phase                Phase
 	ModelLabel           string
 	Detail               string
@@ -148,6 +150,9 @@ func View(c *mgo.Context, model *Model) {
 		}
 		mgo.Column(c.Key("conversation")).Grow(1).MinWidth(0).FillHeight().Children(func() {
 			header(c, model)
+			if !model.RecoveryOpen {
+				localStateStatus(c, model)
+			}
 			if model.Error != "" && !model.RecoveryOpen {
 				errorBanner(c, model)
 			}
@@ -331,11 +336,16 @@ func toolCard(c *mgo.Context, model *Model, item projection.Item) {
 
 func composer(c *mgo.Context, model *Model) {
 	theme := c.Theme()
-	stopped := model.Phase == PhaseStopped || model.Phase == PhaseFailed || model.Phase == PhaseResyncing || model.SessionSwitching || model.RecoveryOpen
-	canSend := model.Phase == PhaseIdle && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy && !model.SessionPanel.BlocksInput() && !model.SettingsOpen && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain && !model.Permission.Uncertain
+	stopped := model.Phase == PhaseStopped || model.Phase == PhaseFailed || model.Phase == PhaseResyncing || model.SessionSwitching || model.RecoveryOpen || model.LocalState.Closing
+	canSend := model.Phase == PhaseIdle && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy && !model.SessionPanel.BlocksInput() && !model.SettingsOpen && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain && !model.Permission.Uncertain && !model.LocalState.Closing
 	mgo.Column(c).Padding(12, 20, 16, 20).Gap(8).Children(func() {
 		mgo.TextArea(c.Key("composer-"+model.SessionID), &model.Draft).Lines(1, 8).
 			Label("Message").Placeholder("Message DeepSeek…").AutoFocus().Disabled(stopped).
+			OnChange(func() {
+				if model.DraftChanged != nil {
+					model.DraftChanged()
+				}
+			}).
 			OnTextKey(func(key mgo.TextKey) bool {
 				if key.Key != mgo.KeyEnter || key.Mods != 0 {
 					return false
@@ -344,7 +354,7 @@ func composer(c *mgo.Context, model *Model) {
 				if !canSend || text == "" {
 					return false
 				}
-				model.Send(text)
+				model.Send(key.Text())
 				key.SetText("")
 				return true
 			})

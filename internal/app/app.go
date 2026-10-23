@@ -62,6 +62,9 @@ type Options struct {
 	PreflightSummary string
 	// LogDir receives dsh-mygo.log and crash reports. Empty disables file logs.
 	LogDir string
+	// PreferencesPath is an isolated device-local editing file; empty disables persistence.
+	PreferencesPath        string
+	PreferencesUnavailable bool
 	// Quit exits the application from the recovery dialog.
 	Quit func()
 	// Post runs fn on the window's main thread. A nil Post runs it inline,
@@ -117,6 +120,8 @@ type App struct {
 	hostStatus          string
 	canStreamBaseline   bool
 	drafts              map[string]string
+	local               *localEditingState
+	quitReady           bool
 	settingsOperation   uint64
 	settingsCancel      context.CancelFunc
 	restarting          bool
@@ -142,6 +147,7 @@ func New(options Options) *App {
 		app.model.SetActiveRoute(view.ModelRoute{Provider: options.Provider, Model: options.Model, Effort: options.ReasoningEffort})
 	}
 	app.model.Send = app.Send
+	app.model.DraftChanged = app.DraftChanged
 	app.model.Dismiss = app.DismissError
 	app.model.Cancel = app.Cancel
 	app.model.RespondApproval = app.RespondApproval
@@ -169,6 +175,7 @@ func New(options Options) *App {
 	app.model.CanOpenLogs = options.LogDir != ""
 	app.model.ActiveRoute = view.ModelRoute{Provider: options.Provider, Model: options.Model, Effort: options.ReasoningEffort}
 	app.openLog()
+	app.configureLocalState()
 	app.logf("app created: version=%s protocol=%d dsh=%s", channel.ReleaseVersion, channel.ProtocolVersion, channel.DSHVersion)
 	return app
 }
@@ -180,7 +187,10 @@ func (a *App) Model() *view.Model { return a.model }
 // the runtime. It blocks until initialization finishes, so call it on a
 // goroutine.
 func (a *App) Start() {
-	a.startHost(false, "")
+	recent := a.loadLocalState()
+	if !a.shuttingDown.Load() {
+		a.startHost(false, recent)
+	}
 }
 
 func (a *App) startHost(recover bool, resumeID string) {
@@ -257,7 +267,7 @@ func (a *App) startHost(recover bool, resumeID string) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), initializeTimeout)
 	defer cancel()
-	initialized, err := a.initialize(ctx, client, resumeID)
+	initialized, err := a.initializeSession(ctx, client, resumeID, !recover && resumeID != "")
 	if err != nil {
 		if !a.options.SDKProtocol && !recover {
 			err = fmt.Errorf("%w\n\nCheck that the mygo profile contains dsh-base and @dsh-mygo/host. Initialize a new development profile with resources/host/setup-profile.mjs --dsh-home <absolute-directory>", err)
@@ -279,6 +289,7 @@ func (a *App) startHost(recover bool, resumeID string) {
 		if a.shuttingDown.Load() || a.model.Phase == view.PhaseFailed || a.hostGeneration.Load() != generation {
 			return
 		}
+		previousID := a.sessionID
 		if a.sessionID != "" && a.sessionID != initialized.sessionID {
 			if a.drafts == nil {
 				a.drafts = make(map[string]string)
@@ -287,6 +298,16 @@ func (a *App) startHost(recover bool, resumeID string) {
 			a.model.Draft = a.drafts[initialized.sessionID]
 		}
 		a.sessionID = initialized.sessionID
+		if a.local != nil && a.local.ready {
+			if previousID != initialized.sessionID {
+				a.model.Draft = a.drafts[initialized.sessionID]
+			}
+			a.local.lastSession = initialized.sessionID
+		}
+		if initialized.restoreNotice != "" {
+			a.model.LocalState.Notice = initialized.restoreNotice
+			a.offerPreviousDraft(resumeID)
+		}
 		a.nextSeq = initialized.nextSeq
 		a.promptID++
 		a.promptDone = nil
@@ -347,6 +368,7 @@ func (a *App) startHost(recover bool, resumeID string) {
 			a.model.Phase = view.PhaseIdle
 		}
 		a.refreshSessions(true)
+		a.persistLocalState()
 	})
 }
 
@@ -421,6 +443,7 @@ type initializedSession struct {
 	canResync         bool
 	canStreamBaseline bool
 	permissions       *view.PermissionSnapshot
+	restoreNotice     string
 	canRename         bool
 	canArchive        bool
 	canModels         bool
@@ -429,6 +452,10 @@ type initializedSession struct {
 }
 
 func (a *App) initialize(ctx context.Context, client rpcClient, resumeID string) (initializedSession, error) {
+	return a.initializeSession(ctx, client, resumeID, false)
+}
+
+func (a *App) initializeSession(ctx context.Context, client rpcClient, resumeID string, allowFallback bool) (initializedSession, error) {
 	if a.options.SDKProtocol {
 		params := map[string]any{"cwd": a.options.CWD, "provider": a.options.Provider, "model": a.options.Model}
 		if a.options.ReasoningEffort != "" {
@@ -463,8 +490,15 @@ func (a *App) initialize(ctx context.Context, client rpcClient, resumeID string)
 	}
 	canConfigure := slices.Contains(initialized.Capabilities, "settings.configuration")
 	canHistory := slices.Contains(initialized.Capabilities, "session.history")
+	restoreNotice := ""
 	if resumeID != "" && canHistory {
-		return a.resumeSession(ctx, client, resumeID, initialized, canConfigure)
+		restored, err := a.resumeSessionWithRoute(ctx, client, resumeID, initialized, canConfigure, !allowFallback)
+		if err == nil || !allowFallback {
+			return restored, err
+		}
+		restoreNotice = localRestoreNotice()
+	} else if resumeID != "" && allowFallback {
+		restoreNotice = localRestoreNotice()
 	}
 	params := a.routeParams(canConfigure)
 	params["cwd"] = a.options.CWD
@@ -505,6 +539,7 @@ func (a *App) initialize(ctx context.Context, client rpcClient, resumeID string)
 	}
 	return initializedSession{
 		sessionID: created.Session.ID, nextSeq: *created.Session.NextSeq, cwd: a.options.CWD,
+		restoreNotice:     restoreNotice,
 		permissions:       permissions,
 		detail:            initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
 		canCancel:         slices.Contains(initialized.Capabilities, "session.cancel"),
@@ -524,8 +559,11 @@ func (a *App) initialize(ctx context.Context, client rpcClient, resumeID string)
 // resumeSession restores the previous session and replays its durable history
 // after a host restart. A failure leaves the previous projection untouched.
 func (a *App) resumeSession(ctx context.Context, client rpcClient, id string, initialized channel.InitializeResult, canConfigure bool) (initializedSession, error) {
+	return a.resumeSessionWithRoute(ctx, client, id, initialized, canConfigure, true)
+}
+func (a *App) resumeSessionWithRoute(ctx context.Context, client rpcClient, id string, initialized channel.InitializeResult, canConfigure, useActiveRoute bool) (initializedSession, error) {
 	params := map[string]any{"sessionId": id}
-	if route := a.model.ActiveRoute; route.Provider != "" && route.Model != "" {
+	if route := a.model.ActiveRoute; useActiveRoute && route.Provider != "" && route.Model != "" {
 		params["provider"] = route.Provider
 		params["model"] = route.Model
 		if route.Effort != "" {
@@ -612,8 +650,9 @@ func validSessionID(value string) bool {
 // Send queues one user prompt. It runs on the main thread and ignores calls
 // while the host is busy or not ready.
 func (a *App) Send(text string) {
+	original := originalSubmittedText(a.model.Draft, text)
 	text = strings.TrimSpace(text)
-	if text == "" || a.shuttingDown.Load() || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 || a.model.SessionBusy || a.model.SessionPanel.BlocksInput() || a.model.SettingsBusy || a.model.SettingsOpen || a.model.ModelUncertain || a.model.ConfigurationUncertain || a.model.Permission.Uncertain {
+	if text == "" || a.shuttingDown.Load() || a.model.LocalState.Closing || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 || a.model.SessionBusy || a.model.SessionPanel.BlocksInput() || a.model.SettingsBusy || a.model.SettingsOpen || a.model.ModelUncertain || a.model.ConfigurationUncertain || a.model.Permission.Uncertain {
 		return
 	}
 	if a.model.SessionPanel.Refreshing {
@@ -633,6 +672,7 @@ func (a *App) Send(text string) {
 	a.awaitingTurn = true
 	a.sawActivity = false
 	a.promptID++
+	a.rememberSubmittedDraft(a.promptID, original)
 	delivery := make(chan error, 1)
 	a.promptDone = delivery
 	go a.prompt(client, text, a.promptID, a.sessionID, delivery)
@@ -646,13 +686,24 @@ func (a *App) prompt(client rpcClient, text string, promptID uint64, sessionID s
 	if a.options.SDKProtocol {
 		contentField = "contentBlocks"
 	}
-	_, err := client.Call(ctx, "session/prompt", map[string]any{
+	result, err := client.Call(ctx, "session/prompt", map[string]any{
 		"sessionId": sessionID,
 		contentField: []map[string]any{
 			{"type": "text", "text": text},
 		},
 	})
+	if err == nil && a.local != nil {
+		var acknowledged struct {
+			MessageID string `json:"messageId"`
+		}
+		if json.Unmarshal(result, &acknowledged) != nil || !validModelLabel(acknowledged.MessageID, false) {
+			err = errors.New("Invalid prompt delivery acknowledgement")
+		}
+	}
 	a.postAfterResync(func() {
+		if !a.shuttingDown.Load() {
+			a.settleSubmittedDraft(promptID, err)
+		}
 		if a.shuttingDown.Load() || err == nil || a.model.Phase == view.PhaseFailed || a.promptID != promptID {
 			return
 		}
@@ -935,6 +986,12 @@ func (a *App) Shutdown(timeout time.Duration) {
 	}
 	a.logf("shutdown requested")
 	close(a.stopped)
+	if a.local != nil && a.local.writer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		_ = a.local.writer.Flush(ctx)
+		cancel()
+		a.local.writer.Stop()
+	}
 	a.post(a.cancelResync)
 	a.post(a.clearApprovals)
 	a.post(a.clearQuestions)

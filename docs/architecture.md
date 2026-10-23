@@ -104,8 +104,8 @@ Profile 是组合根。设计：
 3. 解析 Host 入口并启动子进程（开发期 `dsh --profile mygo`；发布版私有 `mygo-host`）。
 4. Host 完成 Cordis boot，channel server 就绪。
 5. Go 发送 `initialize`，协商协议版本与能力。
-6. Go 拉取 `session/list` 与必要的 `session/history`，渲染首页。
-7. 用户选择会话或新建；`session/resume` / `session/create`。
+6. Go 尝试恢复设备级状态中的最近会话，读取 Host 历史；不可用时新建并保留旧草稿。随后后台拉取 `session/list`，渲染首页。
+7. 用户选择会话或新建；`session/resume` / `session/create`，正文与模型上下文始终来自 Host。
 8. 用户输入 → `session/prompt`；Host 回 `session/assistant-stream`、`session/event` 与 `session/status`。
 
 默认使用 `mygo` profile 的自定义 channel。`-sdk-protocol -profile sdk` 是旧 SDK 回归入口：它只消费提交后的 `session/event`，不提供流式、审批、提问、历史与设置。自定义协议的方法、通知与能力边界见 [通道协议](subsystem/channel-protocol.md)。
@@ -128,7 +128,7 @@ UI 输入
 
 ### 5.3 关闭
 
-- 用户退出：Go 发送 `shutdown`；Host 停止新工作、等待当前回合收尾、flush 持久化、退出。
+- 用户退出：Go 在 UI 线程捕获最后编辑，后台保存本机草稿；失败时保留窗口并提供重试/显式放弃。随后发送 `shutdown`，Host 收尾并退出，完成后允许窗口关闭。
 - Host 先退出：Go 保留当前投影，显示恢复对话框，提供重启、查看日志与退出。
 - Go 崩溃：Host 通过 stdin EOF 退出，不留孤儿进程。
 

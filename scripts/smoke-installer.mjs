@@ -102,7 +102,7 @@ try {
   if (verify.status === 0) pass('installed exe and Uninstall.exe are Authenticode-signed')
   else fail('installed exe or Uninstall.exe is not signed')
 
-  child = spawn(join(installDir, 'dsh-mygo.exe'), ['-dsh-home', dshHome, '-log-dir', logs], {
+  child = spawn(join(installDir, 'dsh-mygo.exe'), ['-dsh-home', dshHome, '-log-dir', logs, '-ui-state-dir', join(work, 'ui-state')], {
     cwd: work,
     env: { ...process.env, PATH: '' },
     stdio: ['ignore', 'pipe', 'pipe'],

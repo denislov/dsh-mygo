@@ -1,6 +1,6 @@
 # 开发进度与路线图
 
-> 统计基线：`9faa9b6`（2026-10-23 13:51）；能力进度包含本次 M2-3 权限模式变更，决策更新于 2026-10-23。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
+> 统计基线：`9faa9b6`（2026-10-23 13:51）；能力进度包含本次 M2-4a 草稿/最近会话持久化变更，决策更新于 2026-10-23。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
 
 ## 1. 结论
 
@@ -8,7 +8,7 @@
 
 一句话：**能开发、能演示、能在开发机上真实跑；还不能交给普通用户安装使用。**
 
-判断依据：协议与 UI 主链路已经闭环，M0 工程基线、M1 运行时/打包/安装器 smoke、自签名发布构建、手工崩溃恢复、会话管理 UI、持久/流式缺口恢复与权限模式 UI 已完成；干净机器验收、大历史、UI 偏好持久化与 Windows 发布工程仍是主要缺口；macOS 作为后续发布单元。
+判断依据：协议与 UI 主链路已经闭环，M0 工程基线、M1 运行时/打包/安装器 smoke、自签名发布构建、手工崩溃恢复、会话管理、缺口恢复、权限 UI 与草稿/最近会话持久化已完成；干净机器验收、大历史、主题/语言/快捷键与 Windows 发布工程仍是主要缺口；macOS 作为后续发布单元。
 
 ## 2. 事实快照
 
@@ -57,6 +57,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 | 会话 UI | 宽窗口固定侧栏、窄窗口 Sessions 弹窗、标题搜索、归档筛选、重命名/归档/恢复；新建/刷新/恢复、草稿隔离与写入失败确认屏障 | `internal/view/sessions.go`、`internal/app/session_management.go`、`TestAgainstMygoSessionManagement`、`TestAgainstMygoSessionSwitching` |
 | 模型与设置 | `model.selection` 目录与 effort、`settings.configuration` 默认模型（revision）、DeepSeek 凭据只写 | `internal/app/settings.go`、`configuration.go`、`TestAgainstMygoConfiguration` |
 | 会话权限 | 独立能力、当前预设和实际 sandbox/approval、危险 bundle 确认、Host 公共服务切换/持久化、失败刷新门禁 | `resources/host/permissions.mjs`、`internal/app/permissions.go`、`internal/view/permissions.go`、`TestAgainstMygoPermissions` |
+| 本机编辑状态 | 按 DSH_HOME/profile 隔离的有界草稿与最近会话、原子保存/冲突检测/损坏备份、确认发送后清除、启动恢复/失败复制与异步退出保存 | `internal/preferences`、`internal/app/local_state.go`、`TestAgainstMygoLocalEditingState` |
 | 回归入口 | 旧 SDK 链路保留为显式 `-sdk-protocol -profile sdk` | `main.go`、`testdata/fake-sdk-host.mjs` |
 | 工程基线 | 正式 identifier、版本单点、Windows/Linux CI、构建产物重建 | `versions.json`、`internal/version`、`.github/workflows/ci.yml` |
 | 运行时打包 | bundled Node + DSH 闭包 + 私有 `mygo-host` + 首启 profile seed + manifest 版本校验 | `resources/runtime/`、`scripts/build-runtime.mjs`、`internal/host/profile.go`、`internal/host/launch.go` |
@@ -80,7 +81,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 - **会话管理扩展**：侧栏、标题搜索、重命名/归档/恢复已接通；delete/fork 后置。冷目标重命名会先 resume 并占用 Host 的会话名额（当前最多 8 个）；冷元数据读取需要扫描有界日志，超出 20000 事件/32 MiB 的单会话会使目录查询明确失败，后续需独立投影索引、大历史和句柄释放方案。
 - **权限模式扩展**：当前会话展示/切换、危险确认和冷恢复已接通；未来会话默认权限编辑仍后置，UI 不更改部署环境。
-- **UI 偏好**：主题、语言、快捷键、最近会话、跨重启草稿未持久化（窗口尺寸/位置由 MyGo `StateKey` 处理）。
+- **UI 偏好扩展**：有界草稿和最近会话已持久化并支持启动恢复；主题、语言、快捷键与侧栏选择仍待接入（窗口尺寸/位置由 MyGo `StateKey` 处理）。
 - **附件与引用**：图片粘贴、文件拖放、`@path` 引用、`/` 命令均未实现；协议里 `attachments` 仍是后续契约。
 - **深度信息**：usage/context/compaction 不展示；`subagent/*` 协议表有定义但 Host 不发送、UI 不投影；plan/todo/goal 未投影。
 - **会话形态**：只支持单活跃会话；运行中会话不能 attach；后台会话的审批/提问不呈现；最多 8 个已拥有会话。
@@ -138,7 +139,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 - 固定侧栏（已完成）：会话常驻列表、标题搜索、新建；宽度小于 820 时通过 Sessions 弹窗访问，搜索与表单状态共用。
 - 会话管理（已完成）：Host 与原生 UI 的重命名、归档/恢复、更新时间和最近活动排序；当前归档保留正文/草稿并禁用发送，写入失败需刷新确认，delete/fork 后置。
 - 权限模式 UI（已完成）：实际预设/sandbox/approval 展示与当前会话切换，危险 bundle 明确确认；Host 写入会话日志并等待落盘，失败必须刷新。
-- UI 偏好持久化：主题/语言/快捷键/最近会话/草稿，原子写；i18n 决策落地。
+- UI 偏好持久化（基础已完成）：草稿/最近会话有界原子保存与恢复；后续接入主题/语言/快捷键，明确 i18n。
 - 附件与引用：图片（类型白名单、base64 限额）、`@path`、拖放；`/` 命令先留扩展。
 - 深度信息：usage/context 最小展示；subagent/plan/todo 先做投影。
 
@@ -170,8 +171,8 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 ## 6. 建议的下一批任务（PR 粒度）
 
-1. **M2-4 草稿与 UI 偏好持久化**：按会话保存有界草稿和最近会话，原子写入设备配置并处理损坏回退；主题/语言/快捷键按范围分批接入。
-2. **M3-2 大历史与句柄预算**：增量历史加载及独立元数据索引，避免单个超预算会话阻塞整个目录；随后复用 baseline 推进运行中 attach。
+1. **M3-2 大历史与句柄预算**：增量历史加载及独立元数据索引，避免单个超预算会话阻塞整个目录；随后复用 baseline 推进运行中 attach。
+2. **M2-4b UI 偏好界面**：在编辑状态基础上分批加入主题选择、语言与快捷键配置；保留 MyGo 的窗口状态管理。
 3. **M1-4 干净机器验收**：项目所有者因没有干净 Windows VM，决定本轮跳过并继续 M2；未验收，不标记通过。Windows 发布前重新安排离线首启与证书提示流程检查。
 
 M2-1 会话管理后端已完成：重命名写入 `session/title` 并等待落盘；归档复用独立挂载的 DSH workspace registry，保留日志并支持取消归档。实际检查：`go test ./...`（235 项）、`go vet ./...`、Node Host/脚本回归（55/55）、`node scripts/test-real-host.mjs --runtime`、`git diff --check` 及修改文档的本地链接检查均通过。真实 `TestMygoRealHistoryAfterRestart` 验证标题/归档跨重启保留、取消归档和历史前缀不变；付费模型测试因没有 key 跳过。该批未重建安装器；侧栏与管理 UI 的验证见下述 M2-2。
@@ -183,6 +184,10 @@ M3-1a 持久事件自动补齐已完成：运行中 history 通过新 capability
 M3-1b 流式 baseline 已完成：独立协商 `session.assistant-stream-baseline`，Host 从公开帧累计有界文本/块状态，live history 首页同步捕获持久/状态/流式边界并跨页固定；Go 恢复版本和 chunk offset、过滤旧帧，并对仅流式缺口执行同样的有界 resync。baseline 最多 128 KiB、128 块和 8000 rune，不携带 reasoning/工具参数，计入历史页和总预算。真实暂停 adapter 验证缺失文本块起始帧后，不等待新 start/提交就恢复前缀，并完成续流/取消及下一回合；Host 重启回归校验新 Agent 的版本空间重置。实际检查：`CGO_ENABLED=0 go test ./...`（264 项）、`go test -race ./internal/app ./internal/projection ./internal/view`（191 项）、MyGo vet、Go vet、Node Host/脚本（61/61）、bundled runtime 完整真实组合均通过；Windows 原生窗口注入流式缺口后显示临时前缀，Stop 返回 Ready，截图和 UI Automation 通过。本轮不调用付费模型，未读取或修改 `.env`，未重建安装器；干净 VM 验收继续跳过。
 
 M2-3 会话权限 UI 已完成：独立协商 permission/get/select，显示实际预设/sandbox/approval，按目标 bundle 提供危险确认；Host 公开服务写入和落盘，seq 冲突或失败要求刷新确认，保留草稿并禁止未确认时发送/导航/下一写入。新建默认不受影响，切换会话和 Host 冷恢复保留权限。实际检查：`CGO_ENABLED=0 go test ./...`（272 项）、`go test -race ./internal/app ./internal/view ./internal/projection`（199 项）、MyGo vet、Go vet、Node Host/脚本（64/64）、bundled runtime 完整真实组合均通过。真实 approval-probe 验证 ask 提问与 never 拒绝显式审批，不把 never 误当自动批准。Windows 原生 UI Automation 验证预置完全访问时确认门禁、幂等保存、当前状态和宽窄窗口；下拉选项的直接自动化选择受 MyGo 原生接口限制，完整切换由 Tester 与真实 Host 覆盖。本轮不调用付费模型、不读取或修改 `.env`，不重建安装器；干净 VM 验收继续跳过。
+
+M2-4a 草稿与最近会话持久化已完成：本机编辑文件按 DSH_HOME/profile 隔离，400 ms 合并保存并限制单份 64 KiB/总量 1 MiB/128 份；同目录替换、OS 锁、内容冲突和完整损坏备份保护旧状态，新版本文件不降级覆盖。发送在有效 messageId 确认前保留原文，失败与新编辑合并；启动恢复最近会话和草稿，失败新建并允许显式复制旧草稿。退出异步保存最后编辑，失败保留窗口，普通页面和 Host 恢复对话框都能显式放弃。实际验证包括真实 Host 三实例的两会话草稿、确认发送后清除、历史恢复；Windows 原生自动保存、重启恢复、最后编辑关闭、超限保存失败和显式放弃均通过。主题/语言/快捷键仍后置；安装器未重建、打包/安装 smoke 未重跑，两个脚本的 UI 状态目录已隔离；干净 VM 按决定继续跳过。
+
+本批实际检查：`CGO_ENABLED=0 go test ./...`（290 项）、`go test -race ./internal/preferences ./internal/app ./internal/view`（193 项）、MyGo vet、Go vet、Node Host/脚本（64/64）、两个 smoke 脚本语法检查、bundled runtime 完整真实组合，以及最终 `TestAgainstMygoLocalEditingState` 的真实 Host 竞态验证均通过。另交叉编译 Linux preferences 测试二进制，未在 Linux 运行；macOS 未验证。本轮未加载 `.env` 或调用付费模型。
 
 ## 7. 风险与依赖
 

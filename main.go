@@ -18,6 +18,7 @@ import (
 	"dsh-mygo/internal/app"
 	"dsh-mygo/internal/channel"
 	"dsh-mygo/internal/host"
+	"dsh-mygo/internal/preferences"
 	"dsh-mygo/internal/view"
 )
 
@@ -46,6 +47,7 @@ func main() {
 	maxFrame := flag.Int("max-frame", channel.DefaultMaxFrameBytes, "maximum JSON-RPC frame bytes")
 	hostCommand := flag.String("host-command", "", "override the host executable")
 	logDirFlag := flag.String("log-dir", "", "override the logs directory (testing)")
+	stateDirFlag := flag.String("ui-state-dir", "", "override the device-local editing state directory")
 	flag.Parse()
 	mygo.App.SetName("dsh-mygo")
 	useHostDefaults := useHostDefaultRoute(flag.CommandLine)
@@ -106,20 +108,30 @@ func main() {
 	}
 
 	var window atomic.Pointer[mygo.Window]
+	stateRoot, stateErr := mygo.App.Path(mygo.PathUserData)
+	if *stateDirFlag != "" {
+		stateRoot, stateErr = filepath.Abs(*stateDirFlag)
+	}
+	statePath := ""
+	if stateErr == nil && !*sdkProtocol {
+		statePath = preferences.StatePath(stateRoot, dshHomePath, *profile)
+	}
 	application := app.New(app.Options{
-		Launch:           launch,
-		CWD:              cwd,
-		Provider:         *provider,
-		Model:            *model,
-		ReasoningEffort:  *effort,
-		UseHostDefaults:  useHostDefaults,
-		SessionID:        *sessionID,
-		SDKProtocol:      *sdkProtocol,
-		MaxFrame:         *maxFrame,
-		Preflight:        preflight,
-		PreflightSummary: preflightSummary,
-		LogDir:           logDir,
-		Quit:             mygo.App.Quit,
+		Launch:                 launch,
+		CWD:                    cwd,
+		Provider:               *provider,
+		Model:                  *model,
+		ReasoningEffort:        *effort,
+		UseHostDefaults:        useHostDefaults,
+		SessionID:              *sessionID,
+		SDKProtocol:            *sdkProtocol,
+		MaxFrame:               *maxFrame,
+		Preflight:              preflight,
+		PreflightSummary:       preflightSummary,
+		LogDir:                 logDir,
+		PreferencesPath:        statePath,
+		PreferencesUnavailable: stateErr != nil && !*sdkProtocol,
+		Quit:                   mygo.App.Quit,
 		Post: func(fn func()) {
 			if win := window.Load(); win != nil {
 				win.Update(fn)
@@ -129,7 +141,7 @@ func main() {
 	uiModel := application.Model()
 
 	mygo.App.WhenReady(func() {
-		window.Store(mygo.NewWindow(mygo.WindowOptions{
+		win := mygo.NewWindow(mygo.WindowOptions{
 			Title:     "dsh-mygo",
 			Width:     960,
 			Height:    760,
@@ -139,11 +151,21 @@ func main() {
 			Content: ui.View(func(c *ui.Context) {
 				view.View(c, uiModel)
 			}),
-		}))
+		})
+		window.Store(win)
+		win.OnClose(func(e *mygo.CloseEvent) {
+			if !application.ReadyToQuit() {
+				e.PreventDefault()
+				application.RequestQuit(false)
+			}
+		})
 		go application.Start()
 	})
-	mygo.App.OnBeforeQuit(func(*mygo.QuitEvent) {
-		application.Shutdown(5 * time.Second)
+	mygo.App.OnBeforeQuit(func(e *mygo.QuitEvent) {
+		if !application.ReadyToQuit() {
+			e.PreventDefault()
+			application.RequestQuit(false)
+		}
 	})
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
