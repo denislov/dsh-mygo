@@ -8,7 +8,7 @@ import { markdownPrefix, markdownReply } from './markdown-sample.mjs'
 
 class MygoMockAdapter extends LlmAdapter {
   async listModels(provider) {
-    return [{ provider, id: 'echo', name: 'Echo' }, { provider, id: 'route-probe', name: 'Route probe' }, { provider, id: 'todo-probe', name: 'Todo probe' }]
+    return [{ provider, id: 'echo', name: 'Echo' }, { provider, id: 'route-probe', name: 'Route probe' }, { provider, id: 'todo-probe', name: 'Todo probe' }, { provider, id: 'subagent-probe', name: 'Subagent probe' }]
   }
 
   async resolveModel(provider, model) {
@@ -31,6 +31,25 @@ class MygoMockAdapter extends LlmAdapter {
         return
       }
       if (options.messages.at(-1)?.role === 'tool') reply = 'todo probe complete'
+    }
+    if (options.model === 'subagent-probe') {
+      const last = options.messages.at(-1)
+      if (last?.role === 'tool') {
+        reply = 'subagent probe complete'
+      } else if (JSON.stringify(last?.content ?? '').includes('child ok')) {
+        reply = 'child ok'
+      } else if (!this.subagentCalled) {
+        this.subagentCalled = true
+        const argumentsText = JSON.stringify({ description: 'Probe child', prompt: 'Reply with exactly: child ok' })
+        const callId = ToolCallId('subagent-probe-0')
+        yield { type: 'block-start', index: 0, blockType: 'tool-call' }
+        yield { type: 'tool-call-delta', index: 0, id: callId, name: 'subagent', argumentsDelta: argumentsText }
+        yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: callId, name: 'subagent', arguments: argumentsText } }
+        yield { type: 'finish', reason: { kind: 'tool-calls' } }
+        return
+      } else {
+        reply = 'child ok'
+      }
     }
     if (options.model === 'diff-probe') {
       const step = this.diffCalls ?? 0

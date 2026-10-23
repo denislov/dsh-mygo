@@ -1,6 +1,6 @@
 # 开发进度与路线图
 
-> 统计基线：`9faa9b6`（2026-10-23 13:51）；能力进度包含 M2-4a 草稿、M3-2 大历史、M2-4b 界面偏好、M2-5 附件/引用、M2-6a usage/context 与本次 M2-6b plan/todo/goal 变更，更新于 2026-10-24。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
+> 统计基线：`9faa9b6`（2026-10-23 13:51）；能力进度包含 M2-4a 草稿、M3-2 大历史、M2-4b 界面偏好、M2-5 附件/引用、M2-6a usage/context、M2-6b plan/todo/goal 与本次 M2-6c 子代理状态变更，更新于 2026-10-24。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
 
 ## 1. 结论
 
@@ -8,7 +8,7 @@
 
 一句话：**能开发、能演示、能在开发机上真实跑；还不能交给普通用户安装使用。**
 
-判断依据：协议与 UI 主链路已经闭环，M0 工程基线、M1 运行时/打包/安装器 smoke、自签名发布构建、手工崩溃恢复、会话管理、缺口恢复、权限 UI、草稿/界面偏好、附件与引用、有界历史窗口/句柄回收已完成，深度信息已有 usage/context 与 plan/todo/goal；干净机器验收、子代理状态与 Windows 发布工程仍是主要缺口；macOS 作为后续发布单元。
+判断依据：协议与 UI 主链路已经闭环，M0 工程基线、M1 运行时/打包/安装器 smoke、自签名发布构建、手工崩溃恢复、会话管理、缺口恢复、权限 UI、草稿/界面偏好、附件与引用、有界历史窗口/句柄回收已完成，深度信息已有 usage/context、plan/todo/goal 与子代理实时状态；干净机器验收、子代理历史/结果入口与 Windows 发布工程仍是主要缺口；macOS 作为后续发布单元。
 
 ## 2. 事实快照
 
@@ -60,7 +60,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 | 本机编辑状态 | 按 DSH_HOME/profile 隔离的有界草稿与最近会话、原子保存/冲突检测/损坏备份、确认发送后清除、启动恢复/失败复制与异步退出保存 | `internal/preferences`、`internal/app/local_state.go`、`TestAgainstMygoLocalEditingState` |
 | 界面偏好 | 独立面板、跟随系统/浅色/深色、中英文界面、Enter/Ctrl+Enter 与有限命令改绑/禁用、v1→v2 迁移与保存失败保护 | `internal/view/preferences.go`、`internal/i18n`、`internal/app/ui_preferences.go`、偏好/输入/重启回归 |
 | 附件与引用 | 独立 `attachments` 能力与图片策略、canonical base64/类型/预算/路由校验、事件前持久提交、历史元数据行、粘贴/拖放/选择文件与 `@path` 补全 | `resources/host/attachments.mjs`、`internal/attachment`、`internal/app/attachments.go`、`internal/view/mentions.go`、`TestAgainstMygoRealAttachments` |
-| 深度信息（usage/context、plan/todo/goal） | 最新一步 token 与路由容量、待办整表与回合清空、计划模式 latest-wins、目标快照/清除、header 与 composer 上方有界摘要 | `internal/projection`（usage、`request/context`、`todo/write`、`plan/mode`、`goal/change`）、`internal/view/usage.go`、`internal/view/depth.go`、`TestAgainstMygoRealUsageContext`、`TestAgainstMygoRealTodoProjection` |
+| 深度信息（usage/context、plan/todo/goal、子代理） | 最新一步 token 与路由容量、待办整表与回合清空、计划模式 latest-wins、目标快照/清除、子代理 start/end 实时状态、header 与 composer 上方有界摘要 | `internal/projection`（usage、`request/context`、`todo/write`、`plan/mode`、`goal/change`）、`internal/view/usage.go`、`internal/view/depth.go`、`internal/view/subagents.go`、`internal/app/subagents.go`、`resources/host/server.mjs`、`TestAgainstMygoRealUsageContext`、`TestAgainstMygoRealTodoProjection`、`TestAgainstMygoRealSubagentStatus` |
 | 大历史与资源回收 | 反向尾页/更早页/返回最新、独立持久目录投影、缓存缺失降级、只读旧窗口和展示缓存上限、非当前句柄回收 | `resources/host/catalog.mjs`、`history.mjs`、`server.mjs`、`internal/app/history_window.go`、`TestAgainstMygoLargeHistoryAndReleasedSessions` |
 | 回归入口 | 旧 SDK 链路保留为显式 `-sdk-protocol -profile sdk` | `main.go`、`testdata/fake-sdk-host.mjs` |
 | 工程基线 | 正式 identifier、版本单点、Windows/Linux CI、构建产物重建 | `versions.json`、`internal/version`、`.github/workflows/ci.yml` |
@@ -145,7 +145,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 - 权限模式 UI（已完成）：实际预设/sandbox/approval 展示与当前会话切换，危险 bundle 明确确认；Host 写入会话日志并等待落盘，失败必须刷新。
 - UI 偏好持久化（已完成）：草稿/最近会话与主题、双语界面和有限快捷键配置，编辑文件 v1→v2 无损迁移，保存失败保留原文/旧文件；更多侧栏和命令偏好继续扩展。
 - 附件与引用（已完成）：图片类型白名单、预算校验与 Host 事件前提交、粘贴/拖放/选择文件、`@path` 补全与引用展示已接通；`/` 命令留扩展，缩略图读取未实现。
-- 深度信息（进行中）：usage/context、plan/todo/goal 已展示；子代理运行状态待接。
+- 深度信息（进行中）：usage/context、plan/todo/goal 与子代理实时状态已展示；子代理历史/结果入口待接。
 
 验收：560×420 到宽屏都可用；"找会话 → 改名 → 切模型 → 发图 → 审批/提问 → 停止"全流程通过；错误恢复不丢草稿。
 
@@ -175,7 +175,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 ## 6. 建议的下一批任务（PR 粒度）
 
-1. **M2-6 深度信息（续）**：usage/context 与 plan/todo/goal 已完成；继续子代理状态转发与展示；运行中 attach 和后台会话交互保持 M3 后续单独推进。
+1. **M2-6 收尾**：usage/context、plan/todo/goal 与子代理实时状态已完成；补子代理历史/结果入口；运行中 attach 和后台会话交互保持 M3 后续单独推进。
 2. **M1-4 干净机器验收**：项目所有者因没有干净 Windows VM，决定本轮跳过并继续 M2；未验收，不标记通过。Windows 发布前重新安排离线首启与证书提示流程检查。
 
 M2-1 会话管理后端已完成：重命名写入 `session/title` 并等待落盘；归档复用独立挂载的 DSH workspace registry，保留日志并支持取消归档。实际检查：`go test ./...`（235 项）、`go vet ./...`、Node Host/脚本回归（55/55）、`node scripts/test-real-host.mjs --runtime`、`git diff --check` 及修改文档的本地链接检查均通过。真实 `TestMygoRealHistoryAfterRestart` 验证标题/归档跨重启保留、取消归档和历史前缀不变；付费模型测试因没有 key 跳过。该批未重建安装器；侧栏与管理 UI 的验证见下述 M2-2。
@@ -211,6 +211,10 @@ M2-6a usage/context 已完成：`assistant/message.usage` 的最新一步 token 
 M2-6b plan/todo/goal 已完成：`todo/write` 整表替换为 composer 上方清单（最多 8 行、`+N more`），下一 `turn/start` 按 DSH `todos` 折叠清空；`plan/mode` 为 latest-wins，`goal/change` 接受快照或 clear 墓碑；非法状态/空内容/超界计数丢弃，objective 单行 400 rune、清单行 200 rune、最多 64 行，不进入正文、不写回日志。Header 增加计划模式与目标摘要（objective、phase、rounds），无事件时不占位。fake Host `--depth` 覆盖事件形状，真实 Host 用 mock adapter 调用 `todo_write` 工具验证 `todo/write` 端到端投影。下一项为子代理运行状态。
 
 本批实际检查：`CGO_ENABLED=0 go test ./...`（368 项通过，39 项真实 Host/付费组跳过）、`go test -race ./internal/app ./internal/view ./internal/projection ./internal/attachment ./internal/channel ./internal/i18n`（319 项）、`go tool mygo vet .`、`go vet ./...`、Node Host/脚本（79/79）、bundled runtime 完整真实组合均通过。新增 `TestAgainstMygoFakeHostDepthEvents`、真实 `TestAgainstMygoRealTodoProjection`；投影与 Tester 覆盖整表替换、回合清空、非法行/状态、计划模式切换、目标暂停/清除、清单边界与中英文摘要。本批未重建安装器、未跑打包/安装 smoke；未读取 `.env` 或调用付费模型；macOS 未验证。
+
+M2-6c 子代理实时状态已完成：Host 监听 `subagent/start|end`，只在父会话由本 Host 持有时转发 `subagent/started|finished`，父/子 id 与 provider 经标识符白名单校验，`reason` 取 completed/aborted/error/max-tokens/refusal（未知归为 error）；start 时缓存 runId→父子身份，避免 child 结算后从 agent 注册表消失导致 end 丢失，缓存上限 256。App 只为当前会话维护最多 8 条状态，未知父会话/非法载荷丢弃，切换会话清空；header 增加子代理运行/完成计数行。fake Host `--subagents` 覆盖通知链路，真实 Host 用 mock adapter 调用 `subagent` 工具验证本地子代理启动、结算与状态清理。下一步为 M2-6 收尾（子代理历史/结果入口）或 M3。
+
+本批实际检查：`CGO_ENABLED=0 go test ./...`（373 项通过，40 项真实 Host/付费组跳过）、`go test -race ./internal/app ./internal/view ./internal/projection ./internal/attachment ./internal/channel ./internal/i18n`（324 项）、`go tool mygo vet .`、`go vet ./...`、Node Host/脚本（79/79）、bundled runtime 完整真实组合（含 `TestAgainstMygoRealSubagentStatus`）均通过。新增 App 单测覆盖当前会话过滤、start/finish、未知 reason、非法 id/载荷与 8 条上界；View/Tester 覆盖计数与中英文摘要；fake Host 与真实 Host 各一条子代理通知链路。本批未重建安装器、未跑打包/安装 smoke；未读取 `.env` 或调用付费模型；macOS 未验证。
 
 ## 7. 风险与依赖
 

@@ -184,12 +184,14 @@ permission/select 仅接受所属 idle 会话，无并发模型/元数据/配置
 | `approval/closed` | `{ requestId, sessionId }` | 请求已决或撤销；可能先于回答 RPC 响应到达 |
 | `question/request` | `{ requestId, sessionId, questions }` | 需要用户回答 |
 | `question/closed` | `{ requestId, sessionId }` | 已回答或撤销；可能先于 RPC 响应到达 |
-| `subagent/started` | `{ parentSessionId, childSessionId }` | 子代理创建 |
-| `subagent/finished` | `{ parentSessionId, childSessionId, reason }` | 子代理结束 |
+| `subagent/started` | `{ parentSessionId, childSessionId, provider? }` | 子代理创建 |
+| `subagent/finished` | `{ parentSessionId, childSessionId, provider?, reason }` | 子代理结束；`reason` 为 `completed`/`aborted`/`error`/`max-tokens`/`refusal` |
 | `host/notice` | `{ level, message }` | 非致命提示 |
 | `host/fatal` | `{ message, diagnostic? }` | 致命错误，随后退出 |
 
 协商 `session.resync` 后，`session/status` 额外携带非负安全整数 `statusRevision`：每个被拥有 Agent 的状态通知使其单调递增，显式取消返回 idle 时同样递增。`live:true` 的每个历史页返回同一快照的 `status/statusRevision`；客户端以此作为状态基线，丢弃 revision 不高于基线的迟到通知。新连接/新 Agent 的版本空间独立，不跨 Host 比较；未协商不要求该字段。
+
+`subagent/started|finished` 只在子代理的父会话由本 Host 持有时转发；父/子 id 与 provider 都经过标识符白名单校验，`reason` 取固定枚举（未知值归为 `error`）。通知只暴露生命周期与身份，不携带子代理消息、工具参数或结果正文。
 
 ### `session/assistant-stream`
 

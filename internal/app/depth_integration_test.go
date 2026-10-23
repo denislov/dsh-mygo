@@ -76,3 +76,66 @@ func TestAgainstMygoRealTodoProjection(t *testing.T) {
 	}
 	application.Shutdown(10 * time.Second)
 }
+
+// TestAgainstMygoFakeHostSubagentStatus covers the Host's subagent/start and
+// subagent/end forwarding plus the app's session-scoped status projection.
+func TestAgainstMygoFakeHostSubagentStatus(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	fakeHost, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fake-mygo-host.mjs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	updates := make(chan func(), 128)
+	application := New(Options{
+		Launch: host.Config{Command: node, Args: []string{fakeHost, "--subagents"}},
+		CWD:    t.TempDir(), Provider: "test", Model: "echo",
+		Post: func(fn func()) { updates <- fn },
+	})
+	defer application.Shutdown(2 * time.Second)
+	go application.Start()
+	waitFor(t, application, updates, 20*time.Second, func() bool { return application.Model().Phase == view.PhaseIdle })
+
+	application.Send("hi")
+	waitFor(t, application, updates, 20*time.Second, func() bool {
+		subagents := application.Model().Subagents
+		return application.Model().Phase == view.PhaseIdle && hasAssistantText(application.Model().Items, "Echo: hi") &&
+			len(subagents) == 1 && !subagents[0].Running && subagents[0].Reason == "completed"
+	})
+	subagent := application.Model().Subagents[0]
+	if subagent.ID != "subagent-1" {
+		t.Fatalf("subagent = %+v", subagent)
+	}
+}
+
+// TestAgainstMygoRealSubagentStatus spawns a real in-process child through the
+// mock adapter and checks the Host's live status notifications end to end.
+func TestAgainstMygoRealSubagentStatus(t *testing.T) {
+	launch, root := realMygoLaunch(t, true)
+	updates := make(chan func(), 1024)
+	application := New(Options{
+		Launch: launch, CWD: root, Provider: "mygo-mock", Model: "subagent-probe",
+		Post: func(fn func()) { updates <- fn },
+	})
+	defer application.Shutdown(10 * time.Second)
+	go application.Start()
+	waitFor(t, application, updates, 90*time.Second, func() bool { return application.Model().Phase == view.PhaseIdle })
+
+	application.Send("Start a child")
+	// The delivered child result starts another parent turn, so wait on the
+	// committed text and the child's terminal status instead of idleness.
+	waitFor(t, application, updates, 120*time.Second, func() bool {
+		return hasAssistantText(application.Model().Items, "subagent probe complete")
+	})
+	waitFor(t, application, updates, 60*time.Second, func() bool {
+		subagents := application.Model().Subagents
+		return len(subagents) == 1 && !subagents[0].Running && subagents[0].Reason == "completed"
+	})
+	subagent := application.Model().Subagents[0]
+	if !safeSubagentID(subagent.ID) || subagent.Provider != "spawn" {
+		t.Fatalf("subagent = %+v", subagent)
+	}
+	application.Shutdown(10 * time.Second)
+}

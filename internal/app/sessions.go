@@ -225,6 +225,7 @@ func (a *App) loadSession(id string) {
 			a.retireSession(currentID)
 			delete(a.retiredSessions, summary.ID)
 			a.model.SessionID = summary.ID
+			a.model.Subagents = nil
 			a.model.SessionCWD = summary.CWD
 			if canPermissions {
 				a.model.Permission.Accept(permissions)

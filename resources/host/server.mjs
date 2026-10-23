@@ -18,6 +18,17 @@ if (!Number.isSafeInteger(identity.dshMygo?.protocolVersion)) {
 }
 export const protocolVersion = identity.dshMygo.protocolVersion
 export const releaseVersion = identity.version
+
+const SUBAGENT_STOP_REASONS = new Set(['completed', 'aborted', 'error', 'max-tokens', 'refusal'])
+const maxTrackedSubagentRuns = 256
+
+function subagentStopReason(reason) {
+  return SUBAGENT_STOP_REASONS.has(reason) ? reason : 'error'
+}
+
+function subagentIdentifier(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9._:-]{1,128}$/.test(value) ? value : undefined
+}
 export const supportedDshVersion = identity.engines.dsh
 
 function fault(kind, message, code = -32000) {
@@ -46,6 +57,9 @@ export class MygoServer {
     this.approvals = new ApprovalQueue({ notify, maxPending: maxPendingApprovals })
     this.questions = new QuestionQueue({ notify, maxPending: maxPendingQuestions })
     this.sessions = new Map()
+    // runId -> parent/child identity learned at start, because a settled child
+    // may already be gone from the agent registry when subagent/end arrives.
+    this.subagentRuns = new Map()
     this.history = new SessionHistory(ctx, this.sessions, Math.floor(maxFrameBytes / 2))
     this.models = new ModelSettings(this, Math.floor(maxFrameBytes / 2))
     this.configuration = new Configuration(this, credentialRef)
@@ -101,6 +115,21 @@ export class MygoServer {
         this.approvals.cancelSession(String(agent.session.id))
         this.questions.cancelSession(String(agent.session.id))
         this.notify('host/fatal', { message: 'The agent failed. Restart the host before retrying.' })
+      }),
+      ctx.on('subagent/start', (info) => {
+        const payload = this.subagentPayload(info)
+        if (!payload) return
+        this.subagentRuns.set(String(info.runId), payload)
+        if (this.subagentRuns.size > maxTrackedSubagentRuns) this.subagentRuns.delete(this.subagentRuns.keys().next().value)
+        this.notify('subagent/started', payload)
+      }),
+      ctx.on('subagent/end', (info) => {
+        const runId = String(info?.runId)
+        const cached = this.subagentRuns.get(runId)
+        const payload = cached ?? this.subagentPayload(info)
+        if (!payload) return
+        this.subagentRuns.delete(runId)
+        this.notify('subagent/finished', { ...payload, reason: subagentStopReason(info?.stopReason) })
       }),
     ]
   }
@@ -405,6 +434,23 @@ export class MygoServer {
     } finally {
       clearTimeout(timeout)
     }
+  }
+
+  // Only locally resolvable children are forwarded: the parent session must be
+  // one this Host owns, and the descriptor link comes from the child header.
+  subagentPayload(info) {
+    if (this.stopping || info === null || typeof info !== 'object') return undefined
+    const childId = subagentIdentifier(info.id)
+    if (childId === undefined) return undefined
+    let parentSessionId
+    try {
+      parentSessionId = subagentIdentifier(String(this.ctx.get('agents')?.get?.(info.id)?.session?.header?.parentSession))
+    } catch {
+      return undefined
+    }
+    if (parentSessionId === undefined || !this.sessions.get(parentSessionId)?.handle?.agent) return undefined
+    const provider = subagentIdentifier(info.provider)
+    return { parentSessionId, childSessionId: childId, ...(provider === undefined ? {} : { provider }) }
   }
 
   notifyStatus(record, sessionId, status) {

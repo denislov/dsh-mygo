@@ -115,7 +115,7 @@ App
 ### 任务与目标
 
 - composer 上方显示最新 `todo/write` 清单：标题 `Tasks done/total`，最多 8 行，完成/进行中/待办各有标记，超出显示 `+N more`；下一回合开始清空，清单不进入正文。
-- header 摘要行显示计划模式与当前目标（objective、phase、rounds），单行截断；没有对应事件时不占位。
+- header 摘要行显示计划模式、当前目标（objective、phase、rounds）与子代理实时状态（运行中/已完成计数），单行截断；没有对应事件时不占位，切换会话清空子代理状态。
 
 ### Markdown
 

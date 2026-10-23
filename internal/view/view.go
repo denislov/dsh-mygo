@@ -55,6 +55,7 @@ type Model struct {
 	Tasks                []projection.Task
 	PlanActive           bool
 	Goal                 *projection.Goal
+	Subagents            []SubagentState
 	Error                string
 	ErrorDetail          string
 	RecoveryOpen         bool
@@ -225,6 +226,9 @@ func header(c *mgo.Context, model *Model) {
 	}
 	if label := depthLabel(model); label != "" {
 		mgo.Text(c.Key("session-depth"), label).Padding(0, 20, 8, 20).FontSize(11).SingleLine().TextColor(theme.TextMuted)
+	}
+	if label := subagentLabel(model); label != "" {
+		mgo.Text(c.Key("subagents"), label).Padding(0, 20, 8, 20).FontSize(11).SingleLine().TextColor(theme.TextMuted)
 	}
 	if model.Permission.Available {
 		label := model.T("Permissions: refresh Settings")

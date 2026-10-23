@@ -345,6 +345,7 @@ func (a *App) startHost(recover bool, resumeID string) {
 			a.model.ResetTranscript(nil)
 		}
 		a.model.SessionID = initialized.sessionID
+		a.model.Subagents = nil
 		a.model.SessionCWD = initialized.cwd
 		a.model.CanHistory = initialized.canHistory
 		a.canHistoryWindow = initialized.canHistoryWindow
@@ -870,6 +871,12 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 			return
 		case "approval/request", "approval/closed":
 			a.handleApprovalNotification(method, params)
+			return
+		case "subagent/started":
+			a.handleSubagentNotification(params, false)
+			return
+		case "subagent/finished":
+			a.handleSubagentNotification(params, true)
 			return
 		case "session/event":
 			method = "session.event"

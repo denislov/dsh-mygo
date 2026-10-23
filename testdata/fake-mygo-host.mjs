@@ -6,6 +6,7 @@ import { markdownPrefix, markdownReply } from './markdown-sample.mjs'
 
 const events = new EventEmitter()
 const stored = new Map()
+const childAgents = new Map()
 events.on('session/event', (session, event) => stored.get(session.id)?.events.push(event))
 if (process.argv.includes('--stderr-secret')) process.stderr.write('fake-private-token\n')
 const ctx = {
@@ -13,6 +14,7 @@ const ctx = {
   on(name, handler) { events.on(name, handler); return () => events.off(name, handler) },
   llm: { async resolveCallConfig() {} },
   agents: {
+    get(id) { return childAgents.get(String(id)) },
     async create({ sessionId, meta, setup, agentOptions }) {
       const source = stored.get(sessionId) ?? { header: { id: sessionId, cwd: meta?.cwd ?? process.cwd(), createdAt: Date.now(), version: 1, isSeeded: false }, events: [] }
       stored.set(sessionId, source)
@@ -40,6 +42,11 @@ const ctx = {
               event('plan/mode', { active: true })
               event('goal/change', { kind: 'goal/change', version: 1, operation: 'create', goal: { id: 'goal-fixture', revision: 1, objective: 'Ship the fixture', phase: 'active', maxGoalRounds: 10 }, roundsStarted: 1, createdAt: 1, updatedAt: 2 })
               event('todo/write', { todos: [{ content: 'Inspect projection', status: 'completed' }, { content: 'Project todo panel', status: 'in_progress' }] })
+            }
+            const subagentFixture = process.argv.includes('--subagents') ? `subagent-${turn}` : undefined
+            if (subagentFixture) {
+              childAgents.set(subagentFixture, { session: { header: { parentSession: String(sessionId) } } })
+              events.emit('subagent/start', { runId: `run-${turn}`, provider: 'fake', id: subagentFixture, local: true })
             }
             event('user/message', message)
             work.finish = (aborted, approvalOutcome) => {
@@ -75,6 +82,10 @@ const ctx = {
                 stream({ type: 'end', index: streamIndex, outcome: { kind: 'committed', eventType: 'assistant/message', seq } })
               }
               event('turn/end', { reason: aborted ? { kind: 'aborted', reason: { kind: 'user' } } : { kind: 'completed' } })
+              if (subagentFixture) {
+                events.emit('subagent/end', { runId: `run-${turn}`, provider: 'fake', id: subagentFixture, local: true, stopReason: 'completed' })
+                childAgents.delete(subagentFixture)
+              }
               agent.status = 'idle'
               agent.work = undefined
               events.emit('agent/status', { agent, status: 'idle' })

@@ -48,7 +48,13 @@ func TestAgainstMygoModelSettings(t *testing.T) {
 				t.Helper()
 				application.OpenSettings()
 				waitFor(t, application, updates, 20*time.Second, func() bool { return !application.model.SettingsBusy })
-				if len(application.model.Catalog.Models) != 2 {
+				// The fake host advertises echo and route-probe; the real mock
+				// adapter also advertises todo-probe and subagent-probe.
+				wantCatalog := 2
+				if mode == "real" {
+					wantCatalog = 4
+				}
+				if len(application.model.Catalog.Models) != wantCatalog {
 					t.Fatalf("catalog model count = %d; error = %s", len(application.model.Catalog.Models), application.model.SettingsError)
 				}
 				application.model.SettingsModel = model
