@@ -30,6 +30,7 @@ func (a *App) cancelResync() {
 }
 
 func (a *App) startResync() {
+	a.CloseSubagents()
 	if a.model.SettingsApplying || a.model.SettingsWritingConfiguration || a.model.SessionPanel.Writing {
 		a.failResync()
 		return

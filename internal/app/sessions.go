@@ -49,6 +49,7 @@ func (a *App) cancelSessionOperation() {
 }
 
 func (a *App) beginSessionOperation() (context.Context, uint64) {
+	a.CloseSubagents()
 	a.cancelSessionOperation()
 	a.model.SessionBusy = true
 	a.model.SessionsError = ""

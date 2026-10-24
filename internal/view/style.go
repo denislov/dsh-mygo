@@ -50,6 +50,7 @@ func lineIcon(shapes string) *mgo.SVG {
 
 var (
 	iconPlus     = lineIcon(`<path d="M12 5v14M5 12h14"/>`)
+	iconAgents   = lineIcon(`<circle cx="6" cy="5" r="2"/><circle cx="18" cy="12" r="2"/><circle cx="6" cy="19" r="2"/><path d="M6 7v10m0-8c0 3 10 0 10 3"/>`)
 	iconChevron  = lineIcon(`<path d="m6 9 6 6 6-6"/>`)
 	iconSessions = lineIcon(`<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16M5.5 8h1M5.5 12h1"/>`)
 	iconMore     = lineIcon(`<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>`)

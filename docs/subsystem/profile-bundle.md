@@ -210,6 +210,7 @@ node resources/host/setup-profile.mjs --dsh-home D:/Temp/dsh-mygo-dev
 - bundle 的 peer 依赖与 `dsh` 版本对齐；不依赖 `src/` 或未导出的内部模块。
 - 使用公开服务：`ctx.agents`、`ctx.session*`、`ctx.userQuestions`、`ctx.approval`、`ctx.settings`、`ctx.credentials` 等。
 - 可选服务用 `ctx.get(name)`，缺失时降级并报告，而不是崩溃。
+- 子代理只读查询使用公开 `ctx.subagents.listChildren` 与 `ctx.sessionQuery.observeSession`；两者同时可用才协商 `subagent.inspection`。只查询所属父会话的直接子代理，观察句柄及时 dispose，不调用 agents.resume、不注册子 Agent、不依赖私有日志结构。查询期间预占父句柄并参与退出中止与排空；线协议边界见 [通道协议](channel-protocol.md#子代理只读查询)。
 - 行 id、配置字段、channel 方法一起做兼容性评审。
 
 ## 失败模式

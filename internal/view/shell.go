@@ -35,6 +35,9 @@ func header(c *mgo.Context, model *Model) {
 			})
 		})
 		mgo.Toolbar(c.Key("header-actions"), func() {
+			if model.Inspection.Available {
+				iconButton(c.Key("subagents"), model.T("Subagents"), iconAgents).Disabled(!model.CanInspectSubagents()).OnClick(model.Inspection.Show)
+			}
 			if model.CanHistory && model.OpenSessions != nil {
 				iconButton(c.Key("sessions"), model.T("Sessions"), iconSessions).Disabled(!model.CanRefreshSessions()).OnClick(model.OpenSessions)
 			}

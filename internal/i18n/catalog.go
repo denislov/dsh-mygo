@@ -12,9 +12,15 @@ func Text(locale, key string) string {
 }
 
 var chinese = map[string]string{
-	"Untitled conversation": "未命名会话",
-	"Streaming…":            "正在生成…",
-	"Conversation details":  "会话详情", "Conversation actions": "会话操作", "Conversation actions · ": "会话操作 · ",
+	"External task": "外部任务", "Saved task": "已保存任务", "Completed": "已完成", "Cancelled": "已取消", "Failed": "失败", "Token limit reached": "达到 token 上限", "Refused": "已拒绝",
+	"Read-only tasks and output": "只读查看任务与输出", "Parent conversation · ": "父会话 · ", "Loading subagents…": "正在加载子代理…",
+	"No subagents in this conversation.": "此会话没有子代理。", "Inspect · ": "查看 · ", "Close subagents": "关闭子代理", "All subagents": "全部子代理",
+	"Earlier activity": "更早记录", "Latest activity": "最新记录", "Loading task output…": "正在加载任务输出…",
+	"No local history is available for this subagent.": "此子代理没有可读取的本地历史。", "No visible messages in this activity window.": "当前记录窗口没有可见消息。",
+	"Could not load subagents. Refresh to retry": "无法加载子代理，请刷新重试",
+	"Untitled conversation":                      "未命名会话",
+	"Streaming…":                                 "正在生成…",
+	"Conversation details":                       "会话详情", "Conversation actions": "会话操作", "Conversation actions · ": "会话操作 · ",
 	"Working directory": "工作目录", "Session ID": "会话 ID", "Runtime": "运行环境", "Model": "模型",
 	"A little context. A clear next step.":                                       "从一个想法开始，一起推进下一步。",
 	"Could not save local state; keep this window open and retry":                "无法保存本机状态；请保留窗口并重试",

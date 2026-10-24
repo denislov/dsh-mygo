@@ -11,6 +11,7 @@ import { SessionManagement } from './sessions.mjs'
 import { AssistantStreamBaseline } from './stream-baseline.mjs'
 import { Permissions } from './permissions.mjs'
 import { admitPrompt, assertImageRoute, imagePolicy, promptContent } from './attachments.mjs'
+import { SubagentInspection } from './subagents.mjs'
 
 const identity = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 if (!Number.isSafeInteger(identity.dshMygo?.protocolVersion)) {
@@ -61,6 +62,7 @@ export class MygoServer {
     // may already be gone from the agent registry when subagent/end arrives.
     this.subagentRuns = new Map()
     this.history = new SessionHistory(ctx, this.sessions, Math.floor(maxFrameBytes / 2))
+    this.subagentInspection = new SubagentInspection(this, maxFrameBytes)
     this.models = new ModelSettings(this, Math.floor(maxFrameBytes / 2))
     this.configuration = new Configuration(this, credentialRef)
     this.management = new SessionManagement(this)
@@ -142,6 +144,10 @@ export class MygoServer {
     if (this.configuration.pending && ['session/create', 'session/resume', 'session/prompt', 'session/rename', 'session/archive', 'model/select', 'permission/select'].includes(method)) throw fault('settings/busy', 'A configuration write is still pending')
     if (['session/resume', 'session/prompt', 'session/rename', 'session/archive', 'model/select'].includes(method) && this.sessions.get(params.sessionId)?.permissionUncertain) throw fault('permission/refresh-required', 'Refresh permissions before continuing')
     switch (method) {
+      case 'subagent/list':
+      case 'subagent/history':
+        if (!this.capabilities.includes('subagent.inspection')) throw fault('protocol/capability-unavailable', 'Subagent inspection was not negotiated')
+        return method === 'subagent/list' ? this.subagentInspection.list(params) : this.subagentInspection.history(params)
       case 'session/release':
         if (!this.capabilities.includes('session.release')) throw fault('protocol/capability-unavailable', 'Session release was not negotiated')
         return this.release(params)
@@ -205,6 +211,7 @@ export class MygoServer {
     this.initialized = true
     this.capabilities = ['session.cancel', 'approval', 'question', 'session.assistant-stream'].filter((capability) => params.capabilities.includes(capability))
     const persistence = this.ctx.get('sessionPersistence')
+    if (params.capabilities.includes('subagent.inspection') && this.subagentInspection.supported()) this.capabilities.push('subagent.inspection')
     if (params.capabilities.includes('session.permissions') && this.permissions.supported()) this.capabilities.push('session.permissions')
     if (params.capabilities.includes('settings.configuration') && this.configuration.supported()) this.capabilities.push('settings.configuration')
     if (params.capabilities.includes('model.selection') && typeof this.installModelSelection === 'function' && ['listProviders', 'listModels', 'resolveModelInfo', 'resolveCallConfig'].every((method) => typeof this.ctx.llm[method] === 'function')) this.capabilities.push('model.selection')
@@ -464,6 +471,7 @@ export class MygoServer {
     this.questions.close()
     const records = [...this.sessions.values()]
     for (const record of records) record.abort?.abort()
+    await this.subagentInspection.close()
     await this.management.drain()
     await this.permissions.drain()
     await Promise.allSettled(records.map(record => record.releaseTask))

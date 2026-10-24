@@ -67,7 +67,7 @@ func (model *Model) CanChooseSession() bool {
 }
 
 func (model *Model) CanRefreshSessions() bool {
-	if model.Prefs.Open {
+	if model.Prefs.Open || model.Inspection.Open {
 		return false
 	}
 	return model.CanHistory && model.Phase == PhaseIdle && !model.LocalState.Closing && !model.SessionBusy && !model.SessionPanel.Writing && !model.SettingsOpen && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain && !model.Permission.Uncertain && len(model.Approvals) == 0 && len(model.Questions) == 0

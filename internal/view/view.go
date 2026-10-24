@@ -54,6 +54,7 @@ type Model struct {
 	PlanActive           bool
 	Goal                 *projection.Goal
 	Subagents            []SubagentState
+	Inspection           SubagentPanelState
 	Error                string
 	ErrorDetail          string
 	RecoveryOpen         bool
@@ -169,7 +170,7 @@ func View(c *mgo.Context, model *Model) {
 			c.SetTheme(lightChineseTheme)
 		}
 	}
-	if model.SettingsOpen || model.Prefs.Open || model.SessionsOpen || model.ToolInspector != nil || model.RecoveryOpen || len(model.Approvals) > 0 || len(model.Questions) > 0 {
+	if model.SettingsOpen || model.Prefs.Open || model.SessionsOpen || model.Inspection.Open || model.ToolInspector != nil || model.RecoveryOpen || len(model.Approvals) > 0 || len(model.Questions) > 0 {
 		model.Shell.DetailsOpen = false
 	}
 	applicationShortcuts(c, model)
@@ -207,6 +208,7 @@ func View(c *mgo.Context, model *Model) {
 	settingsModal(c, model)
 	recoveryModal(c, model)
 	preferenceModal(c, model)
+	subagentModal(c, model)
 }
 
 func errorBanner(c *mgo.Context, model *Model) {

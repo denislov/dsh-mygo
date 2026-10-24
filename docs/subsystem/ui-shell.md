@@ -122,6 +122,12 @@ App
 - composer 上方使用 MyGo Collapsible 展示最新 `todo/write` 清单：默认只显示 `Tasks done/total`，展开后在有界滚动区显示最多 8 行，完成/进行中/待办各有标记，超出显示 `+N more`；下一回合开始清空，清单不进入正文。展开高度根据窗口收紧，不把输入或发送按钮推出最小窗口。
 - 会话详情显示计划模式、当前目标（objective、phase、rounds）与子代理实时状态（运行中/已完成计数）；没有对应事件时不占位，切换会话清空子代理状态。
 
+### 子代理详情
+
+- 会话工具栏在协商 `subagent.inspection` 后提供 Subagents 入口，空闲和运行中均可打开。使用 MyGo Modal、虚拟 List、Collapsible 与现有消息/Markdown 组件；主列表展示直接子代理的任务与状态，详情展示父会话关系、任务、消息、工具输出与结束原因。外部或未知任务显示没有本地历史的说明。
+- Refresh 读取最新提交输出，Earlier activity 查看前一页，Latest activity 返回尾页；一次只保留一页，未出现可见内容的窗口明确提示。Close/Escape 关闭并清理读取，运行中保留 Stop turn 以停止父任务；读取失败提供刷新重试，不影响父草稿。
+- 面板打开时阻止父消息发送、会话导航、设置及冲突快捷键；审批/提问优先显示，处理后可继续原详情。窗口缩小时收紧正文列表高度，保持返回、关闭、刷新和停止按钮可达。目录和历史的权限、预算、冷读取与资源边界见 [通道协议](channel-protocol.md#子代理只读查询)。
+
 ### Markdown
 
 - 流式：`markdown.Stream(c, text, &options)`。

@@ -168,6 +168,15 @@ idle
 - UI 从 baseline 的 revision/nextIndex 继续接收；旧帧不重放。基线在后台整体校验后与历史一起发布，不显示半份状态；校验缓冲中的流式连续性，后续缺口共用历史重读上限。
 - activeAttempt 缺省表示流式空闲，回合状态仍由 status/statusRevision 决定；未协商 baseline 且收到缺少 start 的 chunk 时丢弃，等待新 start 或提交。baseline 文字截断与普通临时行共用 8000 rune/128 块限制，不落盘。
 
+## 子代理详情投影
+
+`subagent.inspection` 的目录与历史是独立只读投影，与最多 8 条实时 start/end 摘要分开。目录来自 Host 的公开持久目录，允许冷子代理与父会话重开后重新发现；实时摘要只补充当前进程内的运行状态，不代替持久事实。父/子身份、页预算、继承边界和白名单事件遵循 [子代理查询契约](channel-protocol.md#子代理只读查询)。
+
+- 每次完整验证地址、必需字段、seq 连续性与请求边界后，在后台通过同一 `Transcript.Apply` 投影消息和工具输出，再整体发布到独立子代理 Model。fork 继承前缀、reasoning 与隐藏配置不进入内容；`mygo/hidden` 只保留 offset。子代理事件不推进父会话 nextSeq，不合入父正文或实时 baseline，也不写入本地历史。
+- 最新页从 turn/end 提取固定枚举结束原因；页内遇到新的 turn/start 清除先前结束原因。读取更早页时保留最新页已知的结果状态。存储目录中的 stored 不伪装为 completed，结果状态只来自提交事件或确切的实时结算通知。
+- 界面一次保留最多一页，Earlier activity 替换当前页，Latest activity/Refresh 重新读尾部；不累计全部历史，不订阅子代理临时 token。Markdown 源文与代码复制复用主消息渲染，工具输出使用有界原生折叠展示。
+- 读取使用操作编号、Host generation、父/子身份守卫。关闭、导航、resync、重启、失败或退出清理投影并使迟到结果失效；失败保留旧页与父草稿。审批/提问暂时盖过详情，不改变子代理的只读状态。
+
 ## 历史回放
 
 `permission/preset`、`sandbox/mode`、`approval/policy` 作为 Host 所有的会话元数据参与 seq 连续性检查，不把它们伪装成用户消息。当前权限从 permission/get/select 快照读取，权限事件使旧显示失效；初始化、冷恢复和切换会话重新读取确切身份的快照。确认快照中的 nextSeq 必须等于已收到的持久事件边界；改变权限必须推进边界，幂等切换允许边界不变。

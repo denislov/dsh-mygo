@@ -108,6 +108,18 @@ func TestAgainstMygoFakeHostSubagentStatus(t *testing.T) {
 	if subagent.ID != "subagent-1" {
 		t.Fatalf("subagent = %+v", subagent)
 	}
+	application.model.Draft = "parent draft"
+	application.OpenSubagents()
+	waitFor(t, application, updates, 20*time.Second, func() bool { return !application.model.Inspection.Busy })
+	if len(application.model.Inspection.Children) != 1 {
+		t.Fatalf("catalog: %+v", application.model.Inspection)
+	}
+	application.SelectSubagent(subagent.ID)
+	waitFor(t, application, updates, 20*time.Second, func() bool { return !application.model.Inspection.Busy })
+	if application.model.Inspection.Error != "" || application.model.Inspection.Content == nil || !hasAssistantText(application.model.Inspection.Content.Items, "Child inspection complete") || application.model.Inspection.EndReason != "completed" || application.model.Draft != "parent draft" {
+		t.Fatalf("child inspection: %+v", application.model.Inspection)
+	}
+	application.CloseSubagents()
 }
 
 // TestAgainstMygoRealSubagentStatus spawns a real in-process child through the
@@ -137,5 +149,38 @@ func TestAgainstMygoRealSubagentStatus(t *testing.T) {
 	if !safeSubagentID(subagent.ID) || subagent.Provider != "spawn" {
 		t.Fatalf("subagent = %+v", subagent)
 	}
+	parentID := application.model.SessionID
+	application.model.Draft = "keep parent draft"
+	application.OpenSubagents()
+	waitFor(t, application, updates, 30*time.Second, func() bool { return !application.model.Inspection.Busy })
+	if application.model.Inspection.Error != "" || len(application.model.Inspection.Children) != 1 {
+		t.Fatalf("real catalog: %+v", application.model.Inspection)
+	}
+	application.SelectSubagent(subagent.ID)
+	waitFor(t, application, updates, 30*time.Second, func() bool { return !application.model.Inspection.Busy })
+	if application.model.Inspection.Content == nil || !hasAssistantText(application.model.Inspection.Content.Items, "child ok") || application.model.Inspection.EndReason != "completed" || application.model.Draft != "keep parent draft" {
+		t.Fatalf("real inspection: %+v", application.model.Inspection)
+	}
+	application.CloseSubagents()
 	application.Shutdown(10 * time.Second)
+
+	// A fresh Host must rediscover the persisted child, without live notices or
+	// resuming the child Agent. Only the ordinary parent conversation is resumed.
+	coldUpdates := make(chan func(), 1024)
+	cold := New(Options{Launch: launch, CWD: root, Provider: "mygo-mock", Model: "subagent-probe", Post: func(fn func()) { coldUpdates <- fn }})
+	defer cold.Shutdown(10 * time.Second)
+	go cold.Start()
+	waitFor(t, cold, coldUpdates, 90*time.Second, func() bool { return cold.model.Phase == view.PhaseIdle })
+	cold.SwitchSession(parentID)
+	waitFor(t, cold, coldUpdates, 90*time.Second, func() bool { return cold.model.SessionID == parentID && !cold.model.SessionBusy })
+	cold.OpenSubagents()
+	waitFor(t, cold, coldUpdates, 30*time.Second, func() bool { return !cold.model.Inspection.Busy })
+	if len(cold.model.Inspection.Children) != 1 || len(cold.model.Subagents) != 0 {
+		t.Fatalf("cold catalog: %+v", cold.model.Inspection)
+	}
+	cold.SelectSubagent(subagent.ID)
+	waitFor(t, cold, coldUpdates, 30*time.Second, func() bool { return !cold.model.Inspection.Busy })
+	if cold.model.Inspection.Content == nil || !hasAssistantText(cold.model.Inspection.Content.Items, "child ok") || cold.model.Inspection.EndReason != "completed" {
+		t.Fatalf("cold output: %+v", cold.model.Inspection)
+	}
 }

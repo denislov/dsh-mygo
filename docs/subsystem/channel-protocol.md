@@ -12,7 +12,7 @@
 ## 消息集与能力
 
 - UI/Host 发布版本 `0.1.0`、`protocolVersion: 1`、DSH `0.2.1-rc.2` 精确绑定；不匹配时拒绝进入 ready。
-- 请求方法：`initialize`、`session/create`、`session/list`、`session/resume`、`session/release`、`session/rename`、`session/archive`、`session/delete`、`session/fork`、`session/history`、`session/prompt`、`session/cancel`、`session/queue`、`session/wait`、`session/working-directory/get`、`session/working-directory/set`、`model/list`、`model/select`、`settings/get`、`settings/set`、`settings/open-document`、`configuration/get`、`configuration/default-model`、`configuration/credential`、`permission/get`、`permission/select`、`approval/respond`、`question/respond`、`question/cancel`、`shutdown`。
+- 请求方法：`initialize`、`session/create`、`session/list`、`session/resume`、`session/release`、`session/rename`、`session/archive`、`session/delete`、`session/fork`、`session/history`、`session/prompt`、`session/cancel`、`session/queue`、`session/wait`、`session/working-directory/get`、`session/working-directory/set`、`model/list`、`model/select`、`settings/get`、`settings/set`、`settings/open-document`、`configuration/get`、`configuration/default-model`、`configuration/credential`、`permission/get`、`permission/select`、`approval/respond`、`question/respond`、`question/cancel`、`subagent/list`、`subagent/history`、`shutdown`。
 - 通知：`session/event`、`session/assistant-stream`、`session/status`、`approval/request`、`approval/closed`、`question/request`、`question/closed`、`subagent/started`、`subagent/finished`、`host/notice`、`host/fatal`。
 - UI 声明 `session.cancel`，Host 仅在双方支持时返回该 capability；未协商时调用取消返回 `protocol/capability-unavailable`。旧 Host 不声明时，UI 不展示 Stop。UI 通过 `session.history` 协商 list/resume/history，并提供原生 Sessions 入口。
 - 文本流式通过 `session.assistant-stream` capability 启用；Host 只转发自己拥有的确切 agent 的公开流式帧。旧 Host/SDK 保持仅提交模式，不自动降级协议。Go 只展示 text，reasoning/工具参数不进入临时行。
@@ -24,6 +24,23 @@
 - UI 声明 `approval` / `question`，Host 返回双方交集；未协商时对应交互不可用，不能调用回答/取消提问方法。无 agent 提问使用空 `sessionId`，不冒用当前会话身份。阻塞提问与 timed/continued 提问都通过同一请求/回答通道。
 - `settings.configuration` 与 configuration/get/default-model/credential 在 Host 服务可用时协商；协议只允许固定默认模型与官方 provider 绑定的凭据配置，不暴露明文读取。通用设置通过 `settings/get` / `settings/set` 的命名空间白名单读写。
 - `session.permissions` 在公开权限预设、sandbox/approval 读取和持久化服务可用时独立协商，不依赖 model.selection；未协商不调用 permission/get/select。
+
+## 子代理只读查询
+
+`subagent.inspection` 独立协商，要求公开 `subagents.listChildren` 与 `sessionQuery.observeSession` 同时可用；旧 Host 不声明时 UI 隐藏入口。它是协议 v1 的增量能力，不授权 `session/resume` 子代理或向子代理发送消息。
+
+| 方法 | 参数 | 结果 |
+| --- | --- | --- |
+| `subagent/list` | `{parentSessionId}` | `{parentSessionId,children:[{id,label,mode,status,createdAt}]}` |
+| `subagent/history` | `{parentSessionId,childSessionId,beforeSeq?}` | `{parentSessionId,childSessionId,startSeq,endSeq,nextSeq,inheritedEventCount,hasMore,events}` |
+
+- 父会话必须由本 Host 持有、无元数据写入或释放预占；读取允许父任务运行。id 只接受 1–128 字符的 ASCII 字母、数字、`_.:-`。目录只返回公开目录中该父会话的直接子代理，不递归扩展；最多 128 条，label 最多 1024 UTF-8 bytes 且无控制字符。mode 为 `one-shot|continuable|external|unknown`，status 为 `running|idle|stored|external`；stored 仅表示没有本进程活动句柄，不推断任务结果。
+- 每次读取先重新校验直接父子关系。历史通过公开 `observeSession(childId,{signal,projectionMode:'none'})` 获取，校验 header 的确切 id、parentSession 和 subagent origin；不恢复 Agent、不加入父会话所属表、不读取私有日志文件。external/unknown 没有本地历史。观察句柄在成功、失败或取消后都释放。
+- offset 为非负安全整数，范围 `[startSeq,endSeq)`，页内 seq 连续升序；`nextSeq` 是本次观察的尾部边界，`inheritedEventCount` 是 fork 继承前缀的结束。缺省读取最新页，`beforeSeq` 读取该 offset 之前的页，不能跨过继承边界；`hasMore == (startSeq > inheritedEventCount)`。每页最多 64 个事件，结果最多 256 KiB 或配置帧上限一半，取较小值；超限时缩短较旧部分，单个事件仍超限则显式报错。每次更早页重新观察，不承诺跨请求固定尾部；返回的 endSeq 必须等于请求 beforeSeq。
+- 历史只传白名单展示字段：assistant text、真实 user source 的 text、工具 callId/name/arguments 与 result 的关联 id/text/error.reason，以及 turn/start 与固定枚举 turn/end 原因。移除 reasoning、stream 副本、请求配置、完整 header、descriptor 与任意 provider metadata；其余事件变为仅含 seq/time 和空 data 的 `mygo/hidden`，保持边界可校验。此规则只作用于子代理查询，不改变主会话事件语义。
+- 查询为提交事件的只读快照，客户端手动刷新，不订阅子代理 token 流。界面只保留一页投影；Host 的公开冷观察服务自身可能恢复完整日志，不承诺其冷读取内存只与页大小相关。
+- 同时最多 8 个查询、每次 15 秒中止预算；查询预占父会话的目录读取计数，阻止句柄释放。退出先同步中止恢复任务，再中止并等待子代理读取，随后回收 Agent；UI 超时或关闭只丢弃迟到响应，RPC 请求级取消仍使用独立契约。
+- 未协商返回 `protocol/capability-unavailable`；非法地址/边界返回 `protocol/invalid-params`；业务错误为 `subagent/unavailable|not-found|busy|catalog-too-large|page-too-large|read-failed`。底层异常统一为固定消息，不回传路径、凭据、请求配置或异常原文。
 
 ## 传输
 

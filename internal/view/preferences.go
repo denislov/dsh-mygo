@@ -21,7 +21,7 @@ var lightChineseTheme = chineseTheme(lightTheme)
 var darkChineseTheme = chineseTheme(darkTheme)
 
 func (model *Model) CanOpenPreferences() bool {
-	return model.Prefs.Ready && !model.LocalState.Closing && !model.Prefs.Open && !model.SettingsOpen && !model.SessionsOpen && !model.RecoveryOpen && !model.SessionBusy && !model.SettingsBusy && model.ToolInspector == nil && len(model.Approvals) == 0 && len(model.Questions) == 0
+	return model.Prefs.Ready && !model.LocalState.Closing && !model.Inspection.Open && !model.Prefs.Open && !model.SettingsOpen && !model.SessionsOpen && !model.RecoveryOpen && !model.SessionBusy && !model.SettingsBusy && model.ToolInspector == nil && len(model.Approvals) == 0 && len(model.Questions) == 0
 }
 func (model *Model) OpenPreferences() {
 	if !model.CanOpenPreferences() {
@@ -110,7 +110,7 @@ func commandKey(value string) (mgo.Modifiers, mgo.Key) {
 	return 0, mgo.KeyUnknown
 }
 func applicationShortcuts(c *mgo.Context, model *Model) {
-	if model.Prefs.Open || model.SettingsOpen || model.SessionsOpen || model.RecoveryOpen || model.ToolInspector != nil || model.LocalState.Closing || len(model.Approvals) > 0 || len(model.Questions) > 0 {
+	if model.Prefs.Open || model.SettingsOpen || model.SessionsOpen || model.Inspection.Open || model.RecoveryOpen || model.ToolInspector != nil || model.LocalState.Closing || len(model.Approvals) > 0 || len(model.Questions) > 0 {
 		return
 	}
 	bind := func(value string, enabled bool, fn func()) {

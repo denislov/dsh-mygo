@@ -45,7 +45,14 @@ const ctx = {
             }
             const subagentFixture = process.argv.includes('--subagents') ? `subagent-${turn}` : undefined
             if (subagentFixture) {
-              childAgents.set(subagentFixture, { session: { header: { parentSession: String(sessionId) } } })
+              const header = { id: subagentFixture, parentSession: String(sessionId), origin: 'subagent', cwd: process.cwd(), createdAt: Date.now(), version: 1, isSeeded: false }
+              const childEvents = [
+                { seq: 0, time: Date.now(), type: 'turn/start', data: { turn: 1 } },
+                { seq: 1, time: Date.now(), type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Inspect README.md and summarize the project.' }] } },
+                { seq: 2, time: Date.now(), type: 'tool/call', data: { callId: 'child-read', name: 'read_file', arguments: '{"path":"README.md"}' } },
+              ]
+              stored.set(subagentFixture, { header, events: childEvents })
+              childAgents.set(subagentFixture, { status: 'running', session: { header } })
               events.emit('subagent/start', { runId: `run-${turn}`, provider: 'fake', id: subagentFixture, local: true })
             }
             event('user/message', message)
@@ -83,7 +90,13 @@ const ctx = {
               }
               event('turn/end', { reason: aborted ? { kind: 'aborted', reason: { kind: 'user' } } : { kind: 'completed' } })
               if (subagentFixture) {
-                events.emit('subagent/end', { runId: `run-${turn}`, provider: 'fake', id: subagentFixture, local: true, stopReason: 'completed' })
+                const child = stored.get(subagentFixture)
+                child.events.push(
+                  { seq: 3, time: Date.now(), type: 'tool/result', data: { message: { toolCallId: 'child-read', content: [{ type: 'text', text: '# dsh-mygo' }] } } },
+                  { seq: 4, time: Date.now(), type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '**Child inspection complete**\n\nThe project uses MyGo native UI and a Node Host.' }] } } },
+                  { seq: 5, time: Date.now(), type: 'turn/end', data: { reason: { kind: aborted ? 'aborted' : 'completed' } } },
+                )
+                events.emit('subagent/end', { runId: `run-${turn}`, provider: 'fake', id: subagentFixture, local: true, stopReason: aborted ? 'aborted' : 'completed' })
                 childAgents.delete(subagentFixture)
               }
               agent.status = 'idle'
@@ -133,6 +146,22 @@ const ctx = {
       return { agent, async dispose() { agent.cancel(); await agent.whenIdle() } }
     },
   },
+}
+if (process.argv.includes('--subagents')) {
+  ctx.subagents = {
+    async listChildren(parentSessionId) {
+      return [...stored.values()].filter(source => source.header.parentSession === parentSessionId).map(source => ({ id: source.header.id, mode: 'continuable', label: 'Inspect README.md', createdAt: source.header.createdAt }))
+    },
+    async drainDescendants() {},
+  }
+  ctx.sessionQuery = {
+    async observeSession(id) {
+      const source = stored.get(id)
+      if (!source) throw new Error('Unknown child fixture')
+      const snapshot = source.events.slice()
+      return { header: source.header, events: snapshot, cursor: snapshot.length - 1, inheritedEventCount: 0, [Symbol.dispose]() {} }
+    },
+  }
 }
 ctx.attachments = {
   imageLimits: { mediaTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'], maxImageBytes: 6 * 1024 * 1024, maxImagesPerMessage: 8, maxMessageImageBytes: 6 * 1024 * 1024, maxImagePixels: 64000000, maxImageDimension: 8192 },

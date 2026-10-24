@@ -64,7 +64,7 @@ func (model *Model) PrepareSettings(route ModelRoute) {
 }
 
 func (model *Model) CanEditSettings() bool {
-	if model.Prefs.Open {
+	if model.Prefs.Open || model.Inspection.Open {
 		return false
 	}
 	return (model.CanModels || model.Permission.Available) && model.Phase == PhaseIdle && !model.LocalState.Closing && !model.SessionBusy && !model.SessionPanel.Uncertain && model.SessionPanel.EditingID == "" && model.SessionPanel.ArchiveID == "" && !model.SessionsOpen && !model.SettingsBusy && len(model.Approvals) == 0 && len(model.Questions) == 0
