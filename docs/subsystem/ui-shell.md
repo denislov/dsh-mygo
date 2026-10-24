@@ -31,7 +31,7 @@ UI 壳层是 MyGo 进程里的原生界面：
 
 - 窗口使用 MyGo `TitleBarHidden`，保留 Windows 自绘的最小化/最大化/关闭按钮；视图通过 `c.TitleBar()` 取得系统按钮占位，标题栏整行 `DragWindow()`，操作按钮始终避开 `bar.Right`。标题栏左侧为应用菜单、侧栏开关与 New chat，中间为会话标题与连接/工作状态，右侧为连接、子代理、会话列表、界面偏好与会话详情入口；窄窗口把次要入口收进菜单。无标题时使用本地化的未命名提示，不把会话 ID 当作页面标题。模型入口放在 composer 工具条，点击沿用 Settings 的能力与写入门禁。
 - 应用菜单使用 MyGo 原生系统菜单：New conversation、Sessions、Show/Hide sidebar、Subagents、Connect DeepSeek、Preferences、Quit；不可用的能力隐藏或禁用，不提供无后端动作的菜单项。
-- 会话详情使用 MyGo Popover，按需展示模型完整路由、工作目录、session id、Host/DSH 版本、实际权限、usage/context、计划/目标与子代理摘要；内容有界滚动，工作期间仍可查看。打开任意 Modal 时关闭该 Popover，Modal 关闭后不自动重开，不与审批/提问/检视器叠加。
+- 会话详情在宽度至少 1180 DIP 时显示为右侧 300 DIP 常驻面板，包含 Progress / Working folder / Context 三张可折叠卡片，展示模型完整路由、工作目录、session id、Host/DSH 版本、实际权限、usage/context、计划/目标与子代理摘要；窄窗口回退为 MyGo Popover。面板默认打开、仅由标题栏入口切换，内容有界滚动，工作期间仍可查看；打开任意 Modal 时面板保留在遮罩下且不重排，Popover 则关闭且不自动重开。两种布局共用同一只读内容，不与审批/提问/检视器叠加。
 - 聊天与输入区共享最大 760 DIP 的居中阅读宽度。助手消息直接在页面上排版，不再显示可见的角色行；用户消息使用 `UserBubble` 暖色背景、圆角与右对齐，正文使用 15 DIP 字号，用户原文与助手 Markdown 维持各自解释规则。角色名保留为消息容器的可访问名称。复制动作位于消息下方并右对齐，默认降低不透明度、在消息 hover 或键盘焦点进入时恢复；使用带名称、Tooltip 和反馈图标的原生按钮，不以长文字按钮占据正文。
 
 - transcript 显示提交后的 user 消息、assistant 文本、tool call/result 与 turn 结束通知；不显示 synthetic user context、system/developer 消息、reasoning。
@@ -95,16 +95,16 @@ App
 ```text
 ┌──────────────────────────────────────────────────────────────┐
 │ Title bar: ☰ / sidebar / new chat │ title + status │ actions │
-├───────────────┬──────────────────────────────────────────────┤
-│ Sidebar       │ Transcript (ui.List)                         │
-│ 新建          │  turn / assistant / tool / diff / notice     │
-│ 搜索/筛选     ├──────────────────────────────────────────────┤
-│ 日期分组会话  │ Composer: 输入 / 附件 / @引用 / 发送          │
-│ 状态/设置     │                                              │
-└───────────────┴──────────────────────────────────────────────┘
+├───────────────┬──────────────────────────────────┬───────────┤
+│ Sidebar       │ Transcript (ui.List)             │ Details   │
+│ 新建          │  turn / assistant / tool / diff  │ Progress  │
+│ 搜索/筛选     ├──────────────────────────────────┤ Folder    │
+│ 日期分组会话  │ Composer: 输入 / 附件 / @引用     │ Context   │
+│ 状态/设置     │                                  │ (≥1180)   │
+└───────────────┴──────────────────────────────────┴───────────┘
 ```
 
-右侧可以按需增加面板（plan/todo/子代理/文件）。
+宽窗口右侧显示常驻详情栏；窄窗口以 Popover 提供同一内容。plan/todo/子代理/文件都进入该详情栏，不再另开并列面板。
 
 ## 聊天渲染
 
@@ -120,7 +120,7 @@ App
 
 ### 任务与目标
 
-- composer 上方使用带边框与阴影的浮动卡片，以 MyGo `CollapsibleBase` + `Progress` 展示最新 `todo/write` 清单：默认只显示 `Tasks done/total` 与完成度进度条，展开后在有界滚动区显示最多 8 行，完成/进行中/待办各有标记，超出显示 `+N more`；下一回合开始清空，清单不进入正文。展开高度根据窗口收紧并扣除标题栏高度，不把输入或发送按钮推出最小窗口。
+- 宽窗口未显示详情栏时，composer 上方使用带边框与阴影的浮动卡片，以 MyGo `CollapsibleBase` + `Progress` 展示最新 `todo/write` 清单：默认只显示 `Tasks done/total` 与完成度进度条，展开后在有界滚动区显示最多 8 行，完成/进行中/待办各有标记，超出显示 `+N more`；下一回合开始清空，清单不进入正文。详情栏显示时由 Progress 卡片承担同一清单，避免重复；展开高度根据窗口收紧并扣除标题栏高度，不把输入或发送按钮推出最小窗口。
 - 会话详情显示计划模式、当前目标（objective、phase、rounds）与子代理实时状态（运行中/已完成计数）；没有对应事件时不占位，切换会话清空子代理状态。
 
 ### 首次使用与工作文件夹

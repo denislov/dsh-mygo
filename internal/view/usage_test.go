@@ -59,7 +59,7 @@ func TestHeaderShowsUsageContextRow(t *testing.T) {
 	model.Usage = projection.UsageView{}
 	model.Context = projection.ContextView{}
 	tt.Frame()
-	if tt.HasText("Context") {
+	if tt.HasText("1.6k") || tt.HasText("Out 350") {
 		t.Fatalf("empty metrics row still shown in %v", tt.Texts())
 	}
 }

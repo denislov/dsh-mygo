@@ -88,9 +88,15 @@ func titleBar(c *mgo.Context, model *Model) {
 			Disabled(!model.CanOpenPreferences()).OnClick(model.OpenPreferences)
 		anchor := iconButton(c.Key("details"), model.T("Conversation details"), iconInfo).Disabled(model.RecoveryOpen)
 		if anchor.Clicked() {
-			model.Shell.DetailsPopoverOpen = !model.Shell.DetailsPopoverOpen
+			if width >= detailsBreakpoint {
+				model.Shell.DetailsOpen = !model.Shell.DetailsOpen
+			} else {
+				model.Shell.DetailsPopoverOpen = !model.Shell.DetailsPopoverOpen
+			}
 		}
-		if !overlayActive(model) {
+		if width >= detailsBreakpoint {
+			model.Shell.DetailsPopoverOpen = false
+		} else if !overlayActive(model) {
 			mgo.Popover(c.Key("conversation-details"), anchor, &model.Shell.DetailsPopoverOpen, func() {
 				conversationDetails(c, model)
 			})

@@ -148,6 +148,9 @@ func NewModel() *Model {
 	model.Prefs = PreferencesState{Value: preferences.DefaultUI(), Ready: true}
 	model.Shell.SidebarOpen = true
 	model.Shell.DetailsOpen = true
+	model.Shell.ProgressOpen = true
+	model.Shell.FolderOpen = true
+	model.Shell.ContextOpen = true
 	model.Mention.CaretTarget = -1
 	model.List.Key = func(row int) any { return model.Items[row].ID }
 	return model
@@ -203,9 +206,14 @@ func View(c *mgo.Context, model *Model) {
 				}
 				historyControls(c, model)
 				transcript(c, model)
-				taskPanel(c, model)
+				if !detailsPaneVisible(c, model) {
+					taskPanel(c, model)
+				}
 				composer(c, model)
 			})
+			if detailsPaneVisible(c, model) {
+				detailsPane(c, model)
+			}
 		})
 	})
 	approvalModal(c, model)

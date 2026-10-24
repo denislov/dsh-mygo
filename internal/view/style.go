@@ -91,6 +91,7 @@ var (
 	iconArchive      = lineIcon(`<rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/>`)
 	iconClock        = lineIcon(`<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>`)
 	iconImage        = lineIcon(`<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.5"/><path d="m21 15-5-5L5 20"/>`)
+	iconActivity     = lineIcon(`<path d="M3 12h4l3-8 4 16 3-8h4"/>`)
 )
 
 func iconButton(c *mgo.Context, label string, icon *mgo.SVG) mgo.Element {
