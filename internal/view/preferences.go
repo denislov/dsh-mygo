@@ -21,7 +21,7 @@ var lightChineseTheme = chineseTheme(lightTheme)
 var darkChineseTheme = chineseTheme(darkTheme)
 
 func (model *Model) CanOpenPreferences() bool {
-	return model.Prefs.Ready && !model.LocalState.Closing && !model.Inspection.Open && !model.Prefs.Open && !model.SettingsOpen && !model.SessionsOpen && !model.RecoveryOpen && !model.SessionBusy && !model.SettingsBusy && model.ToolInspector == nil && len(model.Approvals) == 0 && len(model.Questions) == 0
+	return model.Prefs.Ready && !model.Setup.Picking && !model.LocalState.Closing && !model.Inspection.Open && !model.Prefs.Open && !model.SettingsOpen && !model.SessionsOpen && !model.RecoveryOpen && !model.SessionBusy && !model.SettingsBusy && model.ToolInspector == nil && len(model.Approvals) == 0 && len(model.Questions) == 0
 }
 func (model *Model) OpenPreferences() {
 	if !model.CanOpenPreferences() {

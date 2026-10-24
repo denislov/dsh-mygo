@@ -126,9 +126,18 @@ func (a *App) SwitchSession(id string) {
 }
 
 func (a *App) loadSession(id string) {
+	cwd := a.model.SessionCWD
+	if cwd == "" {
+		cwd = a.options.CWD
+	}
+	a.loadSessionInDirectory(id, cwd)
+}
+
+func (a *App) loadSessionInDirectory(id, cwd string) {
 	if !a.canChooseSession() {
 		return
 	}
+	workspaceRequired := a.model.Setup.WorkspaceRequired && id == "" && cwd == a.model.SessionCWD
 	ctx, operation := a.beginSessionOperation()
 	a.model.SessionSwitching = true
 	a.loadingSession = id
@@ -140,7 +149,7 @@ func (a *App) loadSession(id string) {
 	window, retired, currentID := a.canHistoryWindow, a.retiredSessionIDs(id), a.sessionID
 	if id == "" {
 		method = "session/create"
-		params["cwd"] = a.options.CWD
+		params["cwd"] = cwd
 	} else {
 		params["sessionId"] = id
 	}
@@ -228,6 +237,8 @@ func (a *App) loadSession(id string) {
 			a.model.SessionID = summary.ID
 			a.model.Subagents = nil
 			a.model.SessionCWD = summary.CWD
+			a.model.Setup.WorkspaceRequired = workspaceRequired
+			a.model.Setup.Error = ""
 			if canPermissions {
 				a.model.Permission.Accept(permissions)
 			}

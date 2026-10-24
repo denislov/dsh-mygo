@@ -91,6 +91,7 @@ type Model struct {
 	SessionPanel         SessionPanelState
 	SessionID            string
 	SessionCWD           string
+	Setup                FirstUseState
 	Sessions             []SessionSummary
 	SessionsOpen         bool
 	SessionBusy          bool
@@ -106,6 +107,7 @@ type Model struct {
 	ActiveRoute          ModelRoute
 	Catalog              ModelCatalog
 	SettingsOpen         bool
+	SettingsConnection   bool
 	SettingsBusy         bool
 	SettingsApplying     bool
 	ModelUncertain       bool
@@ -233,6 +235,10 @@ func errorBanner(c *mgo.Context, model *Model) {
 }
 
 func transcript(c *mgo.Context, model *Model) {
+	if len(model.Items) == 0 && model.History.Start == 0 {
+		mgo.Scroll(c.Key("empty-transcript-"+model.SessionID)).Grow(1).MinHeight(0).FillWidth().Padding(24, 24).Children(func() { emptyConversation(c, model) })
+		return
+	}
 	mgo.List(c.Key("transcript-"+model.SessionID), &model.List, len(model.Items), func(row int) {
 		message(c, model, model.Items[row])
 	}).Grow(1).Gap(22).Padding(24, 24).Children(func() {

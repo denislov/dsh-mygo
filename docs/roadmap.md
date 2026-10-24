@@ -4,9 +4,9 @@
 
 ## 1. 结论
 
-项目在约 11 小时内从零走到"核心聊天闭环全部跑通"：自定义 channel、流式、回合取消、审批、提问、历史/会话、模型与凭据设置均已落地，并有真实 DSH Loader（`0.2.1-rc.2`）集成测试覆盖。当前处于**阶段 C（产品化）前半段**。
+项目在约 11 小时内从零走到"核心聊天闭环全部跑通"：自定义 channel、流式、回合取消、审批、提问、历史/会话、模型与凭据设置均已落地，并有真实 DSH Loader（`0.2.1-rc.2`）集成测试覆盖。当前处于**阶段 C（Windows 私有测试版首发）**。
 
-一句话：**能开发、能演示、能在开发机上真实跑；还不能交给普通用户安装使用。**
+一句话：**优先完成 Windows 私有测试版首发，用安装版试用反馈推进后续迭代。**
 
 判断依据：协议与 UI 主链路已经闭环，M0 工程基线、M1 运行时/打包/安装器 smoke、自签名发布构建、手工崩溃恢复、会话管理、缺口恢复、权限 UI、草稿/界面偏好、附件与引用、有界历史窗口/句柄回收已完成，深度信息已有 usage/context、plan/todo/goal、子代理实时状态与持久详情/结果；干净机器验收、多会话后台交互与 Windows 发布工程仍是主要缺口；macOS 作为后续发布单元。
 
@@ -180,7 +180,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 本轮检查：`CGO_ENABLED=0 go test ./...`（379 项通过，真实 Host/付费组默认跳过）、`go test -race ./internal/app ./internal/view`（246 项）、`go tool mygo vet .`、`go vet ./...` 通过；显式设置 `DSH_MYGO_RESOURCES_DIR=resources` 的 `go test ./internal/app -run TestAgainstMygoRealAttachments -count=1 -v -timeout 2m` 通过。Windows 原生窗口复核浅色/深色、中英文、Markdown、任务折叠、560×420 布局与 Sessions 弹窗；图片选择器实际暂存图片并显示预览，暂停流式回合经 Stop 返回就绪，草稿保持原文且 Settings 仍可打开。Tester 覆盖系统菜单目标身份与 busy 门禁、详情与 Modal 互斥、30 行草稿/64 项任务/8 张附件时发送仍可达，新增异步预览的移除/清空/切换与像素预算回归。本轮未重建安装器，未跑打包/安装 smoke 或 macOS 验收。
 
-1. **M3 后台会话体验**：推进运行中会话 attach、后台活动与跨会话审批/提问；M2-6 子代理详情/结果基础闭环已完成，compaction、子代理 token 流与递归后代导航后续单独规划。
+1. **首次使用与私有测试版首发**：先补齐项目文件夹选择与直接连接设置，重建 Windows 自签名安装包，准备首次使用指南、公开证书和校验和，在现有私有仓库发布 prerelease；本批暂停扩展后台会话、compaction、子代理 token 流和递归后代导航，后续按试用反馈排序。
 2. **M1-4 干净机器验收**：项目所有者因没有干净 Windows VM，决定本轮跳过并继续 M2；未验收，不标记通过。Windows 发布前重新安排离线首启与证书提示流程检查。
 
 M2-1 会话管理后端已完成：重命名写入 `session/title` 并等待落盘；归档复用独立挂载的 DSH workspace registry，保留日志并支持取消归档。实际检查：`go test ./...`（235 项）、`go vet ./...`、Node Host/脚本回归（55/55）、`node scripts/test-real-host.mjs --runtime`、`git diff --check` 及修改文档的本地链接检查均通过。真实 `TestMygoRealHistoryAfterRestart` 验证标题/归档跨重启保留、取消归档和历史前缀不变；付费模型测试因没有 key 跳过。该批未重建安装器；侧栏与管理 UI 的验证见下述 M2-2。
@@ -225,6 +225,10 @@ M2-6d 子代理详情/结果已完成：新增独立 `subagent.inspection` 与 l
 
 本批检查：`CGO_ENABLED=0 go test ./...`（384 项通过，真实 Host/付费组默认跳过）、`go test -race ./internal/app ./internal/view ./internal/projection`（292 项）、`go tool mygo vet .`、`go vet ./...`、Node Host/脚本（86/86）与 `node scripts/test-real-host.mjs --runtime` 完整真实组合通过。真实组覆盖子代理输出/结束原因以及第二 Host 冷恢复父会话后的持久读取；新增单元/Tester 覆盖授权、预算、隐藏载荷、关闭/切换、结束原因失效、提问优先、最小窗口和源文复制。Windows 原生窗口复核运行中打开、停止/完成结果、工具展开、宽窄布局与关闭返回；原生自动化的系统剪贴板读回未确认，精确源文由 Tester 校验。本批未重建安装器、未做打包/安装 smoke 或 macOS 验收，未读取 `.env` 或调用付费模型。
 
+首次使用与私有测试版发布准备已完成：空会话提供项目文件夹选择/确认和直接 DeepSeek 连接设置，选择不同目录新建会话并保留原草稿；安装版默认工作目录从安装位置切到用户主目录，已使用会话从持久 header 恢复项目。连接设置复用原生 Password 和已有配置通道，不依赖模型目录，首次打开读取安全凭据状态；小窗口使用 Scroll 并收起装饰标题，避免引导被输入框裁剪。发布脚本只生成具名安装器、公开证书、首次使用说明、发布说明和 SHA256SUMS；拒绝版本身份不符或未知输出文件。
+
+本批本地检查：`CGO_ENABLED=0 go test ./...`（397 项）、`CGO_ENABLED=1 go test -race ./internal/app ./internal/view`（263 项）、`go tool mygo vet .`、`go vet ./...`、Node Host/脚本（88/88）、bundled runtime 完整真实组合通过。`TestAgainstMygoFirstUse` 验证项目选择、配置读取、mock 第一轮消息和第二 Host 的目录恢复；Windows 原生验证目录选择、连接保存/关闭、草稿、最小窗口及实际签名二进制。最终安装器 123147064 bytes（约 117.4 MiB）；`node scripts/prepare-release.mjs`、`node scripts/smoke-packaged.mjs`、`node scripts/smoke-installer.mjs` 通过，包括签名、空 PATH 首启、进程树回收、快捷方式/卸载项清理和会话保留。远端 CI 与 prerelease 上传在发布步骤核对，不将本地产物当成线上发布；干净 VM、macOS、付费模型本轮未验收。
+
 ## 7. 风险与依赖
 
 | 风险 | 影响 | 缓解 |
@@ -249,9 +253,10 @@ M2-6d 子代理详情/结果已完成：新增独立 `subagent.inspection` 与 l
 | 会话管理 | 0.1 只做固定侧栏 + 重命名 + 归档；delete/fork 后置 | 2026-10-23 |
 | 仓库 | GitHub `denislov/dsh-mygo` | 2026-10-23 |
 | 应用标识 | `com.denislov.dshmygo`（发布后不再更改） | 2026-10-23 |
+| 首发优先级与渠道 | 先交付首次使用闭环与 Windows x64 测试版，在现有私有仓库发布，源码和安装包保持私有；功能后续按试用反馈迭代 | 2026-10-24 |
 | 崩溃恢复 | 用户触发重启 + `session/resume` + history 回放；不做自动重连 | 2026-10-23 |
 | 运行时来源 | npm `@deepseek-ai/dsh` 精确 pin + 私有 `resources/runtime/mygo-host.mjs` | 2026-10-23 |
-| Windows 代码签名 | 自签名证书（开源、零成本）；接受 Unknown publisher/SmartScreen 提示；后续可申请 SignPath Foundation 免费 OSS 签名 | 2026-10-23 |
+| Windows 代码签名 | 自签名证书（零成本）；接受 Unknown publisher/SmartScreen 提示；后续若开源可评估 OSS 签名 | 2026-10-23 |
 
 待定：
 

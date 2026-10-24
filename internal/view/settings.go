@@ -64,14 +64,14 @@ func (model *Model) PrepareSettings(route ModelRoute) {
 }
 
 func (model *Model) CanEditSettings() bool {
-	if model.Prefs.Open || model.Inspection.Open {
+	if model.Prefs.Open || model.Inspection.Open || model.Setup.Picking {
 		return false
 	}
-	return (model.CanModels || model.Permission.Available) && model.Phase == PhaseIdle && !model.LocalState.Closing && !model.SessionBusy && !model.SessionPanel.Uncertain && model.SessionPanel.EditingID == "" && model.SessionPanel.ArchiveID == "" && !model.SessionsOpen && !model.SettingsBusy && len(model.Approvals) == 0 && len(model.Questions) == 0
+	return (model.CanModels || model.Permission.Available || model.CanConfigure) && model.Phase == PhaseIdle && !model.LocalState.Closing && !model.SessionBusy && !model.SessionPanel.Uncertain && model.SessionPanel.EditingID == "" && model.SessionPanel.ArchiveID == "" && !model.SessionsOpen && !model.SettingsBusy && len(model.Approvals) == 0 && len(model.Questions) == 0
 }
 
 func settingsModal(c *mgo.Context, model *Model) {
-	if !model.SettingsOpen || !(model.CanModels || model.Permission.Available) || len(model.Approvals) > 0 || len(model.Questions) > 0 {
+	if !model.SettingsOpen || !(model.CanModels || model.Permission.Available || model.CanConfigure) || len(model.Approvals) > 0 || len(model.Questions) > 0 {
 		return
 	}
 	disabled := !model.CanEditSettings()
@@ -80,16 +80,25 @@ func settingsModal(c *mgo.Context, model *Model) {
 		if model.Permission.Available {
 			title = "Conversation settings"
 		}
+		if model.SettingsConnection {
+			title = "Connect DeepSeek"
+		}
 		mgo.Text(c, model.T(title)).FontSize(18).Bold()
 		scope := "Current session only · next turn · launch defaults unchanged"
 		if model.CanConfigure {
 			scope = "Apply model: current session · Save default: future sessions"
+		}
+		if model.SettingsConnection {
+			scope = "Save your API key, then return to the conversation."
 		}
 		mgo.Text(c, model.T(scope)).FontSize(11).TextColor(c.Theme().TextMuted)
 		mgo.Scroll(c.Key("settings-body")).MaxHeight(230).FillWidth().Children(func() {
 			mgo.Column(c).Gap(4).Children(func() {
 				if model.SettingsBusy {
 					label := "Loading model catalog…"
+					if model.SettingsConnection {
+						label = "Loading connection settings…"
+					}
 					if model.SettingsApplying {
 						label = "Applying model…"
 					}
@@ -106,6 +115,10 @@ func settingsModal(c *mgo.Context, model *Model) {
 				}
 				if model.SettingsNotice != "" {
 					mgo.Text(c, model.T(model.SettingsNotice)).FontSize(11)
+				}
+				if model.SettingsConnection {
+					credentialControls(c, model, disabled)
+					return
 				}
 				if model.Catalog.Reason != "" {
 					mgo.Text(c, model.Catalog.Reason).FontSize(11).TextColor(c.Theme().Warning)
@@ -160,7 +173,7 @@ func settingsModal(c *mgo.Context, model *Model) {
 			mgo.Button(c.Key("settings-close"), model.T("Close")).Disabled(model.SettingsApplying || model.CloseSettings == nil).OnClick(func() { model.CloseSettings() })
 			mgo.Spacer(c)
 			mgo.Button(c.Key("settings-refresh"), model.T("Refresh")).Disabled(disabled || model.RefreshSettings == nil).OnClick(func() { model.RefreshSettings() })
-			if model.CanModels {
+			if model.CanModels && !model.SettingsConnection {
 				mgo.PrimaryButton(c.Key("settings-apply"), model.T("Apply model")).Disabled(disabled || model.ModelUncertain || model.ConfigurationUncertain || model.Permission.Uncertain || model.ApplySettings == nil || strings.TrimSpace(model.SettingsProvider) == "" || strings.TrimSpace(model.SettingsModel) == "").OnClick(func() { model.ApplySettings() })
 			}
 		})

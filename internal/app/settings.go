@@ -80,10 +80,21 @@ func (a *App) canEditSettings() bool {
 }
 
 func (a *App) OpenSettings() {
+	a.openSettings(false)
+}
+
+func (a *App) OpenConnectionSettings() {
+	if a.model.CanConfigure {
+		a.openSettings(true)
+	}
+}
+
+func (a *App) openSettings(connection bool) {
 	if !a.canEditSettings() {
 		return
 	}
 	a.model.SettingsOpen = true
+	a.model.SettingsConnection = connection
 	a.model.ConfigurationReady = false
 	a.model.SettingsNotice = ""
 	a.model.ConfirmCredentialClear = false
@@ -101,6 +112,7 @@ func (a *App) CloseSettings() {
 	}
 	a.cancelSettingsOperation()
 	a.model.SettingsOpen = false
+	a.model.SettingsConnection = false
 	a.model.ClearCredentialDraft()
 	a.model.ConfirmCredentialClear = false
 	a.model.Permission.Confirm = false
@@ -143,7 +155,7 @@ func (a *App) RefreshSettings() {
 	ctx, operation := a.beginSettingsOperation()
 	client, id, provider, cancel := a.currentClient(), a.sessionID, a.model.SettingsProvider, a.settingsCancel
 	canConfigure := a.model.CanConfigure
-	canModels, canPermissions := a.model.CanModels, a.model.Permission.Available
+	canModels, canPermissions := a.model.CanModels && !a.model.SettingsConnection, a.model.Permission.Available && !a.model.SettingsConnection
 	a.model.Permission.Confirm = false
 	go func() {
 		defer cancel()
@@ -184,15 +196,15 @@ func (a *App) RefreshSettings() {
 			}
 			if canModels {
 				a.model.SetActiveRoute(catalog.Selection)
-			}
-			a.model.ModelUncertain = false
-			a.model.SettingsProvider = catalog.Provider
-			if a.model.SettingsModel == "" {
-				if catalog.Provider == catalog.Selection.Provider {
-					a.model.PrepareSettings(catalog.Selection)
-				} else if len(catalog.Models) > 0 {
-					a.model.SettingsModel = catalog.Models[0].ID
-					a.model.SettingsCatalogModel = catalog.Models[0].ID
+				a.model.ModelUncertain = false
+				a.model.SettingsProvider = catalog.Provider
+				if a.model.SettingsModel == "" {
+					if catalog.Provider == catalog.Selection.Provider {
+						a.model.PrepareSettings(catalog.Selection)
+					} else if len(catalog.Models) > 0 {
+						a.model.SettingsModel = catalog.Models[0].ID
+						a.model.SettingsCatalogModel = catalog.Models[0].ID
+					}
 				}
 			}
 		})

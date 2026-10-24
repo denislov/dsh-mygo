@@ -48,7 +48,17 @@ func configurationControls(c *mgo.Context, model *Model, disabled bool) {
 	}
 	mgo.Text(c, model.T("New conversations and cold restores use this default unless route flags override it. Current sessions stay unchanged.")).FontSize(11).TextColor(c.Theme().TextMuted)
 	mgo.Button(c.Key("settings-save-default"), model.T("Save selection as default")).Disabled(disabled || model.SaveDefaultModel == nil || model.ModelUncertain).OnClick(func() { model.SaveDefaultModel() })
-	mgo.Text(c, model.T("DeepSeek API credential")).Bold().FontSize(12)
+	credentialControls(c, model, disabled)
+}
+
+func credentialControls(c *mgo.Context, model *Model, disabled bool) {
+	if !model.CanConfigure {
+		return
+	}
+	disabled = disabled || !model.ConfigurationReady || model.ConfigurationUncertain || model.Permission.Uncertain
+	if !model.SettingsConnection {
+		mgo.Text(c, model.T("DeepSeek API credential")).Bold().FontSize(12)
+	}
 	credential := model.Configuration.Credential
 	if !model.ConfigurationReady {
 		mgo.Text(c, model.T("Refresh to load credential status.")).FontSize(11)
@@ -62,12 +72,28 @@ func configurationControls(c *mgo.Context, model *Model, disabled bool) {
 	if credential.Configured {
 		status = "Configured (not validated)"
 	}
-	mgo.Text(c, credential.Reference+" · "+model.T(status)+" · "+credential.Source).FontSize(11)
-	mgo.Text(c, model.T("Saved locally by DSH, not an encrypted OS vault. Clear removes only the managed value; environment/.env fallback may remain.")).FontSize(11).TextColor(c.Theme().Warning)
+	statusText := model.T(status)
+	if !model.SettingsConnection {
+		statusText = credential.Reference + " · " + statusText + " · " + credential.Source
+	}
+	mgo.Text(c, statusText).FontSize(11)
+	if !model.SettingsConnection {
+		mgo.Text(c, model.T("Saved locally by DSH, not an encrypted OS vault. Clear removes only the managed value; environment/.env fallback may remain.")).FontSize(11).TextColor(c.Theme().Warning)
+	}
 	mgo.TextInput(c.Key(fmt.Sprintf("credential-input-%d", model.CredentialVersion)), &model.CredentialDraft.value).Password().Label(model.T("New API key")).Placeholder(model.T("New API key (write only)")).Disabled(disabled || !credential.Writable)
 	mgo.Row(c).Gap(8).Children(func() {
 		mgo.Button(c.Key("credential-save"), model.T("Save key")).Disabled(disabled || !credential.Writable || model.SaveCredential == nil || model.CredentialDraft.value == "").OnClick(func() { model.SaveCredential() })
-		mgo.Button(c.Key("credential-clear"), model.T("Clear managed key")).Disabled(disabled || !credential.Writable || model.ClearCredential == nil || !model.ConfirmCredentialClear).OnClick(func() { model.ClearCredential() })
+		if model.SettingsConnection {
+			services := c.Services()
+			mgo.Button(c.Key("credential-get-key"), model.T("Get API key")).OnClick(func() { services.OpenURL("https://platform.deepseek.com/") })
+		}
+		if !model.SettingsConnection {
+			mgo.Button(c.Key("credential-clear"), model.T("Clear managed key")).Disabled(disabled || !credential.Writable || model.ClearCredential == nil || !model.ConfirmCredentialClear).OnClick(func() { model.ClearCredential() })
+		}
 	})
+	if model.SettingsConnection {
+		mgo.Text(c, model.T("Stored on this device by DSH. This is not an encrypted key vault.")).FontSize(11).TextColor(c.Theme().TextMuted)
+		return
+	}
 	mgo.Checkbox(c.Key("credential-confirm-clear"), &model.ConfirmCredentialClear, model.T("Confirm removing the managed key")).Disabled(disabled || !credential.Writable)
 }

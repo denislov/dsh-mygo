@@ -29,6 +29,7 @@ dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node H
 | 设置、模型、凭据、UI 偏好 | [docs/subsystem/settings-credentials.md](docs/subsystem/settings-credentials.md) |
 | MyGo 原生 UI、页面、输入、性能 | [docs/subsystem/ui-shell.md](docs/subsystem/ui-shell.md) |
 | 打包、签名、更新 | [docs/subsystem/packaging-updates.md](docs/subsystem/packaging-updates.md) |
+| 测试版安装与首次使用 | [docs/getting-started.md](docs/getting-started.md) |
 | 测试策略 | [docs/subsystem/testing.md](docs/subsystem/testing.md) |
 | 为什么这样选 | [docs/research/](docs/research/README.md) |
 | MyGo API 与生命周期 | [research/mygo-native-ui.md](docs/research/mygo-native-ui.md)；MyGo 源码 `docs/ui/` |

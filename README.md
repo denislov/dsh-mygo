@@ -2,6 +2,14 @@
 
 DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node Host（`dsh-base` + 自有 bundle）。
 
+## 下载与开始使用
+
+Windows x64 测试版通过[私有 GitHub Releases](https://github.com/denislov/dsh-mygo/releases) 分发，需要仓库访问权限。下载 `dsh-mygo-<版本>-windows-x64-setup.exe`，安装后选择项目文件夹，在「连接 DeepSeek」中保存自己的 API key，即可开始对话。安装包自带 Node 与 DSH，无需配置开发环境。
+
+详细步骤、数据位置和测试版限制见[首次使用指南](docs/getting-started.md)。当前使用自签名证书，Windows 可能显示发布者或 SmartScreen 提示；下载校验和与公开证书随 Release 提供。
+
+## 项目
+
 - 不使用 `dsh-web-app`，不嵌入浏览器。
 - 默认协议：自定义 channel（`mygo` profile）；SDK 通道只作显式回归。
 - 首发平台：Windows x64；macOS 随后，Linux 视需要。

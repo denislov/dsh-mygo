@@ -46,6 +46,10 @@ type Options struct {
 	Launch host.Config
 	// CWD is recorded on the Host session header.
 	CWD string
+	// RequireWorkspace asks users of a packaged empty conversation to confirm its folder.
+	RequireWorkspace bool
+	// PickDirectory overrides the native folder dialog for tests.
+	PickDirectory func(string) (string, error)
 	// Provider and Model select the model route.
 	Provider string
 	// Model is the model id used when creating a session.
@@ -153,6 +157,9 @@ func New(options Options) *App {
 	}
 	app := &App{options: options, sessionID: options.SessionID, stopped: make(chan struct{}), pendingUI: make(chan struct{}, maxPendingUIUpdates)}
 	app.model = view.NewModel()
+	app.model.Setup.ChooseFolder = app.ChooseProjectFolder
+	app.model.Setup.UseFolder = app.UseWorkingFolder
+	app.model.Setup.Connect = app.OpenConnectionSettings
 	app.hostLocale.Store("en-US")
 	app.model.Prefs.Apply = app.ApplyUIPreferences
 	app.model.Inspection.Show = app.OpenSubagents
@@ -308,6 +315,14 @@ func (a *App) startHost(recover bool, resumeID string) {
 	}
 
 	a.logf("session ready: %s", initialized.sessionID)
+	var initialConfiguration *view.Configuration
+	if initialized.canConfigure {
+		configurationCtx, configurationCancel := context.WithTimeout(ctx, 5*time.Second)
+		if snapshot, err := readConfiguration(configurationCtx, client); err == nil {
+			initialConfiguration = &snapshot
+		}
+		configurationCancel()
+	}
 	a.post(func() {
 		if a.shuttingDown.Load() || a.model.Phase == view.PhaseFailed || a.hostGeneration.Load() != generation {
 			return
@@ -383,6 +398,12 @@ func (a *App) startHost(recover bool, resumeID string) {
 		a.CancelSessionEdit()
 		a.model.CanModels = initialized.canModels
 		a.model.CanConfigure = initialized.canConfigure
+		a.model.ConfigurationReady = initialConfiguration != nil
+		if initialConfiguration != nil {
+			a.model.Configuration = *initialConfiguration
+		}
+		a.model.Setup.Picking, a.model.Setup.Error = false, ""
+		a.model.Setup.WorkspaceRequired = a.options.RequireWorkspace && len(a.model.Items) == 0
 		if initialized.route.Provider != "" {
 			a.model.SetActiveRoute(initialized.route)
 		}
@@ -414,6 +435,7 @@ func (a *App) Restart() {
 		return
 	}
 	a.restarting = true
+	a.model.Setup.Picking = false
 	a.CloseSubagents()
 	a.cancelResync()
 	// Invalidate the old watchers before stopping so their exit cannot
@@ -703,7 +725,7 @@ func (a *App) Send(text string) {
 	}
 	original := originalSubmittedText(a.model.Draft, text)
 	text = strings.TrimSpace(text)
-	if a.model.Inspection.Open {
+	if a.model.Inspection.Open || a.model.SetupBlocked() {
 		return
 	}
 	if text == "" && len(a.model.Attachments.Pending) == 0 || a.shuttingDown.Load() || a.model.LocalState.Closing || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 || a.model.SessionBusy || a.model.History.Detached || a.model.SessionPanel.BlocksInput() || a.model.SettingsBusy || a.model.SettingsOpen || a.model.ModelUncertain || a.model.ConfigurationUncertain || a.model.Permission.Uncertain {
@@ -1116,6 +1138,7 @@ func (a *App) fail(summary string, err error) {
 }
 
 func (a *App) setFailure(summary string, err error) {
+	a.model.Setup.Picking = false
 	a.CloseSubagents()
 	a.model.Prefs.Open = false
 	if a.model.Phase == view.PhaseFailed {

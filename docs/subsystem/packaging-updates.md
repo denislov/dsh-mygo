@@ -64,6 +64,8 @@ UI、Host、bundle 作为一个发布单元验证；不允许只升级其中一�
 
 ## 首启
 
+安装版未显式指定 `-cwd` 时，不将开始菜单或安装目录的进程 cwd 当成项目，初始会话使用当前用户主目录；空会话要求在原生引导中选择或确认工作文件夹。显式 cwd 保持优先，已有会话恢复自己的持久目录。工作文件夹选择通过创建新会话实现，不写回旧历史，详见 [UI 壳层](ui-shell.md#首次使用与工作文件夹)。
+
 1. 解析 `DSH_HOME`（默认 `~/.dsh`）。
 2. 若 `profiles/mygo` 不存在，Host 启动前由 `host.EnsureProfile` 从 `resources/host` 复制创建；不覆盖已有 profile。失败时窗口显示 `Host error`，见 [宿主监督](host-supervisor.md#首启-profile)。
 3. 校验 profile 的 `dsh.profile.bundles` 包含 base 与 mygo bundle；缺失时提示修复命令。
@@ -121,6 +123,14 @@ UI、Host、bundle 作为一个发布单元验证；不允许只升级其中一�
 - 若使用系统 Node，需声明依赖；建议仍携带独立 Node。
 
 ## 更新
+
+### 私有测试版分发
+
+- Windows x64 测试版通过现有私有 GitHub 仓库的 prerelease 分发，保留源码与资产访问范围；tag 为 `v<versions.json.version>`，显式指定已经提交并通过检查的目标 commit，不使用浮动 HEAD 代替发布身份。
+- `node scripts/prepare-release.mjs` 先校验安装器/应用签名，再检查发布版本、Host 与 runtime manifest 的平台/Node/DSH/协议身份；仅复制具名安装器、公开 `.cer` 与首次使用指南，并生成发布说明和 SHA256SUMS。输出为 `build/release/v<version>`，存在未知文件时拒绝生成，不扫描或复制 `.env`、PFX、密码或开发目录。
+- 上传资产为稳定名称的 `dsh-mygo-<version>-windows-x64-setup.exe`、`dsh-mygo-signing.cer`、`START_HERE.zh-CN.md`、`SHA256SUMS.txt` 与 `RELEASE_NOTES.md`。公开证书 SHA256 指纹写入说明；证书分发不自动修改测试者信任存储。上传后核对文件名、大小与 GitHub 返回的 SHA256 digest。
+- 发布使用 `gh release create` 的 `--draft --prerelease --target <commit> --notes-file <file>` 准备，资产核对后再取消 draft。不改变仓库可见性、不覆盖已有 tag 或 release。测试版发布不表示干净 VM、macOS、自动更新或付费模型验收通过，这些状态仍在路线图记录。
+- 首版不携带自动更新器，用户退出应用后运行新版本安装器覆盖安装；数据迁移与保留规则遵循下述更新契约。
 
 使用 `mygo.Updater`：
 

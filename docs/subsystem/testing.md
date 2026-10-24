@@ -130,6 +130,8 @@ node --test resources/host/tests/*.test.mjs
 - `TestAgainstMygoPermissions`：fake/真实 Host 的初始化快照、会话权限切换、草稿保持、新建默认不变和切回；真实组 kill/Restart 后冷恢复确认权限持久化。`TestAgainstMygoPermissionEnforcement` 以真实 approval-probe 对比 ask 弹出审批与 never 拒绝显式审批，均不执行被拒绝的临时标记写入。
 - 权限单元与 Tester：白名单载荷/实际 knobs/危险确认/seq 冲突/写入屏障/失败刷新/旧 Host 隐藏/独立于模型能力/最小窗口。Windows 原生检查验证未勾选时禁用、勾选后幂等保存、当前权限和宽窄布局；完整选项切换使用 Tester 与真实 Host 验证。
 - `node scripts/test-real-host.mjs --runtime`：同一组测试改用 `resources/runtime` 的 Node、DSH 闭包与私有入口；用于打包前后检查运行时闭包。
+- 首次使用：`first_use_test.go` 覆盖文件夹路径校验、取消/失败/跨 generation 迟到结果、草稿与新会话边界、连接读取不依赖模型目录且不清除模型不确定状态；View Tester 验证目录/凭据禁发、精简密码表单和最小窗口。`TestAgainstMygoFirstUse` 使用 fake 与真实 mock Host 验证确认目录、新项目会话、配置读取与第一轮消息，第二 Host 从持久数据恢复项目目录和对话。入口测试验证安装版默认主目录、显式 cwd 优先与无 bundled runtime 的开发目录。
+- 发布资产：`scripts/release.test.mjs` 验证输出文件白名单、每个附件 SHA256、排除 PFX/密码/.env、版本身份冲突与未知输出拒绝；Windows 原生与打包/安装 smoke 验证实际发布二进制。上传后检查 release tag/commit、prerelease/draft 状态、资产名称/大小/digest，不以本地产物存在代替线上可下载。
 
 需要真实模型与 key 的 `TestAgainstMygoRealModel` 默认跳过；运行前确认会产生 API 调用费用。
 

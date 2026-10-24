@@ -61,13 +61,17 @@ func main() {
 		log.Fatal("-session requires -sdk-protocol; mygo session ids are assigned by the host")
 	}
 
-	cwd, err := resolveCWD(*cwdFlag)
-	if err != nil {
-		log.Fatal(err)
-	}
 	resourcesDir, err := mygo.App.Path(mygo.PathResources)
 	if err != nil {
 		log.Fatal(fmt.Errorf("resolve resources: %w", err))
+	}
+	startupResources := resourcesDir
+	if *sdkProtocol || *hostCommand != "" || *dshDir != "" {
+		startupResources = ""
+	}
+	cwd, requireWorkspace, err := resolveStartupCWD(*cwdFlag, startupResources)
+	if err != nil {
+		log.Fatal(err)
 	}
 	if *logDirFlag != "" {
 		absolute, err := filepath.Abs(*logDirFlag)
@@ -129,6 +133,7 @@ func main() {
 		ApplyLocale:            mygo.App.SetLocale,
 		Launch:                 launch,
 		CWD:                    cwd,
+		RequireWorkspace:       requireWorkspace && !*sdkProtocol && *hostCommand == "" && *dshDir == "",
 		Provider:               *provider,
 		Model:                  *model,
 		ReasoningEffort:        *effort,
@@ -219,6 +224,22 @@ func resolveCWD(value string) (string, error) {
 		return "", fmt.Errorf("resolve working directory: %w", err)
 	}
 	return absolute, nil
+}
+
+// A Start Menu launch must not turn the installation directory into a project.
+// Development and explicit CLI launches retain their existing directory rules.
+func resolveStartupCWD(value, resources string) (string, bool, error) {
+	_, manifestErr := os.Stat(filepath.Join(resources, "runtime", "manifest.json"))
+	requireWorkspace := resources != "" && value == "" && manifestErr == nil
+	if requireWorkspace {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", false, err
+		}
+		value = home
+	}
+	cwd, err := resolveCWD(value)
+	return cwd, requireWorkspace, err
 }
 
 func useHostDefaultRoute(flags *flag.FlagSet) bool {

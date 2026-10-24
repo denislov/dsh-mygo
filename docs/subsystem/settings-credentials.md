@@ -26,6 +26,8 @@
 
 ## 持久默认模型与 DeepSeek 凭据
 
+首次使用的 Connect DeepSeek 是同一设置系统的精简视图，沿用 settings 操作编号、异步读取、Password 草稿清理与写后确认，只调用配置状态读取，不依赖模型目录服务；读取连接状态不能清除未经确认的模型状态。窗口启动时可在短时限内读取 configuration/get 的白名单状态，读取失败不阻止 Host 启动，用户可在连接设置中刷新。官方 provider 的可用绑定被确认缺少凭据时禁止发送；configured 仅表示存在配置，不表示认证或余额验证。获取 API key 通过系统浏览器打开固定 DeepSeek 官方平台 URL，不内嵌网页登录，也不读取浏览器凭据。
+
 - `settings.configuration` capability 只公开 `configuration/get`、`configuration/default-model`、`configuration/credential` 三个白名单方法。服务缺失不协商，旧 Host/SDK 保持原行为。UI 不读取或解析 `.env`、profile patch 或凭据文件。
 - 默认模型通过公开 `agentDefaultModel.currentSelection()` 读取，并核对 `settings.describe({redactSecrets:true})` 中固定 `agent-default-model` 行；用公开 `settings.replace` 携带预期 revision 写回完整路由。只写 provider/model/可选 reasoningEffort，空 effort 省略该字段以移除旧用户 override，不把空字符串伪装成 effort ID；恢复 base 继承值后再检查实际路由，不匹配则报告未确认并要求刷新。标准 base 未设置 effort，清除后为 provider 默认。目录校验不调用生成 API，也不承诺认证有效。
 - **Save selection as default** 保存表单路由，当前/已拥有会话不变。不显式传 `-provider`、`-model`、`-effort` 时，CLI 对支持此能力的 Host 发送 `useDefaultModel:true`，首次启动、新建、冷恢复均使用 Host 当时的默认值；显式传任一路由 flag（包括空 `-effort`）则使用完整启动路由。旧 Host/SDK 仍使用原有 fallback flags。程序化 App Options 需显式开启 UseHostDefaults。

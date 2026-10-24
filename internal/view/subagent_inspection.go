@@ -40,7 +40,7 @@ func (p *SubagentPanelState) HasLocalHistory() bool {
 }
 
 func (model *Model) CanInspectSubagents() bool {
-	return model.Inspection.Available && !model.Inspection.Open && model.SessionID != "" && (model.Phase == PhaseIdle || model.Phase == PhaseRunning) && !model.SessionBusy && !model.LocalState.Closing && !model.RecoveryOpen && !model.SettingsOpen && !model.SettingsBusy && !model.Prefs.Open && !model.SessionsOpen && model.ToolInspector == nil && len(model.Approvals) == 0 && len(model.Questions) == 0
+	return model.Inspection.Available && !model.Inspection.Open && !model.Setup.Picking && model.SessionID != "" && (model.Phase == PhaseIdle || model.Phase == PhaseRunning) && !model.SessionBusy && !model.LocalState.Closing && !model.RecoveryOpen && !model.SettingsOpen && !model.SettingsBusy && !model.Prefs.Open && !model.SessionsOpen && model.ToolInspector == nil && len(model.Approvals) == 0 && len(model.Questions) == 0
 }
 
 func childLabel(child SubagentSummary) string {

@@ -35,6 +35,9 @@ func header(c *mgo.Context, model *Model) {
 			})
 		})
 		mgo.Toolbar(c.Key("header-actions"), func() {
+			if model.CanConfigure && model.Setup.Connect != nil {
+				iconButton(c.Key("connection"), model.T("Connect DeepSeek"), iconSettings).Disabled(!model.CanEditSettings()).OnClick(model.Setup.Connect)
+			}
 			if model.Inspection.Available {
 				iconButton(c.Key("subagents"), model.T("Subagents"), iconAgents).Disabled(!model.CanInspectSubagents()).OnClick(model.Inspection.Show)
 			}
@@ -92,10 +95,22 @@ func detailField(c *mgo.Context, title, value string) {
 
 func emptyConversation(c *mgo.Context, model *Model) {
 	theme := c.Theme()
-	mgo.Column(c.Key("empty-conversation")).FillWidth().AlignItems(mgo.Center).Gap(12).Padding(32, 12).Children(func() {
-		mgo.Icon(c, iconSpark).Size(32, 32).TextColor(theme.Accent)
-		mgo.Text(c, model.T("Start a conversation")).FontSize(26).Bold()
-		mgo.Text(c, model.T("A little context. A clear next step.")).FontSize(14).TextColor(theme.TextMuted)
+	_, height := c.Size()
+	compact := height < 560 && model.Setup.ChooseFolder != nil
+	padding := float32(12)
+	if compact {
+		padding = 0
+	}
+	mgo.Column(c.Key("empty-conversation")).FillWidth().AlignItems(mgo.Center).Gap(10).Padding(padding).Children(func() {
+		if !compact {
+			mgo.Icon(c, iconSpark).Size(24, 24).TextColor(theme.Accent)
+			mgo.Text(c, model.T("Start a conversation")).FontSize(24).Bold()
+		}
+		if model.Setup.ChooseFolder != nil {
+			firstUseControls(c, model)
+		} else {
+			mgo.Text(c, model.T("A little context. A clear next step.")).FontSize(14).TextColor(theme.TextMuted)
+		}
 	})
 }
 

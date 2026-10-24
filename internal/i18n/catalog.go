@@ -12,6 +12,12 @@ func Text(locale, key string) string {
 }
 
 var chinese = map[string]string{
+	"Loading connection settings…": "正在加载连接设置…",
+	"Get API key":                  "获取 API key",
+	"Working folder":               "工作文件夹", "Choose project folder": "选择项目文件夹", "Use this folder": "使用此文件夹", "Choosing a project folder…": "正在选择项目文件夹…",
+	"Connect DeepSeek": "连接 DeepSeek", "Add an API key to start": "添加 API key 后开始使用", "Key saved · ready to try": "凭据可用，可以开始尝试", "Check your connection settings": "请检查连接设置",
+	"Could not open the project folder. Choose an existing folder and retry": "无法打开项目文件夹，请选择已有文件夹重试",
+	"Save your API key, then return to the conversation.":                    "保存 API key，然后返回对话。", "Stored on this device by DSH. This is not an encrypted key vault.": "由 DSH 保存在此设备上，并非加密密钥库。",
 	"External task": "外部任务", "Saved task": "已保存任务", "Completed": "已完成", "Cancelled": "已取消", "Failed": "失败", "Token limit reached": "达到 token 上限", "Refused": "已拒绝",
 	"Read-only tasks and output": "只读查看任务与输出", "Parent conversation · ": "父会话 · ", "Loading subagents…": "正在加载子代理…",
 	"No subagents in this conversation.": "此会话没有子代理。", "Inspect · ": "查看 · ", "Close subagents": "关闭子代理", "All subagents": "全部子代理",
