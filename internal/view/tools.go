@@ -16,6 +16,41 @@ func (model *Model) toolTitle(title string) string {
 	return model.T(title)
 }
 
+func toolIcon(title string) *mgo.SVG {
+	name := strings.ToLower(title)
+	switch {
+	case strings.Contains(name, "bash"), strings.Contains(name, "shell"), strings.Contains(name, "exec"), strings.Contains(name, "terminal"):
+		return iconTerminal
+	case strings.Contains(name, "edit"), strings.Contains(name, "write"), strings.Contains(name, "patch"), strings.Contains(name, "apply"):
+		return iconEdit
+	case strings.Contains(name, "read"), strings.Contains(name, "view"), strings.Contains(name, "glob"), strings.Contains(name, "grep"), strings.Contains(name, "search"), strings.Contains(name, "find"):
+		return iconSearch
+	case strings.Contains(name, "agent"), strings.Contains(name, "task"), strings.Contains(name, "subagent"):
+		return iconAgents
+	case strings.Contains(name, "image"):
+		return iconImage
+	case strings.Contains(name, "folder"), strings.Contains(name, "list"):
+		return iconFolder
+	default:
+		return iconFile
+	}
+}
+
+func toolStatusPill(c *mgo.Context, model *Model, item projection.Item) mgo.Element {
+	tokens := tokensFor(c.Theme())
+	foreground, background := tokens.TextMuted, tokens.Surface
+	label := model.T(toolState(item.State))
+	switch {
+	case item.IsError || item.State == "error":
+		foreground, background = tokens.Danger, tokens.DangerSoft
+	case item.State == "running":
+		foreground, background = tokens.Accent, tokens.AccentSoft
+	case item.State == "done":
+		foreground, background = tokens.Success, tokens.SuccessSoft
+	}
+	return statusPill(c, "tool-state-"+item.ID, label, foreground, background)
+}
+
 type ToolCardState struct{ Expanded bool }
 
 type ToolInspectorState struct {
@@ -84,9 +119,16 @@ func toolInspectorModal(c *mgo.Context, model *Model) {
 	modal := mgo.Modal(c.Key("tool-inspector-"+inspector.ID), &inspector.Open, func() {
 		mgo.Text(c, model.T("Tool details")).FontSize(18).Bold()
 		mgo.Text(c, item.Title).FontSize(13)
-		mgo.Row(c).Gap(8).Children(func() {
+		tokens := tokensFor(c.Theme())
+		mgo.Row(c).Gap(space4).Children(func() {
 			for index, label := range []string{"Arguments", "Result", "Changes"} {
-				if mgo.Button(c.Key(label), model.T(label)).Clicked() {
+				background := mgo.Transparent
+				foreground := tokens.TextMuted
+				if inspector.Tab == index {
+					background, foreground = tokens.AccentSoft, tokens.Accent
+				}
+				if mgo.Button(c.Key(label), model.T(label)).Padding(space4, space12).Radius(radiusSm).
+					Background(background).TextColor(foreground).Clicked() {
 					inspector.Tab = index
 				}
 			}

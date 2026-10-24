@@ -30,6 +30,20 @@ func TestViewShowsTranscriptAndStatus(t *testing.T) {
 	}
 }
 
+func TestEmptySuggestionFillsDraftWithoutSending(t *testing.T) {
+	model := sessionModel()
+	sent := 0
+	model.Send = func(string) { sent++ }
+	tt := tester(model)
+	if err := tt.Click("Summarize this project"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if model.Draft != "Summarize this project" || sent != 0 {
+		t.Fatalf("draft=%q sent=%d", model.Draft, sent)
+	}
+}
+
 func TestComposerSendsOnEnter(t *testing.T) {
 	var sent []string
 	model := NewModel()

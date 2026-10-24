@@ -135,16 +135,19 @@ func composerMentions(c *mgo.Context, area mgo.Element, model *Model) {
 		return
 	}
 	state.Active = true
+	tokens := tokensFor(c.Theme())
 	panel := mgo.Popover(c, area, &state.Active, func() {
-		mgo.Column(c).Padding(6).Gap(2).Children(func() {
+		mgo.Column(c).Padding(space4).Gap(space2).Background(tokens.SurfaceRaised).
+			Border(1, tokens.Border).Radius(radiusMd).Children(func() {
 			if len(state.Candidates) == 0 {
-				mgo.Text(c, model.T("No matching files")).FontSize(11).TextColor(c.Theme().TextMuted)
+				mgo.Text(c, model.T("No matching files")).FontSize(textMicro).TextColor(tokens.TextMuted).Padding(space4)
 				return
 			}
 			for index, candidate := range state.Candidates {
-				button := mgo.Button(c.Key(fmt.Sprintf("mention-%d", index)), candidate)
+				button := mgo.Button(c.Key(fmt.Sprintf("mention-%d", index)), candidate).
+					FontSize(textCaption).Padding(space4, space8).Radius(radiusSm)
 				if index == state.Index {
-					button.Background(c.Theme().Surface)
+					button.Background(tokens.AccentSoft).TextColor(tokens.Accent)
 				}
 				if button.Clicked() {
 					selectMention(model, candidate)

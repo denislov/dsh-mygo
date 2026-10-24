@@ -180,6 +180,8 @@ func View(c *mgo.Context, model *Model) {
 	applicationShortcuts(c, model)
 	theme := c.Theme()
 	services := c.Services()
+	model.Markdown.Theme = markdownTheme(c)
+	model.InterruptedMarkdown.Theme = model.Markdown.Theme
 	model.Markdown.OnLink = func(address string) {
 		if safeMarkdownLink(address) {
 			services.OpenURL(address)
@@ -239,12 +241,12 @@ func errorBanner(c *mgo.Context, model *Model) {
 
 func transcript(c *mgo.Context, model *Model) {
 	if len(model.Items) == 0 && model.History.Start == 0 {
-		mgo.Scroll(c.Key("empty-transcript-"+model.SessionID)).Grow(1).MinHeight(0).FillWidth().Padding(24, 24).Children(func() { emptyConversation(c, model) })
+		mgo.Scroll(c.Key("empty-transcript-"+model.SessionID)).Grow(1).MinHeight(0).FillWidth().Padding(space20, space24).Children(func() { emptyConversation(c, model) })
 		return
 	}
 	mgo.List(c.Key("transcript-"+model.SessionID), &model.List, len(model.Items), func(row int) {
 		message(c, model, model.Items[row])
-	}).Grow(1).Gap(22).Padding(24, 24).Children(func() {
+	}).Grow(1).Gap(space24).Padding(space20, space24).Children(func() {
 		if len(model.Items) == 0 {
 			if model.History.Start > 0 {
 				mgo.Text(c, model.T("No visible messages in this history window.")).FontSize(13)
@@ -259,6 +261,21 @@ func message(c *mgo.Context, model *Model, item projection.Item) {
 	mgo.Row(c.Key(item.ID)).FillWidth().Justify(mgo.Center).Children(func() {
 		mgo.Column(c).FillWidth().MaxWidth(readingWidth).Children(func() { transcriptItem(c, model, item) })
 	})
+}
+
+func markdownTheme(c *mgo.Context) *markdown.Theme {
+	theme := c.Theme()
+	tokens := tokensFor(theme)
+	options := markdown.DefaultTheme(theme)
+	options.FontSize = textBody
+	options.LineHeight = 1.55
+	options.CodeBackground = tokens.CodeBackground
+	options.CodeBlockBackground = tokens.CodeBackground
+	options.CodeBlockBorder = tokens.Border
+	options.QuoteBar = tokens.Border
+	options.Rule = tokens.Border
+	options.Mark = tokens.AccentSoft
+	return options
 }
 
 func transcriptItem(c *mgo.Context, model *Model, item projection.Item) {
@@ -288,39 +305,51 @@ func transcriptItem(c *mgo.Context, model *Model, item projection.Item) {
 
 func card(c *mgo.Context, model *Model, item projection.Item, fromUser bool) {
 	theme := c.Theme()
-	container := mgo.Column(c).MaxWidth(readingWidth).Gap(10)
+	tokens := tokensFor(theme)
+	container := mgo.Column(c).MaxWidth(readingWidth).Gap(space8)
 	if fromUser {
-		container = container.MaxWidth(600).Padding(12, 16).Radius(16).Background(theme.Surface).Selectable()
+		container = container.MaxWidth(600).Padding(space12, space16).Radius(radiusXl).
+			Background(tokens.UserBubble).Selectable()
 	} else {
 		container = container.FillWidth()
 	}
+	container.Label(model.T(item.Title))
+	var action mgo.Element
+	hasAction := false
 	container.Children(func() {
-		mgo.Row(c).Gap(8).Children(func() {
-			if !fromUser {
-				mgo.Icon(c, iconSpark).Size(16, 16).TextColor(theme.Accent)
-			}
-			mgo.Text(c, model.T(item.Title)).FontSize(11).Bold().TextColor(theme.TextMuted)
-			if item.Detail != "" {
-				mgo.Text(c, model.T(item.Detail)).FontSize(11).TextColor(theme.TextMuted)
-			}
-			mgo.Spacer(c)
-			if item.Text != "" {
-				mgo.Toolbar(c.Key("message-actions"), func() { messageCopyButton(c, model, item, fromUser) }).Padding(0)
-			}
-		})
+		if item.Detail != "" {
+			mgo.Row(c).Gap(space6).AlignItems(mgo.Center).Children(func() {
+				if item.State == "streaming" {
+					mgo.Spinner(c.Key("streaming-spinner")).Size(10, 10)
+				}
+				color := tokens.TextMuted
+				if item.State == "interrupted" {
+					color = tokens.Warning
+				}
+				mgo.Text(c, model.T(item.Detail)).FontSize(textMicro).TextColor(color).
+					ContentTransition(mgo.ContentTransition{})
+			})
+		}
 		if len(item.Attachments) > 0 {
-			mgo.Column(c).Gap(4).Children(func() {
+			mgo.Row(c).Wrap().Gap(space4).Children(func() {
 				for _, attachment := range item.Attachments {
-					mgo.Text(c, attachmentLabel(model, attachment)).FontSize(11).TextColor(theme.TextMuted).SingleLine()
+					mgo.Badge(c, attachmentLabel(model, attachment)).FontSize(textMicro).
+						Padding(space2, space8).Radius(radiusSm).
+						Background(tokens.Surface).Border(1, tokens.Border).TextColor(tokens.TextMuted)
 				}
 			})
 		}
 		if item.Truncated {
-			mgo.Text(c, model.T("Truncated message: only the visible prefix is available.")).FontSize(11).TextColor(theme.Warning)
+			mgo.Text(c, model.T("Truncated message: only the visible prefix is available.")).
+				FontSize(textMicro).TextColor(tokens.Warning)
 		}
 		if fromUser || item.Truncated {
 			if item.Text != "" {
-				mgo.Text(c, item.Text).FontSize(15).LineHeight(1.5).Selectable()
+				color := theme.Text
+				if fromUser {
+					color = tokens.UserBubbleText
+				}
+				mgo.Text(c, item.Text).FontSize(textBody).LineHeight(1.55).TextColor(color).Selectable()
 			}
 		} else if item.State == "streaming" {
 			markdown.Stream(c.Key("assistant-markdown"), item.Text, &model.Markdown).FillWidth()
@@ -329,33 +358,48 @@ func card(c *mgo.Context, model *Model, item projection.Item, fromUser bool) {
 		} else {
 			markdown.View(c.Key("assistant-markdown"), item.Text, &model.Markdown).FillWidth()
 		}
+		if item.Text != "" {
+			mgo.Row(c).FillWidth().Justify(mgo.End).Children(func() {
+				action = messageCopyButton(c, model, item, fromUser)
+				hasAction = true
+			})
+		}
 	})
+	if hasAction && !container.Hovered() && !container.FocusWithin() {
+		action.Opacity(0.4)
+	}
 }
 
 func toolCard(c *mgo.Context, model *Model, item projection.Item) {
-	theme := c.Theme()
-	stateColor := theme.TextMuted
-	if item.IsError {
-		stateColor = theme.Danger
-	}
-	mgo.Column(c).FillWidth().MaxWidth(readingWidth).Padding(8, 12).Gap(4).Radius(10).
-		Background(theme.Surface).Border(1, theme.Border).Selectable().Children(func() {
-		mgo.Row(c).Gap(8).AlignItems(mgo.Center).Children(func() {
-			mgo.Collapsible(c.Key("tool-disclosure"), model.toolTitle(item.Title), &model.toolCardState(item.ID).Expanded, func() {
+	tokens := tokensFor(c.Theme())
+	state := model.toolCardState(item.ID)
+	card := surfaceCard(c, "tool-card-"+item.ID).FillWidth().MaxWidth(readingWidth).
+		Padding(space8, space12).Gap(space4).Selectable()
+	card.Children(func() {
+		disclosure := mgo.CollapsibleBase(c, &state.Expanded)
+		disclosure.Trigger.FillWidth().Gap(space8).AlignItems(mgo.Center).Padding(space2, 0).
+			Label(model.toolTitle(item.Title))
+		disclosure.Trigger.Children(func() {
+			mgo.Icon(c, toolIcon(item.Title)).Size(15, 15).TextColor(tokens.TextMuted)
+			mgo.Text(c, model.toolTitle(item.Title)).FontSize(textCaption).Bold().SingleLine().Grow(1)
+			if item.State != "" {
+				toolStatusPill(c, model, item)
+			}
+			mgo.Icon(c, iconChevronRight).Size(12, 12).TextColor(tokens.TextMuted).
+				Rotate(90 * disclosure.Progress())
+		})
+		disclosure.Panel(func() {
+			mgo.Column(c).Gap(space4).Padding(space8, 0, space2, 0).Children(func() {
 				if item.Text != "" {
-					mgo.Text(c, item.Text).FontSize(11).TextColor(theme.TextMuted)
+					mgo.Text(c, item.Text).FontSize(textMicro).TextColor(tokens.TextMuted)
 				}
 				if item.Detail != "" {
-					mgo.Text(c, item.Detail).FontSize(12)
+					mgo.Text(c, item.Detail).FontSize(textCaption).TextColor(tokens.Text)
 				}
 				if mgo.Button(c.Key("tool-details"), model.T("View details")).Clicked() {
 					model.OpenToolDetails(item.ID)
 				}
-			}).Grow(1)
-			mgo.Spacer(c)
-			if item.State != "" {
-				mgo.Text(c, model.T(toolState(item.State))).FontSize(11).TextColor(stateColor)
-			}
+			})
 		})
 	})
 }

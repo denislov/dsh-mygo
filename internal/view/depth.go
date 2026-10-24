@@ -41,35 +41,51 @@ func taskPanel(c *mgo.Context, model *Model) {
 	if len(model.Tasks) == 0 {
 		return
 	}
-	theme := c.Theme()
+	tokens := tokensFor(c.Theme())
 	done, total := taskProgress(model.Tasks)
 	const maxVisible = 8
 	visible := model.Tasks
 	if len(visible) > maxVisible {
 		visible = visible[:maxVisible]
 	}
-	mgo.Row(c.Key("tasks-zone")).FillWidth().Justify(mgo.Center).Padding(0, 24).Children(func() {
-		mgo.Column(c.Key("tasks-panel")).FillWidth().MaxWidth(readingWidth).Padding(4, 8).Radius(10).Children(func() {
-			mgo.Collapsible(c.Key("task-disclosure"), fmt.Sprintf(model.T("Tasks %d/%d"), done, total), &model.Shell.TasksExpanded, func() {
+	label := fmt.Sprintf(model.T("Tasks %d/%d"), done, total)
+	mgo.Row(c.Key("tasks-zone")).FillWidth().Justify(mgo.Center).Padding(0, space24, space4, space24).Children(func() {
+		card := mgo.Column(c.Key("tasks-panel")).FillWidth().MaxWidth(readingWidth).
+			Padding(space6, space12).Radius(radiusLg).Background(tokens.SurfaceRaised).Border(1, tokens.Border)
+		card = shadowCard.apply(card)
+		card.Children(func() {
+			disclosure := mgo.CollapsibleBase(c, &model.Shell.TasksExpanded)
+			disclosure.Trigger.FillWidth().Gap(space8).AlignItems(mgo.Center).Label(label)
+			disclosure.Trigger.Children(func() {
+				mgo.Text(c, label).FontSize(textCaption).Bold().SingleLine()
+				ratio := 0.0
+				if total > 0 {
+					ratio = float64(done) / float64(total)
+				}
+				mgo.Progress(c.Key("task-progress"), ratio).Grow(1).Label(label)
+				mgo.Icon(c, iconChevronRight).Size(12, 12).TextColor(tokens.TextMuted).Rotate(90 * disclosure.Progress())
+			})
+			disclosure.Panel(func() {
 				_, height := c.Size()
-				mgo.Scroll(c.Key("task-scroll")).FillWidth().MaxHeight(max(54, min(150, height-330))).Children(func() {
-					mgo.Column(c).FillWidth().Gap(5).Children(func() {
+				mgo.Scroll(c.Key("task-scroll")).FillWidth().
+					MaxHeight(max(54, min(150, height-titleBarHeight(c)-330))).Children(func() {
+					mgo.Column(c).FillWidth().Gap(space6).Padding(space4, 0).Children(func() {
 						for _, task := range visible {
-							prefix, color := "○", theme.TextMuted
+							prefix, color := "○", tokens.TextMuted
 							switch task.Status {
 							case "completed":
 								prefix = "✓"
 							case "in_progress":
-								prefix, color = "▶", theme.Text
+								prefix, color = "▶", tokens.Accent
 							}
-							mgo.Text(c, prefix+" "+task.Content).FontSize(12).TextColor(color).SingleLine()
+							mgo.Text(c, prefix+" "+task.Content).FontSize(textCaption).TextColor(color).SingleLine()
 						}
 						if len(model.Tasks) > maxVisible {
-							mgo.Text(c, fmt.Sprintf(model.T("+%d more"), len(model.Tasks)-maxVisible)).FontSize(11).TextColor(theme.TextMuted)
+							mgo.Text(c, fmt.Sprintf(model.T("+%d more"), len(model.Tasks)-maxVisible)).FontSize(textMicro).TextColor(tokens.TextMuted)
 						}
 					})
 				})
-			}).FillWidth().FontSize(12)
+			})
 		})
 	})
 }

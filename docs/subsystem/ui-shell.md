@@ -32,7 +32,7 @@ UI 壳层是 MyGo 进程里的原生界面：
 - 窗口使用 MyGo `TitleBarHidden`，保留 Windows 自绘的最小化/最大化/关闭按钮；视图通过 `c.TitleBar()` 取得系统按钮占位，标题栏整行 `DragWindow()`，操作按钮始终避开 `bar.Right`。标题栏左侧为应用菜单、侧栏开关与 New chat，中间为会话标题与连接/工作状态，右侧为连接、子代理、会话列表、界面偏好与会话详情入口；窄窗口把次要入口收进菜单。无标题时使用本地化的未命名提示，不把会话 ID 当作页面标题。模型入口放在 composer 工具条，点击沿用 Settings 的能力与写入门禁。
 - 应用菜单使用 MyGo 原生系统菜单：New conversation、Sessions、Show/Hide sidebar、Subagents、Connect DeepSeek、Preferences、Quit；不可用的能力隐藏或禁用，不提供无后端动作的菜单项。
 - 会话详情使用 MyGo Popover，按需展示模型完整路由、工作目录、session id、Host/DSH 版本、实际权限、usage/context、计划/目标与子代理摘要；内容有界滚动，工作期间仍可查看。打开任意 Modal 时关闭该 Popover，Modal 关闭后不自动重开，不与审批/提问/检视器叠加。
-- 聊天与输入区共享最大 760 DIP 的居中阅读宽度。助手消息直接在页面上排版，用户消息使用中性背景与圆角；正文使用 15 DIP 字号，用户原文与助手 Markdown 维持各自解释规则。复制动作使用带名称、Tooltip 和反馈图标的原生按钮，不以长文字按钮占据正文。
+- 聊天与输入区共享最大 760 DIP 的居中阅读宽度。助手消息直接在页面上排版，不再显示可见的角色行；用户消息使用 `UserBubble` 暖色背景、圆角与右对齐，正文使用 15 DIP 字号，用户原文与助手 Markdown 维持各自解释规则。角色名保留为消息容器的可访问名称。复制动作位于消息下方并右对齐，默认降低不透明度、在消息 hover 或键盘焦点进入时恢复；使用带名称、Tooltip 和反馈图标的原生按钮，不以长文字按钮占据正文。
 
 - transcript 显示提交后的 user 消息、assistant 文本、tool call/result 与 turn 结束通知；不显示 synthetic user context、system/developer 消息、reasoning。
 - 协商 `session.assistant-stream` 后，额外展示带 `Streaming…` 标记的临时 assistant 行，稳定绑定 attemptId；提交时由唯一的 durable 行替换。没有可见 text 时不显示空卡片；缺口/abandoned/idle/失败/关闭移除临时行，不改 composer 草稿。
@@ -46,7 +46,7 @@ UI 壳层是 MyGo 进程里的原生界面：
 - 协商 `session.cancel` 后，working 时的 Send 替换为 Stop；点击后显示禁用的 `Stopping…`，直到取消请求返回且 Host 确认 idle。提前收到 idle 也不会放行新消息；取消失败显示错误并允许重试。取消不清除下一条草稿。Stop 和 Send 使用不同的稳定 key，反复消失/返回时不复用错误控件状态。SDK/旧 Host 不启用 Stop。
 - 协商 `approval` 后，通过原生 Modal 按 FIFO 展示工具、原因和完整关联参数；提供 Allow once / Deny / Stop turn。Escape 或点击弹窗外拒绝，提交时防重复，失败可重试，草稿保留；external 请求显示未关联警告。请求身份作为稳定 key，关闭后下一请求不继承旧控件状态。
 - 协商 `question` 后，原生 Modal 支持整批单选、多选和自由文本，完整展示题目、选项说明和 detail；所有题目回答后一次提交。表单状态按请求/题目稳定绑定，重试保留答案，Escape/点击外部等同 Cancel question；Stop turn 另行停止回合。无 agent 请求明确标注，不显示 Stop turn。审批优先，同一时刻只有一个交互弹窗。
-- 工具卡片使用原生 Collapsible，默认折叠，展开状态绑定稳定工具行 ID，结果更新/列表位置变化不重置。展开显示预览和 `View details`；原生检视器提供 Arguments / Result / Changes、逐 hunk 导航和只读 DiffView，大 hunk 明确回退文本。不读写显示路径，不提供应用/撤销改动操作。
+- 工具卡片使用原生 `CollapsibleBase` 组合出自定义 header（工具图标、工具名、状态 pill、折叠箭头），默认折叠，展开状态绑定稳定工具行 ID，结果更新/列表位置变化不重置。展开显示预览和 `View details`；原生检视器提供 Arguments / Result / Changes、逐 hunk 导航和只读 DiffView，大 hunk 明确回退文本。不读写显示路径，不提供应用/撤销改动操作。
 - 检视器只保留一个 hunk 的 editor 状态；关闭、结果更新和淘汰释放旧缓冲。审批/提问优先，暂时隐藏检视器，避免两个 Modal 叠加；交互结束后可以继续查看。
 - 协商 `session.history` 后，标题栏提供 Sessions，当前会话 ID 与 cwd 在会话详情中查看。侧栏或选择弹窗显示当前 profile 的有界完整摘要列表、时间、状态与目录，支持 Refresh / New conversation / 选择恢复；窄窗口用弹窗降级。旧 Host/SDK 不显示入口。
 - 会话详情显示最新一步 token 用量与路由容量（`Context 已用 / 容量 · 百分比 · In / Out · cache`），只在 Host 提供对应事件时出现；容量或用量未知时省略对应片段，不阻塞 Sessions/Settings 入口，也不参与发送或历史回放。
@@ -120,7 +120,7 @@ App
 
 ### 任务与目标
 
-- composer 上方使用 MyGo Collapsible 展示最新 `todo/write` 清单：默认只显示 `Tasks done/total`，展开后在有界滚动区显示最多 8 行，完成/进行中/待办各有标记，超出显示 `+N more`；下一回合开始清空，清单不进入正文。展开高度根据窗口收紧，不把输入或发送按钮推出最小窗口。
+- composer 上方使用带边框与阴影的浮动卡片，以 MyGo `CollapsibleBase` + `Progress` 展示最新 `todo/write` 清单：默认只显示 `Tasks done/total` 与完成度进度条，展开后在有界滚动区显示最多 8 行，完成/进行中/待办各有标记，超出显示 `+N more`；下一回合开始清空，清单不进入正文。展开高度根据窗口收紧并扣除标题栏高度，不把输入或发送按钮推出最小窗口。
 - 会话详情显示计划模式、当前目标（objective、phase、rounds）与子代理实时状态（运行中/已完成计数）；没有对应事件时不占位，切换会话清空子代理状态。
 
 ### 首次使用与工作文件夹
@@ -147,7 +147,7 @@ App
 
 ### 工具卡片
 
-- 默认折叠；标题显示工具名、状态、耗时、结果摘要。
+- 默认折叠；标题显示工具图标、工具名、状态 pill 与结果摘要；耗时只在投影提供可靠起止时间时显示，缺失不伪造。
 - 展开后：
   - 参数：格式化 JSON 或命令。
   - 结果：文本、Markdown、图片、diff。
@@ -165,7 +165,7 @@ App
 ## 输入区
 
 - 多行文本：`ui.TextArea` / `ui.TextAreaBuffer`；大草稿用 `ui.TextBuffer`；支持输入法、选区、撤销。
-- composer 将 TextArea、图片暂存、附件/模型工具条和发送/停止整合在一个圆角表面；外层响应 FocusWithin 显示焦点边框。TextArea 清除组件的默认最小高度，使用 Lines 约束并在小窗口收紧最大行数；附件列表独立限高滚动，快捷键提示位于表面下方。
+- composer 将 TextArea、图片暂存、附件/模型工具条和发送/停止整合在一个 `SurfaceRaised` 浮动卡片中（圆角 22、1 DIP 边框、floating 阴影）；外层响应 FocusWithin 显示赤陶橙焦点边框。TextArea 清除组件的默认最小高度，使用 Lines 约束并在小窗口收紧最大行数；附件以圆角 chip 展示并独立限高滚动，快捷键提示位于表面下方。发送为圆形主按钮，附件与模型 chip 使用低强调悬停态。
 - Enter 发送，Shift+Enter 换行；可在设置中交换。
 - 附件：粘贴/拖放/选择文件；图片走 `session/prompt` 的 image 块；路径引用走 `@path`。粘贴用 `OnPaste` + `mygo.Clipboard.ReadImage`/`ReadFiles`，拖放用 `DroppedFiles`/`FileDragOver`（窗口级 `OnFileDrop` 兜底），选择用 `mygo.Dialog.Open`（在 goroutine 打开，结果经 `Window.Update` 发布）。待发图片进入当前草稿的暂存列表，发送前按协商上限校验类型、单图、总量与数量；超限或失败保留草稿与暂存图片并显示可读原因。暂存图片不写入本地草稿文件，切换会话或重启后清空。
 - `@` 引用：用 `TextSelection` 定位光标处的 `@token`，`ui.Popover` 锚定输入区列出匹配路径（MyGo 不提供 TextArea 光标矩形）；Up/Down/Tab/Escape 在 `OnTextKey` 中消费；选中后替换 token 为 `@path`。引用只是文本，发送时不复制文件内容，Host 与 UI 同机。

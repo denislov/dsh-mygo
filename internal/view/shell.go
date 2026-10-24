@@ -52,22 +52,49 @@ func detailField(c *mgo.Context, title, value string) {
 }
 
 func emptyConversation(c *mgo.Context, model *Model) {
-	theme := c.Theme()
+	tokens := tokensFor(c.Theme())
 	_, height := c.Size()
-	compact := height < 560 && model.Setup.ChooseFolder != nil
-	padding := float32(12)
+	compact := height-titleBarHeight(c) < 560 && model.Setup.ChooseFolder != nil
+	padding := space12
 	if compact {
 		padding = 0
 	}
-	mgo.Column(c.Key("empty-conversation")).FillWidth().AlignItems(mgo.Center).Gap(10).Padding(padding).Children(func() {
+	mgo.Column(c.Key("empty-conversation")).FillWidth().AlignItems(mgo.Center).Gap(space8).Padding(padding).Children(func() {
 		if !compact {
-			mgo.Icon(c, iconSpark).Size(24, 24).TextColor(theme.Accent)
-			mgo.Text(c, model.T("Start a conversation")).FontSize(24).Bold()
+			mgo.Icon(c, iconSpark).Size(22, 22).TextColor(tokens.Accent)
+			mgo.Text(c, model.T("Start a conversation")).FontSize(textDisplay).Bold().TextAlign(mgo.Center)
+			mgo.Text(c, model.T("A little context. A clear next step.")).FontSize(textBody).
+				TextColor(tokens.TextMuted).TextAlign(mgo.Center)
 		}
 		if model.Setup.ChooseFolder != nil {
 			firstUseControls(c, model)
-		} else {
-			mgo.Text(c, model.T("A little context. A clear next step.")).FontSize(14).TextColor(theme.TextMuted)
+		} else if !compact && model.Draft == "" && model.Send != nil {
+			emptySuggestions(c, model)
+		}
+	})
+}
+
+func emptySuggestions(c *mgo.Context, model *Model) {
+	tokens := tokensFor(c.Theme())
+	prompts := []string{"Summarize this project", "Suggest the next step", "Explain the codebase"}
+	mgo.Row(c.Key("empty-suggestions")).Wrap().Justify(mgo.Center).Gap(space8).Padding(space8, 0, 0, 0).Children(func() {
+		for _, prompt := range prompts {
+			button := mgo.Button(c.Key("suggestion-"+prompt), "").Label(model.T(prompt)).Padding(space6, space12).
+				Radius(radiusPill).Background(tokens.SurfaceRaised).Border(1, tokens.Border).Transition(quietTransition)
+			button.Children(func() {
+				mgo.Text(c, model.T(prompt)).FontSize(textCaption)
+			})
+			if button.Pressed() {
+				button.Background(tokens.SurfacePressed)
+			} else if button.Hovered() {
+				button.Background(tokens.SurfaceHover)
+			}
+			if button.Clicked() {
+				model.Draft = model.T(prompt)
+				if model.DraftChanged != nil {
+					model.DraftChanged()
+				}
+			}
 		}
 	})
 }

@@ -26,7 +26,7 @@ func safeMarkdownLink(address string) bool {
 	return scheme == "http" || scheme == "https"
 }
 
-func messageCopyButton(c *mgo.Context, model *Model, item projection.Item, fromUser bool) {
+func messageCopyButton(c *mgo.Context, model *Model, item projection.Item, fromUser bool) mgo.Element {
 	label := "Copy Markdown"
 	if fromUser {
 		label = "Copy message"
@@ -48,7 +48,7 @@ func messageCopyButton(c *mgo.Context, model *Model, item projection.Item, fromU
 	if model.CopiedMessageID == item.ID && model.CopiedMessageText == item.Text {
 		icon = iconCheck
 	}
-	iconButton(c.Key("copy-message"), model.T(label), icon).Padding(4).OnClick(func() {
+	return iconButton(c.Key("copy-message"), model.T(label), icon).Padding(space4).OnClick(func() {
 		services.WriteClipboard(item.Text)
 		model.CopiedMessageID = item.ID
 		model.CopiedMessageText = item.Text
