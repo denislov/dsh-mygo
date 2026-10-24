@@ -8,6 +8,7 @@ import (
 
 func TestTaskPanelShowsChecklistAndProgress(t *testing.T) {
 	model := sessionModel()
+	model.Shell.TasksExpanded = true
 	model.Tasks = []projection.Task{
 		{Content: "Inspect projection", Status: "completed"},
 		{Content: "Project todo panel", Status: "in_progress"},
@@ -29,6 +30,7 @@ func TestTaskPanelShowsChecklistAndProgress(t *testing.T) {
 
 func TestTaskPanelBoundsVisibleRows(t *testing.T) {
 	model := sessionModel()
+	model.Shell.TasksExpanded = true
 	model.Tasks = make([]projection.Task, 0, 11)
 	for index := 0; index < 11; index++ {
 		model.Tasks = append(model.Tasks, projection.Task{Content: "task", Status: "pending"})
@@ -78,6 +80,7 @@ func TestHeaderShowsDepthRow(t *testing.T) {
 	model.PlanActive = true
 	model.Goal = &projection.Goal{Objective: "Ship M2-6", Phase: "paused", MaxRounds: 10, RoundsStarted: 2}
 	tt := tester(model)
+	showDetails(t, tt)
 	if !tt.HasText("Plan mode · Goal: Ship M2-6 · paused · 2/10") {
 		t.Fatalf("depth row missing in %v", tt.Texts())
 	}

@@ -52,6 +52,7 @@ func TestHeaderShowsUsageContextRow(t *testing.T) {
 	model.Usage = projection.UsageView{HasUsage: true, InputTokens: 1200, OutputTokens: 350}
 	model.Context = projection.ContextView{Provider: "deepseek-official", Model: "deepseek-flash", Window: 128000}
 	tt := tester(model)
+	showDetails(t, tt)
 	if !tt.HasText("Context 1.6k / 128k · 1% · In 1.2k · Out 350") {
 		t.Fatalf("metrics row missing in %v", tt.Texts())
 	}

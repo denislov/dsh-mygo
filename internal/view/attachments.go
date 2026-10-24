@@ -5,15 +5,18 @@ import (
 
 	"dsh-mygo/internal/attachment"
 	"dsh-mygo/internal/projection"
+	mgo "github.com/egoist/mygo/ui"
 )
 
 // AttachmentState is the composer's staged uploads and the host policy that
 // bounds them. Uploads are session-local and never persisted with drafts.
 type AttachmentState struct {
-	Supported bool
-	Limits    attachment.Limits
-	Pending   []attachment.Draft
-	Error     string
+	Supported     bool
+	Limits        attachment.Limits
+	Pending       []attachment.Draft
+	Error         string
+	Previews      []AttachmentPreview
+	NextPreviewID uint64
 
 	// AttachImage stages clipboard or file bytes; the app owns policy checks
 	// and I/O for large payloads. AttachFiles classifies file paths, and
@@ -23,9 +26,23 @@ type AttachmentState struct {
 	PickAttachment func()
 }
 
+// Preview identities survive removal/reordering, and reject late worker results.
+type AttachmentPreview struct {
+	ID     uint64
+	Bitmap *mgo.Bitmap
+}
+
+func (state *AttachmentState) Preview(index int) *mgo.Bitmap {
+	if index < 0 || index >= len(state.Previews) {
+		return nil
+	}
+	return state.Previews[index].Bitmap
+}
+
 // Clear drops the staged uploads and their error, keeping the policy.
 func (state *AttachmentState) Clear() {
 	state.Pending = nil
+	state.Previews = nil
 	state.Error = ""
 }
 
@@ -35,6 +52,9 @@ func (state *AttachmentState) Remove(index int) {
 		return
 	}
 	state.Pending = append(state.Pending[:index], state.Pending[index+1:]...)
+	if index < len(state.Previews) {
+		state.Previews = append(state.Previews[:index], state.Previews[index+1:]...)
+	}
 	state.Error = ""
 }
 

@@ -14,9 +14,11 @@ import (
 	"strings"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/ui"
 
 	"dsh-mygo/internal/attachment"
 	"dsh-mygo/internal/channel"
+	"dsh-mygo/internal/view"
 )
 
 // maxDroppedPaths bounds one drop or picker result.
@@ -68,6 +70,39 @@ func (a *App) attachImage(name, mediaType string, data []byte) {
 	}
 	state.Pending = append(state.Pending, draft)
 	state.Error = ""
+	state.NextPreviewID++
+	id := state.NextPreviewID
+	state.Previews = append(state.Previews, view.AttachmentPreview{ID: id})
+	sessionID := a.model.SessionID
+	go func() {
+		bitmap := attachmentThumbnail(data)
+		if bitmap == nil {
+			return
+		}
+		a.post(func() {
+			if a.shuttingDown.Load() || a.model.SessionID != sessionID {
+				return
+			}
+			for index := range a.model.Attachments.Previews {
+				if a.model.Attachments.Previews[index].ID == id {
+					a.model.Attachments.Previews[index].Bitmap = bitmap
+					return
+				}
+			}
+		})
+	}()
+}
+
+// Decode off the UI thread with a separate preview budget. Oversized or
+// malformed images retain their metadata chip, without affecting the upload.
+func attachmentThumbnail(data []byte) *ui.Bitmap {
+	config, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil || config.Width <= 0 || config.Height <= 0 || int64(config.Width)*int64(config.Height) > 4_000_000 {
+		return nil
+	}
+	// MyGo handles EXIF orientation, downsampled rendering and texture lifetime.
+	bitmap, _ := ui.DecodeBitmap(data)
+	return bitmap
 }
 
 // AttachFiles classifies dropped or picked paths: accepted images become staged

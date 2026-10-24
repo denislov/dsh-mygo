@@ -86,8 +86,8 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 - **会话管理扩展**：侧栏、标题搜索、重命名/归档/恢复已接通；delete/fork 后置。独立目录检查点与退休句柄回收已接入，连续访问不再累积全部 Agent；目录仍限制 1000 条/256 KiB。冷检查点可能落后或缺失，会显示提示并在打开时由日志重建，尚无后台全库索引修复任务。
 - **权限模式扩展**：当前会话展示/切换、危险确认和冷恢复已接通；未来会话默认权限编辑仍后置，UI 不更改部署环境。
 - **UI 偏好扩展**：草稿、最近会话、主题、中英文与发送/新建/偏好/停止快捷键可配置并恢复；侧栏选择、搜索/复制等更广命令及任意按键录制后置。窗口尺寸/位置仍由 MyGo StateKey 处理。
-- **附件与引用**：图片输入契约、粘贴/拖放/选择文件、`@path` 补全与历史引用展示已完成；`/` 命令留扩展，附件缩略图读取未实现。
-- **深度信息**：usage/context 已在 header 展示最新一步与路由容量；compaction 不展示；`subagent/*` 协议表有定义但 Host 不发送、UI 不投影；plan/todo/goal 未投影。
+- **附件与引用**：图片输入契约、粘贴/拖放/选择文件、`@path` 补全与历史引用展示已完成；暂存图片已有原生预览（单图 400 万像素上限，超限回退元数据）；`/` 命令与历史附件缩略图读取后置。
+- **深度信息**：usage/context、plan/goal 与子代理实时计数在会话详情中查看，todo 在 composer 上方折叠展示；compaction 与子代理历史/结果入口仍待接。
 - **会话形态**：只支持单活跃会话；运行中会话不能 attach；后台会话的审批/提问不呈现。Host 同时拥有上限仍为 8，导航与冷目标管理会自动回收退休句柄；释放后重开使用冷恢复路由。
 - **本地化扩展**：应用标签/常用提示使用集中双语词表，并同步 MyGo 内建控件；用户/工具/提问载荷保留原文，技术诊断允许英文回退。Host 采用加载后的 locale，运行中更改在下次 Host 启动生效；其它语言与系统语言自动匹配后置。
 
@@ -174,6 +174,10 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 验收：0.1 完成定义全部满足，升级失败可回滚。
 
 ## 6. 建议的下一批任务（PR 粒度）
+
+界面美化已完成一轮：顶部改为会话标题与轻量状态，完整路由、路径、版本、权限及深度信息集中到 MyGo Popover；侧栏改为紧凑会话行、SearchField 与系统管理菜单；聊天正文与一体化 composer 使用统一阅读宽度和浅深语义主题，复制/发送/停止改用有名称和提示的原生图标按钮。任务使用 Collapsible 和有界滚动，图片暂存使用后台 MyGo DecodeBitmap 预览并拒绝跨会话/移除后的迟到结果。动效复用 Toolbar、Popover、Collapsible、Transition、ContentTransition 与 Spinner，不增加动画引擎、Web UI 或框架依赖。Windows 英文/中文字体分别为 Segoe UI 与 Microsoft YaHei UI，设置、审批/提问和发送门禁保持。
+
+本轮检查：`CGO_ENABLED=0 go test ./...`（379 项通过，真实 Host/付费组默认跳过）、`go test -race ./internal/app ./internal/view`（246 项）、`go tool mygo vet .`、`go vet ./...` 通过；显式设置 `DSH_MYGO_RESOURCES_DIR=resources` 的 `go test ./internal/app -run TestAgainstMygoRealAttachments -count=1 -v -timeout 2m` 通过。Windows 原生窗口复核浅色/深色、中英文、Markdown、任务折叠、560×420 布局与 Sessions 弹窗；图片选择器实际暂存图片并显示预览，暂停流式回合经 Stop 返回就绪，草稿保持原文且 Settings 仍可打开。Tester 覆盖系统菜单目标身份与 busy 门禁、详情与 Modal 互斥、30 行草稿/64 项任务/8 张附件时发送仍可达，新增异步预览的移除/清空/切换与像素预算回归。本轮未重建安装器，未跑打包/安装 smoke 或 macOS 验收。
 
 1. **M2-6 收尾**：usage/context、plan/todo/goal 与子代理实时状态已完成；补子代理历史/结果入口；运行中 attach 和后台会话交互保持 M3 后续单独推进。
 2. **M1-4 干净机器验收**：项目所有者因没有干净 Windows VM，决定本轮跳过并继续 M2；未验收，不标记通过。Windows 发布前重新安排离线首启与证书提示流程检查。

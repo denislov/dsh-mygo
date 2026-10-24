@@ -5,13 +5,10 @@ package view
 
 import (
 	"fmt"
-	"strings"
 
-	"github.com/egoist/mygo/transfer"
 	mgo "github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 
-	"dsh-mygo/internal/attachment"
 	"dsh-mygo/internal/interaction"
 	"dsh-mygo/internal/preferences"
 	"dsh-mygo/internal/projection"
@@ -38,6 +35,7 @@ const (
 // Model is the window's state. The app mutates it on the main thread and
 // keeps the transcript and draft outside the view.
 type Model struct {
+	Shell                ShellState
 	Prefs                PreferencesState
 	Attachments          AttachmentState
 	Mention              MentionState
@@ -139,8 +137,8 @@ type Model struct {
 // row state by item ID.
 func NewModel() *Model {
 	model := &Model{Phase: PhaseStarting,
-		Markdown:            markdown.Options{Theme: &markdown.Theme{FontSize: 13}, Reveal: &markdown.Reveal{Unit: markdown.AtOnce, Fade: -1}},
-		InterruptedMarkdown: markdown.Options{Theme: &markdown.Theme{FontSize: 13}},
+		Markdown:            markdown.Options{Theme: &markdown.Theme{FontSize: 15, LineHeight: 1.55}, Reveal: &markdown.Reveal{Unit: markdown.AtOnce, Fade: -1}},
+		InterruptedMarkdown: markdown.Options{Theme: &markdown.Theme{FontSize: 15, LineHeight: 1.55}},
 	}
 	model.List.FollowEnd = true
 	model.InterruptedMarkdown.CodeBlock = model.interruptedCodeBlock
@@ -157,6 +155,22 @@ func View(c *mgo.Context, model *Model) {
 		c.SetTheme(lightTheme)
 	case "dark":
 		c.SetTheme(darkTheme)
+	default:
+		if c.Theme().Dark {
+			c.SetTheme(darkTheme)
+		} else {
+			c.SetTheme(lightTheme)
+		}
+	}
+	if model.Prefs.Value.Locale == "zh-CN" {
+		if c.Theme().Dark {
+			c.SetTheme(darkChineseTheme)
+		} else {
+			c.SetTheme(lightChineseTheme)
+		}
+	}
+	if model.SettingsOpen || model.Prefs.Open || model.SessionsOpen || model.ToolInspector != nil || model.RecoveryOpen || len(model.Approvals) > 0 || len(model.Questions) > 0 {
+		model.Shell.DetailsOpen = false
 	}
 	applicationShortcuts(c, model)
 	theme := c.Theme()
@@ -169,7 +183,7 @@ func View(c *mgo.Context, model *Model) {
 	model.InterruptedMarkdown.OnLink = model.Markdown.OnLink
 	mgo.Row(c.Key("shell")).Fill().Background(theme.Background).Children(func() {
 		width, _ := c.Size()
-		if width >= 820 && model.CanHistory && !model.SessionsOpen && !model.SettingsOpen && len(model.Approvals) == 0 && len(model.Questions) == 0 {
+		if width >= 820 && model.CanHistory && !model.SessionsOpen {
 			sessionSidebar(c, model)
 		}
 		mgo.Column(c.Key("conversation")).Grow(1).MinWidth(0).FillHeight().Children(func() {
@@ -195,54 +209,9 @@ func View(c *mgo.Context, model *Model) {
 	preferenceModal(c, model)
 }
 
-func header(c *mgo.Context, model *Model) {
-	theme := c.Theme()
-	mgo.Row(c).Padding(14, 20).Gap(12).AlignItems(mgo.Center).Children(func() {
-		mgo.Text(c, model.T("dsh-mygo")).FontSize(15).Bold()
-		mgo.Button(c.Key("ui-preferences"), model.T("Preferences")).Disabled(!model.CanOpenPreferences()).OnClick(model.OpenPreferences)
-		if model.CanHistory && model.OpenSessions != nil {
-			mgo.Button(c.Key("sessions"), model.T("Sessions")).Disabled(!model.CanRefreshSessions()).OnClick(model.OpenSessions)
-		}
-		if (model.CanModels || model.Permission.Available) && model.OpenSettings != nil {
-			mgo.Button(c.Key("settings"), model.T("Settings")).Disabled(!model.CanEditSettings()).OnClick(model.OpenSettings)
-		}
-		mgo.Spacer(c)
-		mgo.Text(c, model.T(phaseLabel(model.Phase))).FontSize(12).TextColor(phaseColor(model.Phase, theme))
-	})
-	if model.ModelLabel != "" || model.Detail != "" {
-		mgo.Row(c.Key("model-route")).Padding(0, 20, 8, 20).Gap(12).Children(func() {
-			mgo.Text(c, model.ModelLabel).FontSize(12).TextColor(theme.TextMuted).SingleLine().Grow(1)
-			mgo.Text(c, model.Detail).FontSize(11).TextColor(theme.TextMuted).SingleLine()
-		})
-	}
-	if model.CanHistory && model.SessionID != "" {
-		mgo.Row(c.Key("active-session")).Padding(0, 20, 8, 20).Gap(12).Children(func() {
-			mgo.Text(c, model.ActiveSessionLabel()).FontSize(11).TextColor(theme.TextMuted).SingleLine().Grow(1)
-			mgo.Text(c, model.SessionCWD).FontSize(11).TextColor(theme.TextMuted).SingleLine()
-		})
-	}
-	if label := usageContextLabel(model); label != "" {
-		mgo.Text(c.Key("usage-context"), label).Padding(0, 20, 8, 20).FontSize(11).SingleLine().TextColor(theme.TextMuted)
-	}
-	if label := depthLabel(model); label != "" {
-		mgo.Text(c.Key("session-depth"), label).Padding(0, 20, 8, 20).FontSize(11).SingleLine().TextColor(theme.TextMuted)
-	}
-	if label := subagentLabel(model); label != "" {
-		mgo.Text(c.Key("subagents"), label).Padding(0, 20, 8, 20).FontSize(11).SingleLine().TextColor(theme.TextMuted)
-	}
-	if model.Permission.Available {
-		label := model.T("Permissions: refresh Settings")
-		if model.Permission.Ready {
-			label = model.T("Permissions: ") + model.Permission.Snapshot.Current + " · " + model.Permission.Snapshot.Sandbox + " / " + model.Permission.Snapshot.Approval
-		}
-		mgo.Text(c.Key("permission-current"), label).Padding(0, 20, 8, 20).FontSize(11).SingleLine().TextColor(theme.TextMuted)
-	}
-	mgo.Divider(c)
-}
-
 func errorBanner(c *mgo.Context, model *Model) {
 	theme := c.Theme()
-	mgo.Column(c).Margin(12, 20).Padding(10, 12).Gap(4).Radius(8).
+	mgo.Column(c.Key("host-error-banner")).Margin(12, 20).Padding(10, 12).Gap(4).Radius(8).Transition(panelTransition).
 		Background(theme.Surface).Border(1, theme.Danger).Children(func() {
 		mgo.Row(c).Gap(8).AlignItems(mgo.Center).Children(func() {
 			mgo.Text(c, model.T("Host error")).FontSize(12).Bold().TextColor(theme.Danger)
@@ -264,26 +233,24 @@ func errorBanner(c *mgo.Context, model *Model) {
 func transcript(c *mgo.Context, model *Model) {
 	mgo.List(c.Key("transcript-"+model.SessionID), &model.List, len(model.Items), func(row int) {
 		message(c, model, model.Items[row])
-	}).Grow(1).Gap(10).Padding(16, 20).Justify(mgo.End).Children(func() {
+	}).Grow(1).Gap(22).Padding(24, 24).Children(func() {
 		if len(model.Items) == 0 {
-			theme := c.Theme()
-			mgo.Column(c).Gap(4).Children(func() {
-				if model.History.Start > 0 {
-					mgo.Text(c, model.T("No visible messages in this history window.")).FontSize(13)
-					return
-				}
-				mgo.Text(c, model.T("Start a conversation")).FontSize(14).Bold()
-				hint := "Enter sends, Shift+Enter adds a line."
-				if model.Prefs.Value.Send == "Ctrl+Enter" {
-					hint = "Ctrl+Enter sends, Enter adds a line."
-				}
-				mgo.Text(c, model.T(hint)).FontSize(12).TextColor(theme.TextMuted)
-			})
+			if model.History.Start > 0 {
+				mgo.Text(c, model.T("No visible messages in this history window.")).FontSize(13)
+			} else {
+				emptyConversation(c, model)
+			}
 		}
 	})
 }
 
 func message(c *mgo.Context, model *Model, item projection.Item) {
+	mgo.Row(c.Key(item.ID)).FillWidth().Justify(mgo.Center).Children(func() {
+		mgo.Column(c).FillWidth().MaxWidth(readingWidth).Children(func() { transcriptItem(c, model, item) })
+	})
+}
+
+func transcriptItem(c *mgo.Context, model *Model, item projection.Item) {
 	switch item.Kind {
 	case projection.KindUser:
 		mgo.Row(c).Key(item.ID).FillWidth().Justify(mgo.End).Children(func() {
@@ -310,26 +277,24 @@ func message(c *mgo.Context, model *Model, item projection.Item) {
 
 func card(c *mgo.Context, model *Model, item projection.Item, fromUser bool) {
 	theme := c.Theme()
-	border := float32(0)
-	borderColor := theme.Border
+	container := mgo.Column(c).MaxWidth(readingWidth).Gap(10)
 	if fromUser {
-		border = 1
-		borderColor = theme.Accent
-	}
-	container := mgo.Column(c).MaxWidth(680).Padding(10, 14).Gap(4).Radius(10).
-		Background(theme.Surface).Border(border, borderColor)
-	if fromUser {
-		container.Selectable()
+		container = container.MaxWidth(600).Padding(12, 16).Radius(16).Background(theme.Surface).Selectable()
+	} else {
+		container = container.FillWidth()
 	}
 	container.Children(func() {
 		mgo.Row(c).Gap(8).Children(func() {
+			if !fromUser {
+				mgo.Icon(c, iconSpark).Size(16, 16).TextColor(theme.Accent)
+			}
 			mgo.Text(c, model.T(item.Title)).FontSize(11).Bold().TextColor(theme.TextMuted)
 			if item.Detail != "" {
 				mgo.Text(c, model.T(item.Detail)).FontSize(11).TextColor(theme.TextMuted)
 			}
 			mgo.Spacer(c)
 			if item.Text != "" {
-				messageCopyButton(c, model, item, fromUser)
+				mgo.Toolbar(c.Key("message-actions"), func() { messageCopyButton(c, model, item, fromUser) }).Padding(0)
 			}
 		})
 		if len(item.Attachments) > 0 {
@@ -344,7 +309,7 @@ func card(c *mgo.Context, model *Model, item projection.Item, fromUser bool) {
 		}
 		if fromUser || item.Truncated {
 			if item.Text != "" {
-				mgo.Text(c, item.Text).FontSize(13).Selectable()
+				mgo.Text(c, item.Text).FontSize(15).LineHeight(1.5).Selectable()
 			}
 		} else if item.State == "streaming" {
 			markdown.Stream(c.Key("assistant-markdown"), item.Text, &model.Markdown).FillWidth()
@@ -362,7 +327,7 @@ func toolCard(c *mgo.Context, model *Model, item projection.Item) {
 	if item.IsError {
 		stateColor = theme.Danger
 	}
-	mgo.Column(c).MaxWidth(680).Padding(8, 12).Gap(4).Radius(8).
+	mgo.Column(c).FillWidth().MaxWidth(readingWidth).Padding(8, 12).Gap(4).Radius(10).
 		Background(theme.Surface).Border(1, theme.Border).Selectable().Children(func() {
 		mgo.Row(c).Gap(8).AlignItems(mgo.Center).Children(func() {
 			mgo.Collapsible(c.Key("tool-disclosure"), model.toolTitle(item.Title), &model.toolCardState(item.ID).Expanded, func() {
@@ -379,107 +344,6 @@ func toolCard(c *mgo.Context, model *Model, item projection.Item) {
 			mgo.Spacer(c)
 			if item.State != "" {
 				mgo.Text(c, model.T(toolState(item.State))).FontSize(11).TextColor(stateColor)
-			}
-		})
-	})
-}
-
-func composer(c *mgo.Context, model *Model) {
-	theme := c.Theme()
-	stopped := model.Phase == PhaseStopped || model.Phase == PhaseFailed || model.Phase == PhaseResyncing || model.SessionSwitching || model.RecoveryOpen || model.LocalState.Closing || model.Prefs.Open
-	canSend := model.Phase == PhaseIdle && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy && !model.History.Detached && !model.SessionPanel.BlocksInput() && !model.SettingsOpen && !model.Prefs.Open && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain && !model.Permission.Uncertain && !model.LocalState.Closing
-	attachments := &model.Attachments
-	hasContent := func() bool { return strings.TrimSpace(model.Draft) != "" || len(attachments.Pending) > 0 }
-	zone := mgo.Column(c).Padding(12, 20, 16, 20).Gap(8)
-	if paths := zone.DroppedFiles(); len(paths) > 0 && attachments.AttachFiles != nil {
-		attachments.AttachFiles(paths)
-	}
-	if zone.FileDragOver() {
-		zone.Border(1, theme.Accent)
-	}
-	zone.Children(func() {
-		if len(attachments.Pending) > 0 || attachments.Error != "" {
-			mgo.Column(c).Gap(4).Children(func() {
-				for index, draft := range attachments.Pending {
-					mgo.Row(c).Gap(6).AlignItems(mgo.Center).Children(func() {
-						mgo.Text(c, draftLabel(model, draft)).FontSize(11).TextColor(theme.TextMuted).SingleLine()
-						remove := fmt.Sprintf("%s %d", model.T("Remove"), index+1)
-						if mgo.Button(c.Key(fmt.Sprintf("remove-attachment-%d", index)), remove).Clicked() {
-							attachments.Remove(index)
-						}
-					})
-				}
-				if attachments.Error != "" {
-					mgo.Text(c, model.T(attachments.Error)).FontSize(11).TextColor(theme.Danger)
-				}
-			})
-		}
-		area := mgo.TextArea(c.Key("composer-"+model.SessionID), &model.Draft).Lines(1, 8).
-			Label(model.T("Message")).Placeholder(model.T("Message DeepSeek…")).AutoFocus().Disabled(stopped).
-			OnChange(func() {
-				if model.DraftChanged != nil {
-					model.DraftChanged()
-				}
-			}).
-			OnPaste(func(text string) bool {
-				if text != "" || attachments.AttachImage == nil {
-					return false
-				}
-				png, err := c.Services().ReadClipboardData(transfer.PNG).Read(transfer.PNG)
-				if err != nil || len(png) == 0 {
-					return false
-				}
-				attachments.AttachImage("pasted.png", attachment.MediaPNG, png)
-				return true
-			}).
-			OnTextKey(func(key mgo.TextKey) bool {
-				if mentionKey(model, key) {
-					return true
-				}
-				mods := mgo.Modifiers(0)
-				if model.Prefs.Value.Send == "Ctrl+Enter" {
-					mods = mgo.Ctrl
-				}
-				if key.Key != mgo.KeyEnter || key.Mods != mods || model.Prefs.Open {
-					return false
-				}
-				text := strings.TrimSpace(key.Text())
-				if !canSend || text == "" && len(attachments.Pending) == 0 {
-					return false
-				}
-				model.Send(key.Text())
-				key.SetText("")
-				return true
-			})
-		if model.Mention.CaretTarget >= 0 {
-			area.SetTextSelection(model.Mention.CaretTarget, model.Mention.CaretTarget)
-			model.Mention.CaretTarget = -1
-		}
-		composerMentions(c, area, model)
-		mgo.Row(c).Gap(8).AlignItems(mgo.Center).Children(func() {
-			if attachments.Supported && attachments.PickAttachment != nil && model.Phase == PhaseIdle {
-				if mgo.Button(c.Key("attach-image"), model.T("Attach image…")).Disabled(stopped).Clicked() {
-					attachments.PickAttachment()
-				}
-			}
-			mgo.Text(c, model.T(composerHint(model))).FontSize(11).TextColor(theme.TextMuted)
-			mgo.Spacer(c)
-			if model.Phase == PhaseRunning && model.CanCancel && model.Cancel != nil {
-				label := "Stop"
-				if model.CancelPending {
-					label = "Stopping…"
-				}
-				if mgo.Button(c.Key("stop"), model.T(label)).Disabled(model.CancelPending).Clicked() && !model.CancelPending {
-					model.Cancel()
-				}
-			} else {
-				send := mgo.PrimaryButton(c.Key("send"), model.T("Send")).
-					Disabled(!canSend || !hasContent())
-				if send.Clicked() {
-					if canSend && hasContent() {
-						model.Send(model.Draft)
-					}
-				}
 			}
 		})
 	})

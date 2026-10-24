@@ -48,22 +48,29 @@ func taskPanel(c *mgo.Context, model *Model) {
 	if len(visible) > maxVisible {
 		visible = visible[:maxVisible]
 	}
-	mgo.Column(c.Key("tasks-panel")).Margin(8, 20, 0, 20).Padding(8, 12).Gap(2).Radius(8).
-		Background(theme.Surface).Border(1, theme.Border).Children(func() {
-		mgo.Text(c, fmt.Sprintf(model.T("Tasks %d/%d"), done, total)).FontSize(11).Bold()
-		for _, task := range visible {
-			prefix, color := "○", theme.TextMuted
-			switch task.Status {
-			case "completed":
-				prefix = "✓"
-			case "in_progress":
-				prefix, color = "▶", theme.Text
-			}
-			mgo.Text(c, prefix+" "+task.Content).FontSize(11).TextColor(color).SingleLine()
-		}
-		if len(model.Tasks) > maxVisible {
-			mgo.Text(c, fmt.Sprintf(model.T("+%d more"), len(model.Tasks)-maxVisible)).FontSize(11).TextColor(theme.TextMuted)
-		}
+	mgo.Row(c.Key("tasks-zone")).FillWidth().Justify(mgo.Center).Padding(0, 24).Children(func() {
+		mgo.Column(c.Key("tasks-panel")).FillWidth().MaxWidth(readingWidth).Padding(4, 8).Radius(10).Children(func() {
+			mgo.Collapsible(c.Key("task-disclosure"), fmt.Sprintf(model.T("Tasks %d/%d"), done, total), &model.Shell.TasksExpanded, func() {
+				_, height := c.Size()
+				mgo.Scroll(c.Key("task-scroll")).FillWidth().MaxHeight(max(54, min(150, height-330))).Children(func() {
+					mgo.Column(c).FillWidth().Gap(5).Children(func() {
+						for _, task := range visible {
+							prefix, color := "○", theme.TextMuted
+							switch task.Status {
+							case "completed":
+								prefix = "✓"
+							case "in_progress":
+								prefix, color = "▶", theme.Text
+							}
+							mgo.Text(c, prefix+" "+task.Content).FontSize(12).TextColor(color).SingleLine()
+						}
+						if len(model.Tasks) > maxVisible {
+							mgo.Text(c, fmt.Sprintf(model.T("+%d more"), len(model.Tasks)-maxVisible)).FontSize(11).TextColor(theme.TextMuted)
+						}
+					})
+				})
+			}).FillWidth().FontSize(12)
+		})
 	})
 }
 

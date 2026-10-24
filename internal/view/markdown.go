@@ -44,7 +44,11 @@ func messageCopyButton(c *mgo.Context, model *Model, item projection.Item, fromU
 		label = "Message copied"
 	}
 	services := c.Services()
-	mgo.Button(c.Key("copy-message"), model.T(label)).OnClick(func() {
+	icon := iconCopy
+	if model.CopiedMessageID == item.ID && model.CopiedMessageText == item.Text {
+		icon = iconCheck
+	}
+	iconButton(c.Key("copy-message"), model.T(label), icon).Padding(4).OnClick(func() {
 		services.WriteClipboard(item.Text)
 		model.CopiedMessageID = item.ID
 		model.CopiedMessageText = item.Text

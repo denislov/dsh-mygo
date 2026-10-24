@@ -15,7 +15,8 @@ UI 壳层是 MyGo 进程里的原生界面：
 
 | 文件 | 责任 |
 | --- | --- |
-| `internal/view/view.go` | `Model`、页面布局、transcript 行、composer、状态栏、错误横幅 |
+| `internal/view/view.go`、`shell.go`、`style.go` | `Model`、页面布局、紧凑 header、会话详情、transcript 行、语义主题与 SVG 图标 |
+| `internal/view/composer.go`、`attachments.go` | 一体化输入区、发送/停止、附件暂存与原生图片预览 |
 | `internal/view/preferences.go`、`internal/i18n/` | 设备级偏好、受门禁约束的命令、集中双语文案 |
 | `internal/app/app.go` | Host 启动/停止、版本握手、`session/create` / `session/prompt`、有界通知分发、`Window.Update` |
 | `internal/app/sessions.go` / `session_reader.go` | 会话操作、草稿隔离、列表/历史分页校验与后台回放 |
@@ -26,7 +27,11 @@ UI 壳层是 MyGo 进程里的原生界面：
 | `internal/projection/` | 提交事件 → `Item`（user / assistant / tool / notice） |
 | `main.go` | flag、窗口、退出时停止 Host |
 
-会话主界面由 header、transcript 列表与 composer 组成：
+会话主界面由紧凑 header、transcript 列表与 composer 组成：
+
+- header 只常驻会话标题、连接/工作状态与会话列表、界面偏好、会话详情入口；无标题时使用本地化的未命名提示，不把会话 ID 当作页面标题。模型入口放在 composer 工具条，点击沿用 Settings 的能力与写入门禁。
+- 会话详情使用 MyGo Popover，按需展示模型完整路由、工作目录、session id、Host/DSH 版本、实际权限、usage/context、计划/目标与子代理摘要；内容有界滚动，工作期间仍可查看。打开任意 Modal 时关闭该详情，Modal 关闭后不自动重开，不与审批/提问/检视器叠加。
+- 聊天与输入区共享最大 760 DIP 的居中阅读宽度。助手消息直接在页面上排版，用户消息使用中性背景与圆角；正文使用 15 DIP 字号，用户原文与助手 Markdown 维持各自解释规则。复制动作使用带名称、Tooltip 和反馈图标的原生按钮，不以长文字按钮占据正文。
 
 - transcript 显示提交后的 user 消息、assistant 文本、tool call/result 与 turn 结束通知；不显示 synthetic user context、system/developer 消息、reasoning。
 - 协商 `session.assistant-stream` 后，额外展示带 `Streaming…` 标记的临时 assistant 行，稳定绑定 attemptId；提交时由唯一的 durable 行替换。没有可见 text 时不显示空卡片；缺口/abandoned/idle/失败/关闭移除临时行，不改 composer 草稿。
@@ -42,11 +47,11 @@ UI 壳层是 MyGo 进程里的原生界面：
 - 协商 `question` 后，原生 Modal 支持整批单选、多选和自由文本，完整展示题目、选项说明和 detail；所有题目回答后一次提交。表单状态按请求/题目稳定绑定，重试保留答案，Escape/点击外部等同 Cancel question；Stop turn 另行停止回合。无 agent 请求明确标注，不显示 Stop turn。审批优先，同一时刻只有一个交互弹窗。
 - 工具卡片使用原生 Collapsible，默认折叠，展开状态绑定稳定工具行 ID，结果更新/列表位置变化不重置。展开显示预览和 `View details`；原生检视器提供 Arguments / Result / Changes、逐 hunk 导航和只读 DiffView，大 hunk 明确回退文本。不读写显示路径，不提供应用/撤销改动操作。
 - 检视器只保留一个 hunk 的 editor 状态；关闭、结果更新和淘汰释放旧缓冲。审批/提问优先，暂时隐藏检视器，避免两个 Modal 叠加；交互结束后可以继续查看。
-- 协商 `session.history` 后，header 提供 Sessions，当前会话 ID 与 cwd 显示在独立信息行。侧栏或选择弹窗显示当前 profile 的有界完整摘要列表、时间、状态与目录，支持 Refresh / New conversation / 选择恢复；窄窗口用弹窗降级。旧 Host/SDK 不显示入口。
-- 会话指标行显示最新一步 token 用量与路由容量（`Context 已用 / 容量 · 百分比 · In / Out · cache`），只在 Host 提供对应事件时出现；单行截断，容量或用量未知时省略对应片段，不阻塞 Sessions/Settings 入口，也不参与发送或历史回放。
+- 协商 `session.history` 后，header 提供 Sessions，当前会话 ID 与 cwd 在会话详情中查看。侧栏或选择弹窗显示当前 profile 的有界完整摘要列表、时间、状态与目录，支持 Refresh / New conversation / 选择恢复；窄窗口用弹窗降级。旧 Host/SDK 不显示入口。
+- 会话详情显示最新一步 token 用量与路由容量（`Context 已用 / 容量 · 百分比 · In / Out · cache`），只在 Host 提供对应事件时出现；容量或用量未知时省略对应片段，不阻塞 Sessions/Settings 入口，也不参与发送或历史回放。
 - 仅 idle 且无审批/提问时允许导航。刷新可 Close/Escape 取消；历史加载期间显示 Loading、禁用发送与编辑，不能重复新建/切换或关闭弹窗。失败保留当前 transcript/草稿，弹窗中显示可重试的安全错误；审批/提问优先，不叠加会话弹窗与工具检视器。
 - 切换成功后才整体替换 transcript，清除工具展开/检视器、复制反馈、旧 ListState 和临时流式状态；transcript 与 composer 的控件身份包含 session id。草稿按会话隔离并通过设备级编辑文件恢复。新建使用启动 cwd；新建/冷恢复按 Host 默认或显式 flags 选择模型，冷恢复保持持久 cwd，仍由 Host 持有的会话保持原路由。
-- Settings 提供当前会话模型面板：provider、模型目录建议、实际 Model ID、effort 与 Refresh/Apply model/Close。只在 idle 无交互、无会话操作时启用，Host 确认后显示新模型；读取可取消，提交期间防重复/禁止关闭，失败保留表单和草稿。面板内容可滚动，底部操作始终可达；header 将模型/Host 版本信息放在独立行，避免窄窗口挤掉 Sessions/Settings。
+- Settings 提供当前会话模型面板：provider、模型目录建议、实际 Model ID、effort 与 Refresh/Apply model/Close。只在 idle 无交互、无会话操作时启用，Host 确认后显示新模型；读取可取消，提交期间防重复/禁止关闭，失败保留表单和草稿。面板内容可滚动，底部操作始终可达；composer 的模型入口与 header 的会话详情分工，避免窄窗口挤掉常用操作。
 - 协商 settings.configuration 后，Settings 可滚动区域增加 Save selection as default、DeepSeek 凭据状态、Password 输入与确认清除；操作范围、存储与默认 flags 优先级以 [设置与凭据](settings-credentials.md) 为准。密码提交/刷新/关闭后清空并更换稳定 key；写入期间不能关闭或重复操作，超时/失败后禁止发送/导航，必须 Refresh 确认。底部 Close/Refresh/Apply 始终可达。
 
 ## 视图模型
@@ -114,8 +119,8 @@ App
 
 ### 任务与目标
 
-- composer 上方显示最新 `todo/write` 清单：标题 `Tasks done/total`，最多 8 行，完成/进行中/待办各有标记，超出显示 `+N more`；下一回合开始清空，清单不进入正文。
-- header 摘要行显示计划模式、当前目标（objective、phase、rounds）与子代理实时状态（运行中/已完成计数），单行截断；没有对应事件时不占位，切换会话清空子代理状态。
+- composer 上方使用 MyGo Collapsible 展示最新 `todo/write` 清单：默认只显示 `Tasks done/total`，展开后在有界滚动区显示最多 8 行，完成/进行中/待办各有标记，超出显示 `+N more`；下一回合开始清空，清单不进入正文。展开高度根据窗口收紧，不把输入或发送按钮推出最小窗口。
+- 会话详情显示计划模式、当前目标（objective、phase、rounds）与子代理实时状态（运行中/已完成计数）；没有对应事件时不占位，切换会话清空子代理状态。
 
 ### Markdown
 
@@ -145,9 +150,11 @@ App
 ## 输入区
 
 - 多行文本：`ui.TextArea` / `ui.TextAreaBuffer`；大草稿用 `ui.TextBuffer`；支持输入法、选区、撤销。
+- composer 将 TextArea、图片暂存、附件/模型工具条和发送/停止整合在一个圆角表面；外层响应 FocusWithin 显示焦点边框。TextArea 清除组件的默认最小高度，使用 Lines 约束并在小窗口收紧最大行数；附件列表独立限高滚动，快捷键提示位于表面下方。
 - Enter 发送，Shift+Enter 换行；可在设置中交换。
 - 附件：粘贴/拖放/选择文件；图片走 `session/prompt` 的 image 块；路径引用走 `@path`。粘贴用 `OnPaste` + `mygo.Clipboard.ReadImage`/`ReadFiles`，拖放用 `DroppedFiles`/`FileDragOver`（窗口级 `OnFileDrop` 兜底），选择用 `mygo.Dialog.Open`（在 goroutine 打开，结果经 `Window.Update` 发布）。待发图片进入当前草稿的暂存列表，发送前按协商上限校验类型、单图、总量与数量；超限或失败保留草稿与暂存图片并显示可读原因。暂存图片不写入本地草稿文件，切换会话或重启后清空。
 - `@` 引用：用 `TextSelection` 定位光标处的 `@token`，`ui.Popover` 锚定输入区列出匹配路径（MyGo 不提供 TextArea 光标矩形）；Up/Down/Tab/Escape 在 `OnTextKey` 中消费；选中后替换 token 为 `@path`。引用只是文本，发送时不复制文件内容，Host 与 UI 同机。
+- 暂存图片通过后台 MyGo DecodeBitmap 生成原生预览；独立的预览准入上限为单图 400 万像素，超限或解码失败保留元数据行，不改变附件发送准入。MyGo 处理 EXIF 方向、缩小显示与纹理生命周期；结果通过 Window.Update 对应的发布队列返回，并检查会话身份与单调暂存 ID，移除/清空/切换后的迟到结果丢弃。预览与字节都不落入本机草稿文件；历史附件继续只显示 Host 提供的引用元数据，不把标识符解释成路径。
 - `/` 命令：提供命令补全与执行；不要伪造不存在的命令。
 - 发送失败：保留草稿，显示错误；不要丢失用户输入。
 - 独立 Preferences 面板配置主题、语言、发送键和应用命令，不依赖会话 Settings 能力。表单与已应用值分离，底部取消/重置/应用动作在最小窗口保持可达；滚动只包围表单内容。固定状态、菜单标签、无障碍名称随语言切换，原始消息/代码/提问与工具载荷保留原文。
@@ -167,7 +174,7 @@ App
 - 列表包含 profile persistence 可见的根/分叉会话，不按工作目录筛选，不展示 subagent；不同目录明确显示。冷会话 stored 不代表未被其他进程占用，恢复失败可重试，不能绕过单写者约束。
 - 支持新建、刷新、恢复与空/错误/加载状态；最多加载 1000 条摘要。Host 数量与资源限制见 [通道协议](channel-protocol.md#host-历史能力)。
 - 侧栏固定展示会话列表，支持搜索、标题编辑、归档/删除、fork 与更大目录检索；不提供无后端能力的假按钮。
-- 窗口宽度至少 820 时显示宽 260 的固定侧栏；窄窗口通过 Sessions 打开弹窗，操作区保持可达。两种布局共用搜索、筛选、表单草稿与按 session id 绑定的列表身份，切换布局不提交表单或丢失输入。标题搜索在有界摘要上做大小写不敏感匹配，不搜索正文；列表按 Host 顺序展示更新时间、状态和目录。
+- 窗口宽度至少 820 时显示宽 248 的固定侧栏；窄窗口通过 Sessions 打开弹窗，操作区保持可达。两种布局共用搜索、筛选、表单草稿与按 session id 绑定的列表身份，切换布局不提交表单或丢失输入。标题搜索使用 MyGo SearchField，在有界摘要上做大小写不敏感匹配，不搜索正文；列表按 Host 顺序展示标题、更新时间与状态，目录和缓存提示在 Tooltip 中提供，选择弹窗另显示目录。当前行以背景区分；重命名、归档/恢复放入各行带名称的原生系统菜单，菜单选择时再次校验能力和 busy 门禁。
 - UI 分别协商 `session.rename` 与 `session.archive`，入口随能力显示。取消归档通过同一归档方法的 `archived:false`；目录请求在支持归档时携带 `includeArchived:true`，由 Show archived 本地筛选。归档会话的打开按钮禁用，先恢复再打开；重命名表单按目标会话 id 绑定，冷目标在后台 resume 取得 Host 单写者句柄后再 rename，不切换当前正文、模型或草稿。
 - 归档前提供目标操作确认，写入中不能关闭、切换、新建或重复提交。当前会话归档后保留可读正文及草稿，显示归档提示并禁用发送，允许新建、切换或恢复。Host 重启遇到已知归档的当前会话时新建会话，旧草稿留在原 id 下，不自动取消归档；恢复旧会话后取回该草稿。
 - 协商 session.release 时，下一次导航/管理操作前释放非当前和非目标的退休句柄，不把所有访问过的会话长期保活。目标验证失败保留当前 Agent，目标句柄待后续回收；后台重命名同样纳入回收。已释放会话重新打开采用冷恢复路由；紧邻返回、仍被拥有的会话保持原路由。释放不删除日志/草稿，也不改变归档状态。
@@ -196,6 +203,8 @@ App
 ## 主题、语言与无障碍
 
 - 主题：c.Theme() 的语义色，允许跟随系统或固定浅色/深色；选择不直接修改控件的持久状态或绘制回调。窗口外观通过 MyGo Theme.SetSource 同步，视图使用对应原生调色板。
+- 视觉样式以 MyGo LightTheme/DarkTheme 为底，统一中性色、低饱和强调色、字阶与组件圆角；Windows 英文界面使用 Segoe UI，中文使用 Microsoft YaHei UI，其他平台沿用系统字体。图标是一次解析的静态 SVG，交给 ui.Icon 渲染；图标按钮始终有本地化 Label 与 Tooltip。
+- Toolbar 负责轻量按钮、键盘组导航和溢出；系统菜单、Popover、Collapsible 与 Modal 负责各自的焦点及关闭行为。动效复用 MyGo 的颜色 Transition、状态 ContentTransition、工作 Spinner 与弹层/折叠动画，遵循 ReduceMotion；不为流式正文添加位置/尺寸动画或人为逐字延时，不自行实现计时器或动画引擎。
 - 语言：应用字符串集中管理，支持英文/简体中文并同步 MyGo 内建控件；不翻译数据载荷。Host locale 通过 initialize.client.locale 传入，运行中切换在 Host 下次启动采用；格式与持久化契约见 [界面偏好面板](settings-credentials.md#界面偏好面板)。
 - 无障碍：为按钮、输入、列表行、弹窗提供名称/角色/描述；不要把关键操作只放在图标上。
 - 高对比度/减少动态：遵循系统设置；流式淡入可关闭。

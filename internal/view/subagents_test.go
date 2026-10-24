@@ -29,6 +29,7 @@ func TestHeaderShowsSubagentRow(t *testing.T) {
 	model := sessionModel()
 	model.Subagents = []SubagentState{{ID: "child-1", Running: true}}
 	tt := tester(model)
+	showDetails(t, tt)
 	if !tt.HasText("Subagents · 1 running") {
 		t.Fatalf("subagent row missing in %v", tt.Texts())
 	}

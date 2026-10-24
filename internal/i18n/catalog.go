@@ -12,6 +12,11 @@ func Text(locale, key string) string {
 }
 
 var chinese = map[string]string{
+	"Untitled conversation": "未命名会话",
+	"Streaming…":            "正在生成…",
+	"Conversation details":  "会话详情", "Conversation actions": "会话操作", "Conversation actions · ": "会话操作 · ",
+	"Working directory": "工作目录", "Session ID": "会话 ID", "Runtime": "运行环境", "Model": "模型",
+	"A little context. A clear next step.":                                       "从一个想法开始，一起推进下一步。",
 	"Could not save local state; keep this window open and retry":                "无法保存本机状态；请保留窗口并重试",
 	"Local state changed in another window; copy unsaved text before restarting": "另一窗口修改了本机状态；重启前请复制未保存内容",
 	"Local editing state was damaged. A backup was kept; defaults are in use.":   "本机编辑状态损坏。已保留备份，当前使用默认值。",
