@@ -6,7 +6,7 @@
 
 项目在约 11 小时内从零走到"核心聊天闭环全部跑通"：自定义 channel、流式、回合取消、审批、提问、历史/会话、模型与凭据设置均已落地，并有真实 DSH Loader（`0.2.1-rc.2`）集成测试覆盖。当前处于**阶段 C（Windows 私有测试版首发）**。
 
-一句话：**优先完成 Windows 私有测试版首发，用安装版试用反馈推进后续迭代。**
+一句话：**Windows 私有测试版 v0.1.0 已发布，后续用安装版试用反馈推进迭代。**
 
 判断依据：协议与 UI 主链路已经闭环，M0 工程基线、M1 运行时/打包/安装器 smoke、自签名发布构建、手工崩溃恢复、会话管理、缺口恢复、权限 UI、草稿/界面偏好、附件与引用、有界历史窗口/句柄回收已完成，深度信息已有 usage/context、plan/todo/goal、子代理实时状态与持久详情/结果；干净机器验收、多会话后台交互与 Windows 发布工程仍是主要缺口；macOS 作为后续发布单元。
 
@@ -18,8 +18,8 @@
 | 规模 | 136 个跟踪文件；Go 生产 6.1k 行 / Go 测试 5.8k 行；Node Host 1.1k 行 / 测试 1.0k 行；`docs/` 19 篇约 3.1k 行；runtime lock 约 400 KB |
 | 版本 | identifier `com.denislov.dshmygo`；app/host `0.1.0`、`protocolVersion 1`、DSH `0.2.1-rc.2`（精确绑定）、MyGo `v0.6.2`、Node >= 24、runtime Node `24.14.0` |
 | 测试 | Go 测试 235 项通过、24 项因缺少真实 Host 环境跳过 + 49 个 Node test；覆盖率 app 84%、view 89%、interaction 87%、projection 83%、channel 72%、host 70%、main 8.5% |
-| 构建产物 | `build/windows-amd64/` 重建于 2026-10-23 13:46，含 `resources/host` 与 `resources/runtime`（Node 24.14.0 + DSH 0.2.1-rc.2）；安装器 117.2 MB，应用 11.6 MB；exe 与安装器已自签名（`.signing/` 不入库） |
-| 工程基线 | CI 已建立（Windows 全量 + Linux Go，含签名脚本测试）；remote 已建立（私有）；无 tag；版本单点为 `versions.json` |
+| 构建产物 | v0.1.0 于 2026-10-24 发布；`build/release/v0.1.0/` 含安装器、公开证书、说明和校验和；安装器 123147064 bytes（约 117.4 MiB）、应用 12.3 MB，exe/安装器自签名；自带 Node 24.14.0 + DSH 0.2.1-rc.2 |
+| 工程基线 | 现有私有 remote；tag `v0.1.0` 指向 `cb52014`；发布提交的 Windows 全量与 Linux Go CI 全绿，含 Node/签名/发布脚本测试；版本单点为 `versions.json` |
 
 2026-10-23 本机（Windows）实跑结果：
 
@@ -80,7 +80,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 - **运行时打包与分发**：`resources/runtime` 已有 bundled Node、DSH 闭包与私有 `mygo-host`，`PathResources` 解析、首启 profile seed 与 manifest 启动前版本校验可用；仍缺 profile 损坏修复与 macOS 产物。
 - **安装包与签名**：`go tool mygo build` 的产物已包含 `resources/runtime`，自签名 Authenticode 已接入构建，打包 smoke 与本机安装/卸载 smoke 均通过；已决定不购买公开 CA 证书，接受 Unknown publisher/SmartScreen 提示。仍无干净机器验收、macOS Developer ID/公证。
 - **恢复与诊断**：手工 Restart、持久历史回放、日志/崩溃报告与持久/流式缺口自动补齐已落地；日志轮转未做，自动重启退避/崩溃循环保护继续后续评估，维持用户触发 Host 重启的决策。
-- **发布工程**：无 tag、无三平台矩阵；真实 Host 测试只能靠开发者本地环境变量，无法在 CI 常态执行（CI 已覆盖 Windows 全量与 Linux Go 测试）。
+- **发布工程**：已有 v0.1.0 私有 prerelease、版本 tag 与 Windows/Linux CI；真实 Host 组合仍在开发机使用 bundled runtime 验证，干净 Windows VM 与 macOS 发布矩阵待补。
 
 ### 4.2 产品体验缺口（能用，但不像完整桌面客户端）
 
@@ -180,7 +180,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 本轮检查：`CGO_ENABLED=0 go test ./...`（379 项通过，真实 Host/付费组默认跳过）、`go test -race ./internal/app ./internal/view`（246 项）、`go tool mygo vet .`、`go vet ./...` 通过；显式设置 `DSH_MYGO_RESOURCES_DIR=resources` 的 `go test ./internal/app -run TestAgainstMygoRealAttachments -count=1 -v -timeout 2m` 通过。Windows 原生窗口复核浅色/深色、中英文、Markdown、任务折叠、560×420 布局与 Sessions 弹窗；图片选择器实际暂存图片并显示预览，暂停流式回合经 Stop 返回就绪，草稿保持原文且 Settings 仍可打开。Tester 覆盖系统菜单目标身份与 busy 门禁、详情与 Modal 互斥、30 行草稿/64 项任务/8 张附件时发送仍可达，新增异步预览的移除/清空/切换与像素预算回归。本轮未重建安装器，未跑打包/安装 smoke 或 macOS 验收。
 
-1. **首次使用与私有测试版首发**：先补齐项目文件夹选择与直接连接设置，重建 Windows 自签名安装包，准备首次使用指南、公开证书和校验和，在现有私有仓库发布 prerelease；本批暂停扩展后台会话、compaction、子代理 token 流和递归后代导航，后续按试用反馈排序。
+1. **私有测试版试用反馈**：围绕安装、选择项目、配置 API key 与第一轮真实对话收集反馈，优先修复首发阻塞和稳定性问题；后台会话、compaction、子代理 token 流和递归后代导航按实际使用反馈排序。
 2. **M1-4 干净机器验收**：项目所有者因没有干净 Windows VM，决定本轮跳过并继续 M2；未验收，不标记通过。Windows 发布前重新安排离线首启与证书提示流程检查。
 
 M2-1 会话管理后端已完成：重命名写入 `session/title` 并等待落盘；归档复用独立挂载的 DSH workspace registry，保留日志并支持取消归档。实际检查：`go test ./...`（235 项）、`go vet ./...`、Node Host/脚本回归（55/55）、`node scripts/test-real-host.mjs --runtime`、`git diff --check` 及修改文档的本地链接检查均通过。真实 `TestMygoRealHistoryAfterRestart` 验证标题/归档跨重启保留、取消归档和历史前缀不变；付费模型测试因没有 key 跳过。该批未重建安装器；侧栏与管理 UI 的验证见下述 M2-2。
@@ -225,9 +225,11 @@ M2-6d 子代理详情/结果已完成：新增独立 `subagent.inspection` 与 l
 
 本批检查：`CGO_ENABLED=0 go test ./...`（384 项通过，真实 Host/付费组默认跳过）、`go test -race ./internal/app ./internal/view ./internal/projection`（292 项）、`go tool mygo vet .`、`go vet ./...`、Node Host/脚本（86/86）与 `node scripts/test-real-host.mjs --runtime` 完整真实组合通过。真实组覆盖子代理输出/结束原因以及第二 Host 冷恢复父会话后的持久读取；新增单元/Tester 覆盖授权、预算、隐藏载荷、关闭/切换、结束原因失效、提问优先、最小窗口和源文复制。Windows 原生窗口复核运行中打开、停止/完成结果、工具展开、宽窄布局与关闭返回；原生自动化的系统剪贴板读回未确认，精确源文由 Tester 校验。本批未重建安装器、未做打包/安装 smoke 或 macOS 验收，未读取 `.env` 或调用付费模型。
 
-首次使用与私有测试版发布准备已完成：空会话提供项目文件夹选择/确认和直接 DeepSeek 连接设置，选择不同目录新建会话并保留原草稿；安装版默认工作目录从安装位置切到用户主目录，已使用会话从持久 header 恢复项目。连接设置复用原生 Password 和已有配置通道，不依赖模型目录，首次打开读取安全凭据状态；小窗口使用 Scroll 并收起装饰标题，避免引导被输入框裁剪。发布脚本只生成具名安装器、公开证书、首次使用说明、发布说明和 SHA256SUMS；拒绝版本身份不符或未知输出文件。
+首次使用与 Windows 私有测试版首发已完成：空会话提供项目文件夹选择/确认和直接 DeepSeek 连接设置，选择不同目录新建会话并保留原草稿；安装版默认工作目录从安装位置切到用户主目录，已使用会话从持久 header 恢复项目。连接设置复用原生 Password 和已有配置通道，不依赖模型目录，首次打开读取安全凭据状态；小窗口使用 Scroll 并收起装饰标题，避免引导被输入框裁剪。发布脚本只生成具名安装器、公开证书、首次使用说明、发布说明和 SHA256SUMS；拒绝版本身份不符或未知输出文件。
 
-本批本地检查：`CGO_ENABLED=0 go test ./...`（397 项）、`CGO_ENABLED=1 go test -race ./internal/app ./internal/view`（263 项）、`go tool mygo vet .`、`go vet ./...`、Node Host/脚本（88/88）、bundled runtime 完整真实组合通过。`TestAgainstMygoFirstUse` 验证项目选择、配置读取、mock 第一轮消息和第二 Host 的目录恢复；Windows 原生验证目录选择、连接保存/关闭、草稿、最小窗口及实际签名二进制。最终安装器 123147064 bytes（约 117.4 MiB）；`node scripts/prepare-release.mjs`、`node scripts/smoke-packaged.mjs`、`node scripts/smoke-installer.mjs` 通过，包括签名、空 PATH 首启、进程树回收、快捷方式/卸载项清理和会话保留。远端 CI 与 prerelease 上传在发布步骤核对，不将本地产物当成线上发布；干净 VM、macOS、付费模型本轮未验收。
+本批本地检查：`CGO_ENABLED=0 go test ./...`（397 项）、`CGO_ENABLED=1 go test -race ./internal/app ./internal/view`（263 项）、`go tool mygo vet .`、`go vet ./...`、Node Host/脚本（88/88）、bundled runtime 完整真实组合通过。`TestAgainstMygoFirstUse` 验证项目选择、配置读取、mock 第一轮消息和第二 Host 的目录恢复；Windows 原生验证目录选择、连接保存/关闭、草稿、最小窗口及实际签名二进制。最终安装器 123147064 bytes（约 117.4 MiB）；`node scripts/prepare-release.mjs`、`node scripts/smoke-packaged.mjs`、`node scripts/smoke-installer.mjs` 通过，包括签名、空 PATH 首启、进程树回收、快捷方式/卸载项清理和会话保留。干净 VM、macOS、付费模型本轮未验收。
+
+线上发布：[v0.1.0 私有测试版](https://github.com/denislov/dsh-mygo/releases/tag/v0.1.0) 于 2026-10-24 发布，目标提交 `cb5201422597f0c9ae7531d703ffe5533e545aed`，prerelease=true、draft=false；仓库保持 private。发布提交的 [Windows/Linux CI](https://github.com/denislov/dsh-mygo/actions/runs/40063014325) 全绿；5 个附件名称/大小/SHA256 与本地核对一致，版本 tag 指向目标提交。已从线上重新下载安装器并确认 SHA256 一致；首次使用指南、签名证书和校验和随 Release 分发。
 
 ## 7. 风险与依赖
 
@@ -238,7 +240,7 @@ M2-6d 子代理详情/结果已完成：新增独立 `subagent.inspection` 与 l
 | `app.go` / `view.Model` 集中式状态 | 设置、会话、交互交叉越权，回归难定位 | 继续用状态机测试守边界；M2 前拆 controller/子模型 |
 | 资源上限（16 MiB 帧、窗口展示/详情预算、8 个同时拥有句柄、目录总预算） | 单事件过大或极大目录仍会拒绝；DSH 冷恢复完整日志可能较慢 | 历史窗口与退休句柄回收控制 UI/Agent 累积；大日志真实回归，后续补定位与上游恢复基准 |
 | macOS 零验证 | 不影响 Windows 首发，但 macOS 发布单元有风险 | macOS 发布前接 CI 与真机验收清单 |
-| 无 tag / 三平台矩阵 | 发布不可追溯、平台覆盖不足 | M0 已建立远端与 CI；补 tag 与矩阵 |
+| 平台验收矩阵不全 | 干净机器与 macOS 覆盖不足 | 版本 tag 与 Windows/Linux CI 已建立；Windows 干净 VM、macOS 发布前补矩阵 |
 | 单窗口 + 后台交互不可见 | 多会话体验受限 | M3 支持后台审批/提问呈现 |
 | 审批参数、路径可能含敏感信息 | 日志/崩溃报告泄露面 | 维持"只记身份与工具名"的日志规则；崩溃报告落地时专项评审 |
 
