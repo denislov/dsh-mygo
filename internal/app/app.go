@@ -158,6 +158,8 @@ type App struct {
 	quitReady           bool
 	settingsOperation   uint64
 	settingsCancel      context.CancelFunc
+	runtimeGeneration   uint64
+	runtimeCancel       context.CancelFunc
 	inspectionRead      subagentReadState
 	restarting          bool
 
@@ -224,6 +226,15 @@ func New(options Options) *App {
 	app.model.SaveCredential = app.SaveCredential
 	app.model.ClearCredential = app.ClearCredential
 	app.model.Permission.Apply = app.ApplyPermission
+	app.model.Runtime.Detect = app.DetectRuntimes
+	app.model.Runtime.BrowseDSH = app.BrowseDSH
+	app.model.Runtime.CheckUpdates = app.CheckRuntimeUpdates
+	app.model.Runtime.Download = app.DownloadRuntime
+	app.model.Runtime.InstallFile = app.InstallRuntimeFile
+	app.model.Runtime.UseExternal = app.UseExternalRuntime
+	app.model.Runtime.UseInstalled = app.UseInstalledRuntime
+	app.model.Runtime.UseLegacy = app.UseLegacyRuntime
+	app.model.Runtime.Cancel = app.CancelRuntimeOperation
 	app.model.Restart = app.Restart
 	app.model.OpenLogs = app.OpenLogs
 	app.model.Quit = options.Quit
@@ -252,11 +263,13 @@ func (a *App) Start() {
 		a.options.Runtimes.CleanupStaging()
 		if _, ok := a.options.Runtimes.Selected(); !ok {
 			a.awaitRuntime(runtimeErr)
+			a.post(a.DetectRuntimes)
 			return
 		}
 		if runtimeErr != nil {
 			a.logf("runtime state notice: %v", runtimeErr)
 		}
+		a.post(a.refreshRuntimeChoicesLocked)
 	}
 	a.startHost(false, recent)
 }
@@ -264,7 +277,7 @@ func (a *App) Start() {
 // awaitRuntime shows the pre-host setup state. The full onboarding view lives
 // in internal/view; the app only publishes the state.
 func (a *App) awaitRuntime(err error) {
-	message := "A DSH runtime is required before the host can start."
+	message := ""
 	if err != nil {
 		message = "The selected DSH runtime could not be used. Choose another runtime or install a new one."
 		a.logf("runtime setup required: %v", err)

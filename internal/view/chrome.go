@@ -5,7 +5,7 @@ import (
 )
 
 func overlayActive(model *Model) bool {
-	return model.SettingsOpen || model.SessionsOpen || model.Inspection.Open ||
+	return model.Runtime.SetupRequired || model.SettingsOpen || model.SessionsOpen || model.Inspection.Open ||
 		model.ToolInspector != nil || model.RecoveryOpen || len(model.Approvals) > 0 || len(model.Questions) > 0
 }
 

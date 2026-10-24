@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"dsh-mygo/internal/version"
 )
@@ -71,6 +73,68 @@ func TestFetchAndInstallDownload(t *testing.T) {
 	_, err = manager.DownloadRuntime(context.Background(), release, entry, nil)
 	if err == nil {
 		t.Fatal("DownloadRuntime accepted a bad checksum")
+	}
+}
+
+func TestDownloadRuntimeCancelLeavesNoPartFile(t *testing.T) {
+	archivePath := writeArchive(t, validRuntimeEntries(t))
+	archive, err := os.ReadFile(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(archive)
+	asset := "dsh-mygo-runtime-test.tgz"
+	handlerDone := make(chan struct{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("/archive", func(w http.ResponseWriter, r *http.Request) {
+		defer close(handlerDone)
+		w.Header().Set("Content-Length", fmt.Sprint(len(archive)))
+		w.Write(archive[:1024])
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	manager := NewManager(t.TempDir(), t.TempDir(), "owner/repo")
+	manager.allowInsecure = true
+	if err := manager.Load(); err != nil {
+		t.Fatal(err)
+	}
+	manifest := validManifest()
+	entry := CatalogEntry{
+		ID: manifest.ID, DSH: manifest.DSH, Node: manifest.Node, Platform: manifest.Platform,
+		Arch: manifest.Arch, ProtocolVersion: manifest.ProtocolVersion, HostVersion: manifest.HostVersion,
+		AppMin: manifest.AppMin, AppMaxExclusive: manifest.AppMaxExclusive,
+		Asset: asset, SHA256: hex.EncodeToString(sum[:]), Size: int64(len(archive)),
+	}
+	release := CatalogRelease{
+		Tag: "runtime-test",
+		Assets: map[string]ReleaseAsset{
+			asset: {Name: asset, URL: server.URL + "/archive", Size: int64(len(archive)), Digest: "sha256:" + entry.SHA256},
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	_, err = manager.DownloadRuntime(ctx, release, entry, func(downloaded, total int64) {
+		if downloaded > 0 {
+			cancel()
+		}
+	})
+	if err == nil {
+		t.Fatal("DownloadRuntime completed after cancellation")
+	}
+	select {
+	case <-handlerDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("download request was not cancelled")
+	}
+	matches, err := filepath.Glob(filepath.Join(manager.Root, "downloads", "*.part"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("cancelled download left %v", matches)
 	}
 }
 

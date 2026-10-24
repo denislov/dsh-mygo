@@ -39,6 +39,7 @@ const (
 // holds host session facts or MyGo elements.
 type RuntimeState struct {
 	SetupRequired bool
+	Checking      bool
 	Busy          bool
 	Progress      float32
 	Status        string
@@ -48,6 +49,16 @@ type RuntimeState struct {
 	Installed     []RuntimeChoice
 	Candidates    []RuntimeChoice
 	Available     []RuntimeChoice
+
+	Detect       func()
+	BrowseDSH    func()
+	CheckUpdates func()
+	Download     func(id string)
+	InstallFile  func()
+	UseExternal  func(command string)
+	UseInstalled func(id string)
+	UseLegacy    func()
+	Cancel       func()
 }
 
 // RuntimeChoice is a display-only runtime or candidate.
@@ -59,6 +70,7 @@ type RuntimeChoice struct {
 	Node        string
 	HostVersion string
 	Path        string
+	Detail      string
 	Compatible  bool
 	Reason      string
 }
@@ -210,6 +222,10 @@ func View(c *mgo.Context, model *Model) {
 		} else {
 			c.SetTheme(lightChineseTheme)
 		}
+	}
+	if model.Runtime.SetupRequired {
+		runtimeSetupView(c, model)
+		return
 	}
 	if overlayActive(model) {
 		model.Shell.DetailsPopoverOpen = false
@@ -489,6 +505,8 @@ func phaseLabel(phase Phase) string {
 		return "Stopped"
 	case PhaseFailed:
 		return "Host error"
+	case PhaseAwaitingRuntime:
+		return "Setup required"
 	default:
 		return fmt.Sprintf("Unknown (%d)", phase)
 	}
@@ -500,7 +518,7 @@ func phaseColor(phase Phase, theme *mgo.Theme) mgo.Color {
 		return theme.Success
 	case PhaseRunning:
 		return theme.Accent
-	case PhaseStarting, PhaseResyncing:
+	case PhaseStarting, PhaseResyncing, PhaseAwaitingRuntime:
 		return theme.Warning
 	case PhaseFailed:
 		return theme.Danger
