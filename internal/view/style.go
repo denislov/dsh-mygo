@@ -7,27 +7,39 @@ import (
 	mgo "github.com/egoist/mygo/ui"
 )
 
-const readingWidth float32 = 760
-
 var quietTransition = mgo.ElementTransition{Colors: true, Duration: 140 * time.Millisecond}
 
 // Keep native widget metrics and semantic colors shared across the whole app.
+// Every field is set explicitly so MyGo defaults never leak into the palette.
 func applicationTheme(dark bool) *mgo.Theme {
 	t := mgo.LightTheme()
 	if dark {
 		t = mgo.DarkTheme()
-		t.Background, t.Surface = mgo.Hex("#1C1D1F"), mgo.Hex("#25272A")
-		t.SurfaceHover, t.SurfacePressed = mgo.Hex("#303438"), mgo.Hex("#3A4043")
-		t.Border, t.Text, t.TextMuted = mgo.Hex("#3B3E41"), mgo.Hex("#ECEDEA"), mgo.Hex("#A6AAA5")
-		t.Accent, t.AccentHover, t.AccentPressed, t.AccentText = mgo.Hex("#A5C4B6"), mgo.Hex("#B9D3C7"), mgo.Hex("#8DAF9F"), mgo.Hex("#18271F")
-	} else {
-		t.Background, t.Surface = mgo.Hex("#FAF9F6"), mgo.Hex("#F0EFEB")
-		t.SurfaceHover, t.SurfacePressed = mgo.Hex("#E7E8E1"), mgo.Hex("#DCE0D7")
-		t.Border, t.Text, t.TextMuted = mgo.Hex("#DCDDD5"), mgo.Hex("#292D28"), mgo.Hex("#6C7369")
-		t.Accent, t.AccentHover, t.AccentPressed, t.AccentText = mgo.Hex("#34675C"), mgo.Hex("#29594F"), mgo.Hex("#204B42"), mgo.Hex("#FFFFFF")
 	}
-	t.Focus, t.Selection = t.Accent.Mix(mgo.Transparent, 0.55), t.Accent.Mix(mgo.Transparent, 0.78)
-	t.Radius, t.FontSize = 8, 14
+	p := paletteFor(dark)
+	t.Background = p.Background
+	t.Surface = p.Surface
+	t.SurfaceHover = p.SurfaceHover
+	t.SurfacePressed = p.SurfacePressed
+	t.Border = p.Border
+	t.Text = p.Text
+	t.TextMuted = p.TextMuted
+	t.Accent = p.Accent
+	t.AccentHover = p.AccentHover
+	t.AccentPressed = p.AccentPressed
+	t.AccentText = p.AccentText
+	t.Danger = p.Danger
+	t.Warning = p.Warning
+	t.Success = p.Success
+	t.Selection = p.Selection
+	t.Focus = p.Focus
+	t.Inverse = p.Text
+	t.InverseText = p.Background
+	t.Scrollbar = p.Scrollbar
+	t.ScrollbarWidth = 8
+	t.Radius = radiusMd
+	t.Spacing = space4
+	t.FontSize = 14
 	if runtime.GOOS == "windows" {
 		t.Font = "Segoe UI"
 	}
