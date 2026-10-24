@@ -28,7 +28,27 @@ type LaunchOptions struct {
 	// ResourcesDir is the app's resources directory. A bundled runtime there
 	// takes precedence over a dsh executable on PATH.
 	ResourcesDir string
+	// RuntimeDir is an explicit runtime bundle selected from the runtime store
+	// or supplied with -runtime-dir.
+	RuntimeDir string
 	// DSHHome overrides DSH_HOME for the child process.
+	DSHHome string
+}
+
+// RuntimeLaunchOptions describes a validated runtime bundle.
+type RuntimeLaunchOptions struct {
+	RuntimeDir string
+	Profile    string
+	CWD        string
+	DSHHome    string
+}
+
+// ExternalLaunchOptions describes an existing DSH CLI installation.
+type ExternalLaunchOptions struct {
+	Command string
+	Node    string
+	Profile string
+	CWD     string
 	DSHHome string
 }
 
@@ -65,6 +85,14 @@ func ResolveLaunch(options LaunchOptions) (Config, error) {
 			Dir:     absoluteDir,
 			Env:     environment,
 		}, nil
+	}
+	if options.RuntimeDir != "" {
+		return RuntimeLaunch(RuntimeLaunchOptions{
+			RuntimeDir: options.RuntimeDir,
+			Profile:    options.Profile,
+			CWD:        options.CWD,
+			DSHHome:    options.DSHHome,
+		})
 	}
 	if options.Profile == "" {
 		return Config{}, fmt.Errorf("profile is required")
@@ -147,6 +175,97 @@ func validateRuntimeManifest(runtimeDir string) error {
 		)
 	}
 	return nil
+}
+
+// RuntimeLaunch builds the process configuration for an installed runtime
+// bundle: the bundle's Node runs the private mygo-host entry.
+func RuntimeLaunch(options RuntimeLaunchOptions) (Config, error) {
+	if options.Profile == "" {
+		return Config{}, fmt.Errorf("profile is required")
+	}
+	runtimeDir, err := filepath.Abs(options.RuntimeDir)
+	if err != nil {
+		return Config{}, fmt.Errorf("resolve runtime directory: %w", err)
+	}
+	entry := filepath.Join(runtimeDir, "mygo-host.mjs")
+	if !isFile(entry) {
+		return Config{}, fmt.Errorf("runtime is incomplete: missing %s", entry)
+	}
+	node, err := bundledNode(runtimeDir)
+	if err != nil {
+		return Config{}, err
+	}
+	environment := environmentFor(options.DSHHome)
+	return Config{
+		Command: node,
+		Args:    []string{entry, options.Profile},
+		Dir:     options.CWD,
+		Env:     prependPath(environment, filepath.Dir(node)),
+	}, nil
+}
+
+// ExternalLaunch runs an existing dsh CLI. npm shims on Windows end in .cmd and
+// must go through cmd.exe; the Job Object still owns the whole process tree.
+func ExternalLaunch(options ExternalLaunchOptions) (Config, error) {
+	if options.Profile == "" || !validProfile(options.Profile) {
+		return Config{}, fmt.Errorf("invalid profile name")
+	}
+	command, err := filepath.Abs(options.Command)
+	if err != nil {
+		return Config{}, fmt.Errorf("resolve dsh command: %w", err)
+	}
+	if !isFile(command) {
+		return Config{}, fmt.Errorf("dsh command does not exist: %s", command)
+	}
+	if strings.ContainsAny(command, "\"\x00") {
+		return Config{}, fmt.Errorf("dsh command contains unsupported characters")
+	}
+	environment := environmentFor(options.DSHHome)
+	if options.Node != "" {
+		if !isFile(options.Node) {
+			return Config{}, fmt.Errorf("Node runtime does not exist: %s", options.Node)
+		}
+		environment = prependPath(environment, filepath.Dir(options.Node))
+	}
+	switch strings.ToLower(filepath.Ext(command)) {
+	case ".cmd", ".bat":
+		return Config{
+			Command: "cmd.exe",
+			Args:    []string{"/d", "/s", "/c", "call", command, "--profile", options.Profile},
+			Dir:     options.CWD,
+			Env:     environment,
+		}, nil
+	default:
+		return Config{
+			Command: command,
+			Args:    []string{"--profile", options.Profile},
+			Dir:     options.CWD,
+			Env:     environment,
+		}, nil
+	}
+}
+
+func environmentFor(dshHome string) []string {
+	environment := os.Environ()
+	if dshHome != "" {
+		if absolute, err := filepath.Abs(dshHome); err == nil {
+			environment = setEnv(environment, "DSH_HOME", absolute)
+		}
+	}
+	return environment
+}
+
+func validProfile(value string) bool {
+	if value == "" || len(value) > 64 || strings.HasPrefix(value, "-") {
+		return false
+	}
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func bundledNode(runtimeDir string) (string, error) {

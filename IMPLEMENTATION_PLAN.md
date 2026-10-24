@@ -5,14 +5,14 @@
 **目标**: 应用构建不再包含 Node/DSH；生成可单独分发的 `.tgz`、manifest 与 catalog。
 **成功标准**: `runtime/` 移出 `resources/`；`node scripts/build-runtime.mjs` 生成确定性 tgz/catalog；Host 按 app 兼容范围握手；旧 dotfile 改写移除。
 **测试**: `go test ./internal/version ./internal/channel ./internal/host`；`node --test resources/host/tests/*.test.mjs`；`node --test scripts/*.test.mjs`；实际构建并检查 tgz。
-**状态**: 进行中
+**状态**: 已完成
 
 ## 阶段 2: Runtime manager 与动态 Host 启动
 
 **目标**: 应用可选择/安装/校验/切换运行时，启动流程动态解析 Host。
 **成功标准**: `internal/runtimes` 完成 store/archive/download/external/legacy；`app` 动态 launch；无运行时进入 setup 状态；开发/fake/SDK 路径保持。
 **测试**: Go 单元与集成测试、竞态测试、归档安全测试。
-**状态**: 未开始
+**状态**: 已完成
 
 ## 阶段 3: 首启运行时引导
 

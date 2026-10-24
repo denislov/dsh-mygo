@@ -26,6 +26,7 @@ import (
 	"dsh-mygo/internal/interaction"
 	"dsh-mygo/internal/platform"
 	"dsh-mygo/internal/projection"
+	"dsh-mygo/internal/runtimes"
 	"dsh-mygo/internal/view"
 )
 
@@ -42,8 +43,19 @@ const (
 type Options struct {
 	ApplyTheme  func(string)
 	ApplyLocale func(string)
-	// Launch is the resolved host process configuration.
+	// Launch is the resolved host process configuration. Runtime mode resolves
+	// a launch plan from Runtimes for every start/restart instead.
 	Launch host.Config
+	// Runtimes is the runtime store when the app uses the split runtime model.
+	Runtimes *runtimes.Manager
+	// Profile and DSHHome are used to resolve a runtime launch.
+	Profile string
+	DSHHome string
+	// PrepareProfile seeds or upgrades $DSH_HOME/profiles/<profile> from the
+	// selected runtime's Host bundle.
+	PrepareProfile func(hostBundleDir string) error
+	// RuntimeLaunch overrides runtime resolution for tests.
+	RuntimeLaunch func() (RuntimeLaunchPlan, error)
 	// CWD is recorded on the Host session header.
 	CWD string
 	// RequireWorkspace asks users of a packaged empty conversation to confirm its folder.
@@ -77,6 +89,14 @@ type Options struct {
 	// Post runs fn on the window's main thread. A nil Post runs it inline,
 	// which tests use.
 	Post func(fn func())
+}
+
+// RuntimeLaunchPlan is the resolved host process for one selected runtime.
+type RuntimeLaunchPlan struct {
+	Config        host.Config
+	HostBundleDir string
+	Identity      channel.HostIdentity
+	Runtime       runtimes.Runtime
 }
 
 // rpcClient is the subset of channel.Client the app uses. It keeps the app
@@ -129,6 +149,7 @@ type App struct {
 	canStreamBaseline   bool
 	canHistoryWindow    bool
 	canRelease          bool
+	hostIdentity        channel.HostIdentity
 	attachmentLimits    *attachment.Limits
 	mentionSeq          atomic.Uint64
 	retiredSessions     map[string]bool
@@ -154,6 +175,9 @@ type App struct {
 func New(options Options) *App {
 	if options.Post == nil {
 		options.Post = func(fn func()) { fn() }
+	}
+	if options.Profile == "" {
+		options.Profile = "mygo"
 	}
 	app := &App{options: options, sessionID: options.SessionID, stopped: make(chan struct{}), pendingUI: make(chan struct{}, maxPendingUIUpdates)}
 	app.model = view.NewModel()
@@ -219,14 +243,93 @@ func (a *App) Model() *view.Model { return a.model }
 // goroutine.
 func (a *App) Start() {
 	recent := a.loadLocalState()
-	if !a.shuttingDown.Load() {
-		a.startHost(false, recent)
+	if a.shuttingDown.Load() {
+		return
 	}
+	var runtimeErr error
+	if a.options.Runtimes != nil {
+		runtimeErr = a.options.Runtimes.Load()
+		a.options.Runtimes.CleanupStaging()
+		if _, ok := a.options.Runtimes.Selected(); !ok {
+			a.awaitRuntime(runtimeErr)
+			return
+		}
+		if runtimeErr != nil {
+			a.logf("runtime state notice: %v", runtimeErr)
+		}
+	}
+	a.startHost(false, recent)
+}
+
+// awaitRuntime shows the pre-host setup state. The full onboarding view lives
+// in internal/view; the app only publishes the state.
+func (a *App) awaitRuntime(err error) {
+	message := "A DSH runtime is required before the host can start."
+	if err != nil {
+		message = "The selected DSH runtime could not be used. Choose another runtime or install a new one."
+		a.logf("runtime setup required: %v", err)
+	}
+	a.post(func() {
+		if a.shuttingDown.Load() {
+			return
+		}
+		a.model.Runtime.SetupRequired = true
+		a.model.Runtime.Busy = false
+		a.model.Runtime.Error = message
+		a.model.Phase = view.PhaseAwaitingRuntime
+		a.model.Error = ""
+		a.model.ErrorDetail = ""
+		a.model.RecoveryOpen = false
+		a.model.Recoverable = false
+	})
+}
+
+func (a *App) resolveLaunchPlan() (RuntimeLaunchPlan, error) {
+	if a.options.RuntimeLaunch != nil {
+		return a.options.RuntimeLaunch()
+	}
+	if a.options.Runtimes != nil {
+		profile := a.options.Profile
+		if profile == "" {
+			profile = "mygo"
+		}
+		config, hostBundle, runtime, err := a.options.Runtimes.Launch(profile, a.options.CWD, a.options.DSHHome)
+		if err != nil {
+			return RuntimeLaunchPlan{}, err
+		}
+		return RuntimeLaunchPlan{
+			Config:        config,
+			HostBundleDir: hostBundle,
+			Identity:      channel.HostIdentity{Version: runtime.HostVersion, DSHVersion: runtime.DSH},
+			Runtime:       runtime,
+		}, nil
+	}
+	return RuntimeLaunchPlan{
+		Config:   a.options.Launch,
+		Identity: channel.HostIdentity{Version: channel.ReleaseVersion, DSHVersion: channel.DSHVersion},
+	}, nil
 }
 
 func (a *App) startHost(recover bool, resumeID string) {
 	generation := a.hostGeneration.Add(1)
-	if a.options.Preflight != nil {
+	plan, err := a.resolveLaunchPlan()
+	if err != nil {
+		if a.options.Runtimes != nil {
+			a.awaitRuntime(err)
+			return
+		}
+		a.fail("Could not start the DeepSeek Harness host", err)
+		return
+	}
+	a.hostIdentity = plan.Identity
+	if a.options.Runtimes != nil {
+		if plan.HostBundleDir != "" && a.options.PrepareProfile != nil {
+			if err := a.options.PrepareProfile(plan.HostBundleDir); err != nil {
+				a.fail("Could not prepare the DeepSeek Harness profile", err)
+				return
+			}
+		}
+	} else if a.options.Preflight != nil {
 		if err := a.options.Preflight(); err != nil {
 			summary := a.options.PreflightSummary
 			if summary == "" {
@@ -236,8 +339,8 @@ func (a *App) startHost(recover bool, resumeID string) {
 			return
 		}
 	}
-	a.logf("host start: generation=%d recover=%v command=%s", generation, recover, filepath.Base(a.options.Launch.Command))
-	supervisor, err := host.Start(context.Background(), a.options.Launch)
+	a.logf("host start: generation=%d recover=%v command=%s", generation, recover, filepath.Base(plan.Config.Command))
+	supervisor, err := host.Start(context.Background(), plan.Config)
 	if err != nil {
 		summary := "Could not start the DeepSeek Harness host"
 		if recover {
@@ -405,6 +508,12 @@ func (a *App) startHost(recover bool, resumeID string) {
 		}
 		a.model.Setup.Picking, a.model.Setup.Error = false, ""
 		a.model.Setup.WorkspaceRequired = a.options.RequireWorkspace && len(a.model.Items) == 0
+		a.model.Runtime.SetupRequired = false
+		a.model.Runtime.Busy = false
+		a.model.Runtime.Progress = 0
+		a.model.Runtime.Status = ""
+		a.model.Runtime.Error = ""
+		a.model.Runtime.Notice = ""
 		if initialized.route.Provider != "" {
 			a.model.SetActiveRoute(initialized.route)
 		}
@@ -545,7 +654,12 @@ func (a *App) initializeSession(ctx context.Context, client rpcClient, resumeID 
 	if err != nil {
 		return initializedSession{}, err
 	}
-	initialized, err := channel.DecodeInitialize(result)
+	var initialized channel.InitializeResult
+	if a.hostIdentity.Version != "" {
+		initialized, err = channel.DecodeInitializeExpecting(result, a.hostIdentity)
+	} else {
+		initialized, err = channel.DecodeInitialize(result)
+	}
 	if err != nil {
 		return initializedSession{}, err
 	}

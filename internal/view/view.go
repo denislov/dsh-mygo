@@ -30,7 +30,38 @@ const (
 	PhaseStopped
 	// PhaseFailed means the host could not start or stopped unexpectedly.
 	PhaseFailed
+	// PhaseAwaitingRuntime means the app needs a DSH runtime before it can start
+	// the host. It is appended so the zero value keeps meaning PhaseStarting.
+	PhaseAwaitingRuntime
 )
+
+// RuntimeState is device-local runtime selection and setup progress. It never
+// holds host session facts or MyGo elements.
+type RuntimeState struct {
+	SetupRequired bool
+	Busy          bool
+	Progress      float32
+	Status        string
+	Error         string
+	Notice        string
+	Current       RuntimeChoice
+	Installed     []RuntimeChoice
+	Candidates    []RuntimeChoice
+	Available     []RuntimeChoice
+}
+
+// RuntimeChoice is a display-only runtime or candidate.
+type RuntimeChoice struct {
+	ID          string
+	Kind        string
+	Label       string
+	DSH         string
+	Node        string
+	HostVersion string
+	Path        string
+	Compatible  bool
+	Reason      string
+}
 
 // Model is the window's state. The app mutates it on the main thread and
 // keeps the transcript and draft outside the view.
@@ -107,6 +138,7 @@ type Model struct {
 	CanModels            bool
 	ActiveRoute          ModelRoute
 	Catalog              ModelCatalog
+	Runtime              RuntimeState
 	SettingsOpen         bool
 	SettingsSection      SettingsSection
 	SettingsConnection   bool

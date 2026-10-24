@@ -10,6 +10,59 @@ import (
 	"dsh-mygo/internal/version"
 )
 
+func TestRuntimeLaunchUsesBundleNodeAndEntry(t *testing.T) {
+	dir := t.TempDir()
+	node := filepath.Join(dir, "node", "node.exe")
+	if err := os.MkdirAll(filepath.Dir(node), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(node, []byte("node"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	entry := filepath.Join(dir, "mygo-host.mjs")
+	if err := os.WriteFile(entry, []byte("// entry"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	config, err := RuntimeLaunch(RuntimeLaunchOptions{RuntimeDir: dir, Profile: "mygo", CWD: t.TempDir(), DSHHome: t.TempDir()})
+	if err != nil {
+		t.Fatalf("RuntimeLaunch: %v", err)
+	}
+	if config.Command != node || len(config.Args) != 2 || config.Args[0] != entry || config.Args[1] != "mygo" {
+		t.Fatalf("unexpected config: %+v", config)
+	}
+	foundPath := false
+	for _, value := range config.Env {
+		if strings.HasPrefix(strings.ToUpper(value), "PATH=") && strings.Contains(value, filepath.Dir(node)) {
+			foundPath = true
+		}
+	}
+	if !foundPath {
+		t.Fatal("runtime Node directory is not prepended to PATH")
+	}
+}
+
+func TestExternalLaunchCmdShim(t *testing.T) {
+	dir := t.TempDir()
+	command := filepath.Join(dir, "dsh.cmd")
+	node := filepath.Join(dir, "node.exe")
+	for _, path := range []string{command, node} {
+		if err := os.WriteFile(path, []byte("@echo off\r\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	config, err := ExternalLaunch(ExternalLaunchOptions{Command: command, Node: node, Profile: "mygo", CWD: dir, DSHHome: dir})
+	if err != nil {
+		t.Fatalf("ExternalLaunch: %v", err)
+	}
+	if config.Command != "cmd.exe" {
+		t.Fatalf("command = %q", config.Command)
+	}
+	joined := strings.Join(config.Args, " ")
+	if !strings.Contains(joined, "/d /s /c call") || !strings.Contains(joined, command) || !strings.Contains(joined, "--profile mygo") {
+		t.Fatalf("unexpected args: %v", config.Args)
+	}
+}
+
 func TestResolveLaunchOverride(t *testing.T) {
 	config, err := ResolveLaunch(LaunchOptions{
 		CWD:     "C:/work",

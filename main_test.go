@@ -8,31 +8,20 @@ import (
 )
 
 func TestPackagedStartupUsesUserFolderAndHonorsExplicitDirectory(t *testing.T) {
-	resources := t.TempDir()
-	if err := os.Mkdir(filepath.Join(resources, "runtime"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(resources, "runtime", "manifest.json"), []byte(`{}`), 0600); err != nil {
-		t.Fatal(err)
-	}
-	got, required, err := resolveStartupCWD("", resources)
+	got, required, err := resolveStartupCWD("", true)
 	want, _ := os.UserHomeDir()
 	if err != nil || got != want || !required {
 		t.Fatalf("packaged startup: %q %v %v", got, required, err)
 	}
 	explicit := t.TempDir()
-	got, required, err = resolveStartupCWD(explicit, resources)
+	got, required, err = resolveStartupCWD(explicit, true)
 	if err != nil || got != explicit || required {
 		t.Fatal("explicit folder overridden")
 	}
-	got, required, err = resolveStartupCWD("", t.TempDir())
+	got, required, err = resolveStartupCWD("", false)
 	want, _ = os.Getwd()
 	if err != nil || got != want || required {
 		t.Fatal("development directory changed")
-	}
-	got, required, err = resolveStartupCWD("", "")
-	if err != nil || got != want || required {
-		t.Fatal("explicit development launch changed directory")
 	}
 }
 
