@@ -2,7 +2,6 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { verifyRuntimeAssets } from './runtime-assets.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const appDir = join(root, 'build', 'windows-amd64')
@@ -84,14 +83,12 @@ try {
     'dsh-mygo.exe',
     'Uninstall.exe',
     join('host', 'package.json'),
-    join('runtime', 'mygo-host.mjs'),
-    join('runtime', 'node', 'node.exe'),
-    join('runtime', 'node_modules', '@earendil-works', 'pi-ai', 'dist', 'providers', 'data', 'models-manifest.json'),
   ]) {
     if (existsSync(join(installDir, relative))) pass(`installed ${relative}`)
     else fail(`missing ${relative}`)
   }
-  await verifyRuntimeAssets(join(installDir, 'runtime'))
+  if (existsSync(join(installDir, 'runtime'))) fail('installed app must not contain the separate DSH runtime')
+  else pass('runtime is not bundled in the app installer')
   if (createdShortcut) pass('created the Start Menu shortcut')
   else fail('missing Start Menu shortcut')
   if (createdRegistry) pass('created the HKCU uninstall key')

@@ -3,8 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
-import { verifyRuntimeAssets } from './runtime-assets.mjs'
+import { fileURLToPath } from 'node:url'
 import { windowsReleaseFiles } from './signing.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -26,10 +25,6 @@ const required = [
   exe,
   installerPath,
   join(appDir, 'host', 'package.json'),
-  join(appDir, 'runtime', 'mygo-host.mjs'),
-  join(appDir, 'runtime', 'node', 'node.exe'),
-  join(appDir, 'runtime', 'node_modules', '@deepseek-ai', 'dsh', 'package.json'),
-  join(appDir, 'runtime', 'manifest.json'),
 ]
 for (const path of required) {
   if (!existsSync(path)) {
@@ -38,22 +33,16 @@ for (const path of required) {
     process.exit(2)
   }
 }
-
-const manifest = JSON.parse(await readFile(join(appDir, 'runtime', 'manifest.json'), 'utf8'))
-if (manifest.app !== versions.version || manifest.protocolVersion !== versions.protocolVersion || manifest.dsh !== versions.dsh) {
-  console.error(`Runtime manifest mismatch: ${JSON.stringify(manifest)}`)
-  process.exit(2)
-}
-const dshPackage = JSON.parse(await readFile(join(appDir, 'runtime', 'node_modules', '@deepseek-ai', 'dsh', 'package.json'), 'utf8'))
-if (dshPackage.version !== versions.dsh) {
-  console.error(`Installed DSH ${dshPackage.version} does not match ${versions.dsh}`)
+if (existsSync(join(appDir, 'runtime'))) {
+  console.error('Packaged app must not contain the separate DSH runtime')
   process.exit(2)
 }
 
-await verifyRuntimeAssets(join(appDir, 'runtime'))
-const providerModule = pathToFileURL(join(appDir, 'runtime/node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js')).href
-const providerCheck = spawnSync(join(appDir, 'runtime/node/node.exe'), ['--input-type=module', '-e', 'await import(process.argv[1])', providerModule], { encoding: 'utf8', windowsHide: true })
-if (providerCheck.status !== 0) throw new Error('Packaged pi-ai provider cannot load; rebuild the complete runtime')
+const host = JSON.parse(await readFile(join(appDir, 'host', 'package.json'), 'utf8'))
+if (host.version !== versions.version || host.engines?.dsh !== versions.dsh) {
+  console.error(`Host bundle mismatch: ${JSON.stringify(host)}`)
+  process.exit(2)
+}
 
 let failures = 0
 const pass = (message) => console.log(`✓ ${message}`)

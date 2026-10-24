@@ -10,9 +10,16 @@ async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-release-'))
   t.after(() => rm(root, { recursive: true, force: true }))
   const files = {
-    'versions.json': JSON.stringify({ version: '0.1.0', protocolVersion: 1, dsh: 'test', nodeRuntime: '24.14.0' }),
-    'build/windows-amd64/runtime/manifest.json': JSON.stringify({ app: '0.1.0', protocolVersion: 1, dsh: 'test', node: '24.14.0', platform: 'win32', arch: 'x64' }),
-    'build/windows-amd64/host/package.json': JSON.stringify({ version: '0.1.0' }),
+    'versions.json': JSON.stringify({
+      version: '0.1.0', protocolVersion: 1, dsh: 'test', nodeRuntime: '24.14.0',
+      repository: 'denislov/dsh-mygo',
+      appCompatibility: { min: '0.1.0', maxExclusive: '0.2.0' },
+    }),
+    'build/windows-amd64/host/package.json': JSON.stringify({
+      version: '0.1.0',
+      engines: { node: '>=24', dsh: 'test' },
+      dshMygo: { protocolVersion: 1, appCompatibility: { min: '0.1.0', maxExclusive: '0.2.0' } },
+    }),
     'build/windows-amd64/dsh-mygo Setup 0.1.0 amd64.exe': 'installer-test-bytes',
     '.signing/dsh-mygo.cer': 'public-certificate-test-bytes',
     '.signing/dsh-mygo.pfx': 'private-marker',
@@ -40,11 +47,15 @@ test('release assets use an exact allowlist and checksums match all attachments'
   }
 })
 
-test('release preparation refuses mismatched runtime identity and unexpected assets', async t => {
+test('release preparation refuses mismatched Host identity and unexpected assets', async t => {
   const root = await fixture(t)
   await writeFile(join(root, 'build/windows-amd64/host/package.json'), '{"version":"other"}')
   await assert.rejects(prepareRelease(root), /identity/)
-  await writeFile(join(root, 'build/windows-amd64/host/package.json'), '{"version":"0.1.0"}')
+  await writeFile(join(root, 'build/windows-amd64/host/package.json'), JSON.stringify({
+    version: '0.1.0',
+    engines: { node: '>=24', dsh: 'test' },
+    dshMygo: { protocolVersion: 1, appCompatibility: { min: '0.1.0', maxExclusive: '0.2.0' } },
+  }))
   await mkdir(join(root, 'build/release/v0.1.0'), { recursive: true })
   await writeFile(join(root, 'build/release/v0.1.0/unexpected.pfx'), 'private-marker')
   await assert.rejects(prepareRelease(root), /Unexpected/)

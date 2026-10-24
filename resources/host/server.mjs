@@ -19,6 +19,31 @@ if (!Number.isSafeInteger(identity.dshMygo?.protocolVersion)) {
 }
 export const protocolVersion = identity.dshMygo.protocolVersion
 export const releaseVersion = identity.version
+export const appCompatibility = identity.dshMygo.appCompatibility
+if (parseAppVersion(appCompatibility?.min) === undefined || parseAppVersion(appCompatibility?.maxExclusive) === undefined) {
+  throw new Error('The host package must declare dshMygo.appCompatibility.min/maxExclusive')
+}
+
+function parseAppVersion(value) {
+  if (typeof value !== 'string' || !/^\d+\.\d+\.\d+$/.test(value)) return undefined
+  return value.split('.').map((part) => Number(part))
+}
+
+function compareAppVersion(left, right) {
+  const a = parseAppVersion(left)
+  const b = parseAppVersion(right)
+  if (a === undefined || b === undefined) return undefined
+  for (let i = 0; i < 3; i += 1) {
+    if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1
+  }
+  return 0
+}
+
+function supportsAppVersion(value) {
+  const lower = compareAppVersion(value, appCompatibility.min)
+  const upper = compareAppVersion(value, appCompatibility.maxExclusive)
+  return lower !== undefined && upper !== undefined && lower >= 0 && upper < 0
+}
 
 const SUBAGENT_STOP_REASONS = new Set(['completed', 'aborted', 'error', 'max-tokens', 'refusal'])
 const maxTrackedSubagentRuns = 256
@@ -205,7 +230,7 @@ export class MygoServer {
     if (this.dshVersion !== supportedDshVersion) throw fault('protocol/runtime-mismatch', 'Incompatible DSH runtime version')
     if (params.client === null || typeof params.client !== 'object' || Array.isArray(params.client)) throw fault('protocol/invalid-params', 'Invalid client', -32602)
     for (const field of ['name', 'version', 'platform', 'locale']) text(params.client[field], `client.${field}`)
-    if (params.client.version !== releaseVersion) throw fault('protocol/release-mismatch', 'UI and host release versions differ')
+    if (!supportsAppVersion(params.client.version)) throw fault('protocol/release-mismatch', 'UI and host release versions are incompatible')
     if (!Array.isArray(params.capabilities) || params.capabilities.length > 64) throw fault('protocol/invalid-params', 'Invalid capabilities', -32602)
     for (const capability of params.capabilities) text(capability, 'capability')
     this.initialized = true
@@ -234,7 +259,10 @@ export class MygoServer {
       if (params.capabilities.includes('session.archive') && typeof registry?.archiveSession === 'function' && typeof registry?.unarchiveSession === 'function') this.capabilities.push('session.archive')
     }
     const result = {
-      server: { name: 'dsh-mygo-host', version: releaseVersion, dshVersion: this.dshVersion },
+      server: {
+        name: 'dsh-mygo-host', version: releaseVersion, dshVersion: this.dshVersion,
+        appMin: appCompatibility.min, appMaxExclusive: appCompatibility.maxExclusive,
+      },
       protocolVersion, capabilities: this.capabilities,
     }
     if (this.attachmentsPolicy !== undefined) result.attachments = { image: this.attachmentsPolicy }

@@ -3,7 +3,9 @@
 /.signing/
 /.mygo/
 /.tmp/
-/resources/runtime/node/
-/resources/runtime/node_modules/
-/resources/runtime/manifest.json
+/node_modules/
+/runtime/node/
+/runtime/node_modules/
+/runtime/host/
+/runtime/manifest.json
 mygo_windows_*.syso

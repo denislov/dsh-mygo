@@ -52,10 +52,29 @@ test('handshake gates methods, rejects incompatible versions and never advertise
   const result = await server.handle('initialize', handshake)
   assert.equal(result.protocolVersion, 1)
   assert.equal(result.server.version, '0.1.1')
+  assert.equal(result.server.appMin, '0.1.1')
+  assert.equal(result.server.appMaxExclusive, '0.2.0')
   assert.deepEqual(result.capabilities, ['approval'])
   await assert.rejects(server.handle('initialize', handshake), { kind: 'protocol/already-initialized' })
   await assert.rejects(server.handle('settings/get', {}), { code: -32601 })
   await server.shutdown()
+})
+
+test('initialize accepts the declared app compatibility range and rejects versions outside it', async () => {
+  for (const version of ['0.1.1', '0.1.99']) {
+    const { server } = runtime()
+    const result = await server.handle('initialize', { ...handshake, client: { ...handshake.client, version } })
+    assert.equal(result.server.version, '0.1.1')
+    await server.shutdown()
+  }
+  for (const version of ['0.1.0', '0.2.0', '0.1', '0.1.1-rc.1', 'v0.1.1']) {
+    const { server } = runtime()
+    await assert.rejects(
+      server.handle('initialize', { ...handshake, client: { ...handshake.client, version } }),
+      { kind: 'protocol/release-mismatch' },
+      `version ${String(version)} should be rejected`,
+    )
+  }
 })
 
 test('status revisions advance only for an owned agent and are gated by resync negotiation', async () => {

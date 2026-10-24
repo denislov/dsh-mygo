@@ -4,10 +4,11 @@ import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { prepareRuntimeAssets } from './runtime-assets.mjs'
+import { buildRuntimeBundle } from './runtime-bundle.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const runtimeDir = join(root, 'resources', 'runtime')
+const runtimeDir = join(root, 'runtime')
+const outputDir = join(root, 'build', 'runtime')
 const versions = JSON.parse(await readFile(join(root, 'versions.json'), 'utf8'))
 
 if (process.platform !== 'win32' || process.arch !== 'x64') {
@@ -19,28 +20,25 @@ if (!existsSync(nodeTarget) || process.argv.includes('--force-node')) {
   await downloadNode(versions.nodeRuntime, nodeTarget)
 }
 
-const install = spawnSync('npm ci --omit=dev --no-audit --no-fund', {
-  cwd: runtimeDir,
-  stdio: 'inherit',
-  shell: true,
-})
-if (install.status !== 0) process.exit(install.status ?? 1)
-
-await prepareRuntimeAssets(runtimeDir)
-
-const dshVersion = JSON.parse(
-  await readFile(join(runtimeDir, 'node_modules', '@deepseek-ai', 'dsh', 'package.json'), 'utf8'),
-).version
-const manifest = {
-  app: versions.version,
-  protocolVersion: versions.protocolVersion,
-  dsh: dshVersion,
-  node: versions.nodeRuntime,
-  platform: process.platform,
-  arch: process.arch,
+if (!process.argv.includes('--skip-npm-install')) {
+  const install = spawnSync('npm ci --omit=dev --no-audit --no-fund', {
+    cwd: runtimeDir,
+    stdio: 'inherit',
+    shell: true,
+  })
+  if (install.status !== 0) process.exit(install.status ?? 1)
 }
-await writeFile(join(runtimeDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)
-console.log(`Runtime ready: DSH ${dshVersion}, Node ${versions.nodeRuntime}`)
+
+const result = await buildRuntimeBundle({
+  runtimeDir,
+  resourcesDir: join(root, 'resources'),
+  outDir: outputDir,
+  versions,
+})
+console.log(`Runtime ${result.manifest.id}`)
+console.log(`Archive: ${result.assetPath} (${result.size} bytes)`)
+console.log(`SHA256: ${result.sha256}`)
+console.log(`Catalog: ${result.catalogPath}`)
 
 async function downloadNode(version, target) {
   const base = `https://nodejs.org/dist/v${version}`

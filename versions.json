@@ -1,8 +1,13 @@
 {
   "name": "dsh-mygo",
   "identifier": "com.denislov.dshmygo",
+  "repository": "denislov/dsh-mygo",
   "version": "0.1.1",
   "protocolVersion": 1,
+  "appCompatibility": {
+    "min": "0.1.1",
+    "maxExclusive": "0.2.0"
+  },
   "dsh": "0.2.1-rc.2",
   "node": ">=24",
   "nodeRuntime": "24.14.0"

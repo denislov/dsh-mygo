@@ -19,18 +19,36 @@ type AttachmentPolicy struct {
 	Image attachment.Limits `json:"image"`
 }
 
+// HostIdentity is the exact runtime identity a launch plan expects the host to
+// report during initialize.
+type HostIdentity struct {
+	Version    string
+	DSHVersion string
+}
+
 type InitializeResult struct {
 	ProtocolVersion int `json:"protocolVersion"`
 	Server          struct {
-		Name       string `json:"name"`
-		Version    string `json:"version"`
-		DSHVersion string `json:"dshVersion"`
+		Name            string `json:"name"`
+		Version         string `json:"version"`
+		DSHVersion      string `json:"dshVersion"`
+		AppMin          string `json:"appMin"`
+		AppMaxExclusive string `json:"appMaxExclusive"`
 	} `json:"server"`
 	Capabilities []string          `json:"capabilities"`
 	Attachments  *AttachmentPolicy `json:"attachments"`
 }
 
+// DecodeInitialize validates the handshake against this app's built-in host
+// identity. Runtime-selected launches use DecodeInitializeExpecting.
 func DecodeInitialize(data json.RawMessage) (InitializeResult, error) {
+	return DecodeInitializeExpecting(data, HostIdentity{Version: ReleaseVersion, DSHVersion: DSHVersion})
+}
+
+// DecodeInitializeExpecting validates protocol, app compatibility and the exact
+// host/DSH identity selected by the launch plan. Hosts that predate app
+// compatibility bounds fall back to the exact release match.
+func DecodeInitializeExpecting(data json.RawMessage, expected HostIdentity) (InitializeResult, error) {
 	var result InitializeResult
 	if err := json.Unmarshal(data, &result); err != nil {
 		return result, fmt.Errorf("invalid host handshake")
@@ -38,8 +56,22 @@ func DecodeInitialize(data json.RawMessage) (InitializeResult, error) {
 	if result.ProtocolVersion != ProtocolVersion {
 		return result, fmt.Errorf("incompatible host protocol version: expected %d", ProtocolVersion)
 	}
-	if result.Server.Version != ReleaseVersion || result.Server.DSHVersion != DSHVersion {
-		return result, fmt.Errorf("incompatible host release: expected UI/host %s and DSH %s", ReleaseVersion, DSHVersion)
+	if result.Server.AppMin != "" || result.Server.AppMaxExclusive != "" {
+		if result.Server.AppMin == "" || result.Server.AppMaxExclusive == "" {
+			return result, fmt.Errorf("incomplete host app compatibility range")
+		}
+		compatible, err := version.AppVersionInRange(ReleaseVersion, result.Server.AppMin, result.Server.AppMaxExclusive)
+		if err != nil || !compatible {
+			return result, fmt.Errorf("host does not support this app version: %s", ReleaseVersion)
+		}
+	} else if result.Server.Version != expected.Version {
+		return result, fmt.Errorf("incompatible host release: expected host %s", expected.Version)
+	}
+	if expected.Version != "" && result.Server.Version != expected.Version {
+		return result, fmt.Errorf("host release %s does not match the selected runtime %s", result.Server.Version, expected.Version)
+	}
+	if expected.DSHVersion != "" && result.Server.DSHVersion != expected.DSHVersion {
+		return result, fmt.Errorf("host DSH %s does not match the selected runtime %s", result.Server.DSHVersion, expected.DSHVersion)
 	}
 	if result.Server.Name == "" || len(result.Server.Name) > 256 || result.Capabilities == nil || len(result.Capabilities) > 64 {
 		return result, fmt.Errorf("invalid host identity or capabilities")
