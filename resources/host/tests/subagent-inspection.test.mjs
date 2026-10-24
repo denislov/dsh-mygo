@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { MygoServer } from '../server.mjs'
 
-const handshake = { protocolVersion: 1, client: { name: 'test', version: '0.1.0', platform: 'test', locale: 'en-US' }, capabilities: ['subagent.inspection'] }
+const handshake = { protocolVersion: 1, client: { name: 'test', version: '0.1.1', platform: 'test', locale: 'en-US' }, capabilities: ['subagent.inspection'] }
 
 function fixture() {
   const entries = [{ id: 'child', mode: 'continuable', label: 'Inspect the repository', createdAt: 1 }]

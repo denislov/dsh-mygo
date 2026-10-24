@@ -17,6 +17,13 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+export function windowsReleaseFiles(base = root) {
+  const { version } = JSON.parse(readFileSync(join(base, 'versions.json'), 'utf8'))
+  if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error('Invalid release version')
+  const app = join(base, 'build/windows-amd64')
+  return [join(app, 'dsh-mygo.exe'), join(app, `dsh-mygo Setup ${version} amd64.exe`)]
+}
 export const signingDir = join(root, '.signing')
 export const pfxPath = join(signingDir, 'dsh-mygo.pfx')
 export const certPath = join(signingDir, 'dsh-mygo.cer')

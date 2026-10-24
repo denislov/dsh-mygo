@@ -38,10 +38,11 @@ dsh-mygo.app / dsh-mygo/            # MyGo 产物
 1. `node scripts/build-runtime.mjs`：
    - 下载 `versions.json` 固定的 Node，并用 `SHASUMS256.txt` 校验 SHA256。
    - 在 `resources/runtime` 执行 `npm ci --omit=dev`，安装精确 pin 的 `@deepseek-ai/dsh`。
+   - `scripts/runtime-assets.mjs` 将固定 pi-ai 依赖的公开 `.manifest.json` 复制为 `models-manifest.json` 并调整生成目录中的引用，保留 JSON 字节；仅作用于构建产物，不改 DSH core。MyGo 的资源复制过滤点号开头文件，必需运行时数据须使用可分发名称；依赖布局变化时构建明确失败。
    - 写入 `runtime/manifest.json`：应用版本、DSH 版本、Node 版本、平台、架构。
 2. `mygo.json` 的 `buildCommand` 在 `go tool mygo build` 前自动运行上述脚本。
 3. `go tool mygo build`：编译 Go 二进制、复制 `resources/`，生成 Windows 安装器；macOS 随后生成 `.app`/`.dmg`。
-4. profile seed 不预生成目录：首启由 Host 启动前从 `resources/host` 复制到 `$DSH_HOME/profiles/mygo`。
+4. profile seed 不预生成目录：首启由 Host 启动前从 `resources/host` 复制到 `$DSH_HOME/profiles/mygo`；补丁升级只刷新应用自有 Host 包并备份旧包，保留 profile 配置与数据，见 [宿主监督](host-supervisor.md#首启-profile)。
 5. 签名/公证（见下）。
 6. 生成更新清单与 delta（如启用更新）。
 
@@ -184,6 +185,9 @@ UI、Host、bundle 作为一个发布单元验证；不允许只升级其中一�
 报告包含版本、平台、Host 进程 id、最后错误、当前会话 id 与 stderr 尾部；写入前把 API key、Bearer token、password/secret 形状的值替换为 `[REDACTED]`，不写环境变量、cookie 或附件内容。崩溃报告与 Go 应用日志同目录；恢复对话框的 **View logs** 打开该目录。
 
 ## 测试
+
+- 运行时资产必须在复制后的目录校验：确认 pi-ai 引用的清单为可分发文件，使用 bundled Node 实际导入 pi-ai provider；源依赖目录的成功不能代替复制后结果。签名校验与 smoke 按 `versions.json` 精确选择本版安装器，目录中保留旧安装器时也不能误验旧版。
+- 用户已有安装时，安装/卸载 smoke 保持拒绝覆盖的保护；可对候选安装器做只读解包资产校验，并使用隔离 profile 验证原生连续启动与旧 Host 包升级。用户安装目录的修复或升级保留模型、凭据与会话，验证时不发送付费 prompt。
 
 - 打包 smoke：`node scripts/smoke-packaged.mjs` 检查 `build/windows-amd64` 的 exe、安装器、host、Node、DSH 闭包与 `runtime/manifest.json` 版本；调用 `scripts/verify-signatures.mjs` 校验 exe 与安装器签名；用空 `PATH`、临时 `DSH_HOME` 与临时日志目录启动 exe，等待 profile、session 与应用日志；随后对打包资源跑 composition + restart 真实组合测试。
 - 安装器 smoke：`node scripts/smoke-installer.mjs` 静默安装到 `.tmp`，校验安装布局、Start Menu 快捷方式与 HKCU 卸载键、安装后 exe 与 `Uninstall.exe` 签名；启动安装后的应用，等待 profile、session 与日志；再静默卸载，确认安装目录、快捷方式和卸载键被移除，且 `$DSH_HOME` 与会话历史保留。检测到已有 dsh-mygo 安装时拒绝运行；发布验收使用干净 Windows VM。`--keep` 保留临时目录。

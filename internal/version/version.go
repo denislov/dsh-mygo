@@ -3,7 +3,7 @@
 package version
 
 const (
-	App      = "0.1.0"
+	App      = "0.1.1"
 	Protocol = 1
 	DSH      = "0.2.1-rc.2"
 )

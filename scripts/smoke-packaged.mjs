@@ -3,11 +3,13 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { verifyRuntimeAssets } from './runtime-assets.mjs'
+import { windowsReleaseFiles } from './signing.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const appDir = join(root, 'build', 'windows-amd64')
-const exe = join(appDir, 'dsh-mygo.exe')
+const [exe, installerPath] = windowsReleaseFiles(root)
 
 if (process.platform !== 'win32') {
   console.error('smoke-packaged currently targets the Windows x64 package')
@@ -15,15 +17,11 @@ if (process.platform !== 'win32') {
 }
 
 const versions = JSON.parse(await readFile(join(root, 'versions.json'), 'utf8'))
-const installer = existsSync(appDir)
-  ? readdirSync(appDir).find((name) => /^dsh-mygo Setup .+\.exe$/.test(name))
-  : undefined
-if (!installer) {
+if (!existsSync(installerPath)) {
   console.error(`Packaged installer is missing in ${appDir}`)
   console.error('Run: go tool mygo build')
   process.exit(2)
 }
-const installerPath = join(appDir, installer)
 const required = [
   exe,
   installerPath,
@@ -52,6 +50,11 @@ if (dshPackage.version !== versions.dsh) {
   process.exit(2)
 }
 
+await verifyRuntimeAssets(join(appDir, 'runtime'))
+const providerModule = pathToFileURL(join(appDir, 'runtime/node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js')).href
+const providerCheck = spawnSync(join(appDir, 'runtime/node/node.exe'), ['--input-type=module', '-e', 'await import(process.argv[1])', providerModule], { encoding: 'utf8', windowsHide: true })
+if (providerCheck.status !== 0) throw new Error('Packaged pi-ai provider cannot load; rebuild the complete runtime')
+
 let failures = 0
 const pass = (message) => console.log(`✓ ${message}`)
 const fail = (message) => {
@@ -72,7 +75,7 @@ if (process.env.DSH_MYGO_REQUIRE_SIGNATURE !== '0') {
 
 const suite = spawnSync(
   'go',
-  ['test', './internal/app', '-run', 'TestAgainstMygoRealComposition|TestAgainstMygoRestart', '-count=1', '-timeout', '5m'],
+  ['test', './internal/app', '-run', 'TestAgainstMygoRealComposition|TestAgainstMygoRestart|TestAgainstMygoProfileUpgradeAndSecondStart', '-count=1', '-timeout', '5m'],
   {
     cwd: root,
     stdio: 'inherit',

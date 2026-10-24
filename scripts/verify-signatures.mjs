@@ -1,6 +1,6 @@
-import { existsSync, readdirSync } from 'node:fs'
-import { join, resolve } from 'node:path'
-import { hasAuthenticodeSignature, readSubjectCN, root, verifyFile } from './signing.mjs'
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { hasAuthenticodeSignature, readSubjectCN, verifyFile, windowsReleaseFiles } from './signing.mjs'
 
 const args = process.argv.slice(2)
 const requireTrusted = args.includes('--require-trusted')
@@ -21,20 +21,16 @@ Options:
 }
 
 if (files.length === 0) {
-  const appDir = join(root, 'build', 'windows-amd64')
-  const exe = join(appDir, 'dsh-mygo.exe')
-  const installer = existsSync(appDir)
-    ? readdirSync(appDir).find((name) => /^dsh-mygo Setup .+\.exe$/.test(name))
-    : undefined
+  const [exe, installer] = windowsReleaseFiles()
   if (!existsSync(exe)) {
     console.error(`Missing ${exe}; run: go tool mygo build`)
     process.exit(2)
   }
-  if (!installer) {
-    console.error(`Missing installer in ${appDir}; run: go tool mygo build`)
+  if (!existsSync(installer)) {
+    console.error(`Missing installer ${installer}; run: go tool mygo build`)
     process.exit(2)
   }
-  files.push(exe, join(appDir, installer))
+  files.push(exe, installer)
 }
 
 const expected = readSubjectCN()

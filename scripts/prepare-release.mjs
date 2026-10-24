@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { copyFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { verifyRuntimeAssets } from './runtime-assets.mjs'
 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex')
 
@@ -25,10 +26,18 @@ export async function prepareRelease(root) {
   await writeFile(join(output, 'dsh-mygo-signing.cer'), certificate)
   await copyFile(join(root, 'docs/getting-started.md'), join(output, 'START_HERE.zh-CN.md'))
   const fingerprint = digest(certificate).toUpperCase().match(/../g).join(':')
+  const patchNotes = identity.version === '0.1.1' ? `## 0.1.1 修复
+
+- 修复模型清单被打包过滤后，magpie/pi-ai 模型插件无法加载、再次启动失败的问题。
+- 升级时同步应用自有 Host 包，保留旧副本与用户的模型、凭据、会话和草稿。
+- 增加打包后真实 provider 导入检查，并按版本精确校验安装器。
+
+` : ''
   await writeFile(join(output, 'RELEASE_NOTES.md'), `# dsh-mygo v${identity.version} · Windows 私有测试版
 
 Windows x64 原生桌面客户端，安装包自带 Node ${identity.nodeRuntime} 与 DSH ${identity.dsh}，不需要另外安装开发环境。
 
+${patchNotes}
 ## 开始使用
 
 1. 下载并运行 \`${installer}\`，安装后从开始菜单打开 dsh-mygo。
@@ -60,6 +69,7 @@ Windows x64 原生桌面客户端，安装包自带 Node ${identity.nodeRuntime}
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await verifyRuntimeAssets(join(root, 'build/windows-amd64/runtime'))
   const verified = spawnSync(process.execPath, [join(root, 'scripts/verify-signatures.mjs')], { cwd: root, stdio: 'inherit' })
   if (verified.status !== 0) process.exit(verified.status ?? 1)
   console.log(`Release assets ready: ${await prepareRelease(root)}`)

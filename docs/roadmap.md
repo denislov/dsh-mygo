@@ -231,6 +231,10 @@ M2-6d 子代理详情/结果已完成：新增独立 `subagent.inspection` 与 l
 
 线上发布：[v0.1.0 私有测试版](https://github.com/denislov/dsh-mygo/releases/tag/v0.1.0) 于 2026-10-24 发布，目标提交 `cb5201422597f0c9ae7531d703ffe5533e545aed`，prerelease=true、draft=false；仓库保持 private。发布提交的 [Windows/Linux CI](https://github.com/denislov/dsh-mygo/actions/runs/40063014325) 全绿；5 个附件名称/大小/SHA256 与本地核对一致，版本 tag 指向目标提交。已从线上重新下载安装器并确认 SHA256 一致；首次使用指南、签名证书和校验和随 Release 分发。
 
+0.1.1 二次启动修复准备完成：用户安装包的 pi-ai `.manifest.json` 被 MyGo 点文件过滤排除，导致提供已保存 magpie 默认模型的插件无法激活。补齐原版匹配的公开模型清单后，用户原安装版连续两次正常启动并恢复同一原会话，模型、凭据和会话设置保持；问题不需要修改默认模型。构建流程将该固定清单适配为 `models-manifest.json` 并修正生成依赖引用，保留原始 JSON 字节；补丁版本同步 UI/Host，已有 profile 的应用自有 Host 包先备份再升级，用户配置与兼容开发链接保留。
+
+本批检查：Go 全量、Host/App 竞态、MyGo/Go vet、Node（90/90）与 bundled runtime 完整真实组合通过；新增旧 Host 包升级和第二次启动的真实回归。最终 `go tool mygo build -skip-build-command` 与 `node scripts/smoke-packaged.mjs` 通过，实际导入打包后的 pi-ai provider，`node scripts/prepare-release.mjs` 校验本版签名并准备资产。候选安装器 123171808 bytes（约 117.5 MiB）；7-Zip 只读解包确认清单与修正后的引用均在安装器内，JSON 字节与源数据一致。0.1.1 原生窗口连续两次就绪并恢复同一会话。现有用户安装保留，未运行会创建/清理真实卸载项的 fresh-install smoke；干净 VM、macOS 与付费回合本轮未运行。发布步骤另行核对 CI、tag 和线上附件。
+
 ## 7. 风险与依赖
 
 | 风险 | 影响 | 缓解 |

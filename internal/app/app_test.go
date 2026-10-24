@@ -197,12 +197,12 @@ func TestMygoInitializeCreatesSessionAfterValidHandshake(t *testing.T) {
 		wantCalls int
 		valid     bool
 	}{
-		{"valid", `{"protocolVersion":1,"server":{"name":"dsh-mygo-host","version":"0.1.0","dshVersion":"0.2.1-rc.2"},"capabilities":["approval"]}`, `{"session":{"id":"host-session","status":"idle","nextSeq":7}}`, 2, true},
+		{"valid", `{"protocolVersion":1,"server":{"name":"dsh-mygo-host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":["approval"]}`, `{"session":{"id":"host-session","status":"idle","nextSeq":7}}`, 2, true},
 		{"wrong protocol", `{"protocolVersion":2}`, `{}`, 1, false},
 		{"wrong release", `{"protocolVersion":1,"server":{"name":"host","version":"9","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`, `{}`, 1, false},
-		{"invalid session id", `{"protocolVersion":1,"server":{"name":"host","version":"0.1.0","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`, `{"session":{"id":"../unsafe","status":"idle","nextSeq":0}}`, 2, false},
-		{"missing baseline", `{"protocolVersion":1,"server":{"name":"host","version":"0.1.0","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`, `{"session":{"id":"s1","status":"idle"}}`, 2, false},
-		{"unsafe baseline", `{"protocolVersion":1,"server":{"name":"host","version":"0.1.0","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`, `{"session":{"id":"s1","status":"idle","nextSeq":9007199254740992}}`, 2, false},
+		{"invalid session id", `{"protocolVersion":1,"server":{"name":"host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`, `{"session":{"id":"../unsafe","status":"idle","nextSeq":0}}`, 2, false},
+		{"missing baseline", `{"protocolVersion":1,"server":{"name":"host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`, `{"session":{"id":"s1","status":"idle"}}`, 2, false},
+		{"unsafe baseline", `{"protocolVersion":1,"server":{"name":"host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`, `{"session":{"id":"s1","status":"idle","nextSeq":9007199254740992}}`, 2, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{results: map[string]json.RawMessage{"initialize": json.RawMessage(test.handshake), "session/create": json.RawMessage(test.session)}}

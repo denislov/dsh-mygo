@@ -112,7 +112,7 @@ func TestStartupResumeFailureCreatesConversationAndOffersPreviousDraft(t *testin
 	client := &sessionClient{request: func(_ context.Context, method string, _ any) (json.RawMessage, error) {
 		switch method {
 		case "initialize":
-			return json.RawMessage(`{"protocolVersion":1,"server":{"name":"host","version":"0.1.0","dshVersion":"0.2.1-rc.2"},"capabilities":["session.history"]}`), nil
+			return json.RawMessage(`{"protocolVersion":1,"server":{"name":"host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":["session.history"]}`), nil
 		case "session/resume":
 			return nil, errors.New("unavailable")
 		case "session/create":
@@ -162,7 +162,7 @@ func TestRecentSessionUsesCurrentHostDefaultInsteadOfFallbackModel(t *testing.T)
 	client := &sessionClient{request: func(_ context.Context, method string, params any) (json.RawMessage, error) {
 		switch method {
 		case "initialize":
-			return json.RawMessage(`{"protocolVersion":1,"server":{"name":"host","version":"0.1.0","dshVersion":"0.2.1-rc.2"},"capabilities":["session.history","settings.configuration"]}`), nil
+			return json.RawMessage(`{"protocolVersion":1,"server":{"name":"host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":["session.history","settings.configuration"]}`), nil
 		case "session/resume":
 			if params.(map[string]any)["useDefaultModel"] != true || params.(map[string]any)["provider"] != nil {
 				t.Error("cold resume ignored Host defaults")

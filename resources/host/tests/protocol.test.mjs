@@ -41,7 +41,7 @@ function runtime() {
 
 const handshake = {
   protocolVersion: 1,
-  client: { name: 'dsh-mygo', version: '0.1.0', platform: 'test', locale: 'zh-CN' },
+  client: { name: 'dsh-mygo', version: '0.1.1', platform: 'test', locale: 'zh-CN' },
   capabilities: ['approval', 'session.history'],
 }
 
@@ -51,7 +51,7 @@ test('handshake gates methods, rejects incompatible versions and never advertise
   await assert.rejects(server.handle('initialize', { ...handshake, protocolVersion: 2 }), { kind: 'protocol/version-mismatch' })
   const result = await server.handle('initialize', handshake)
   assert.equal(result.protocolVersion, 1)
-  assert.equal(result.server.version, '0.1.0')
+  assert.equal(result.server.version, '0.1.1')
   assert.deepEqual(result.capabilities, ['approval'])
   await assert.rejects(server.handle('initialize', handshake), { kind: 'protocol/already-initialized' })
   await assert.rejects(server.handle('settings/get', {}), { code: -32601 })

@@ -4,6 +4,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { prepareRuntimeAssets } from './runtime-assets.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const runtimeDir = join(root, 'resources', 'runtime')
@@ -24,6 +25,8 @@ const install = spawnSync('npm ci --omit=dev --no-audit --no-fund', {
   shell: true,
 })
 if (install.status !== 0) process.exit(install.status ?? 1)
+
+await prepareRuntimeAssets(runtimeDir)
 
 const dshVersion = JSON.parse(
   await readFile(join(runtimeDir, 'node_modules', '@deepseek-ai', 'dsh', 'package.json'), 'utf8'),

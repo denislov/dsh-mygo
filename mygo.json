@@ -1,7 +1,7 @@
 {
   "name": "dsh-mygo",
   "identifier": "com.denislov.dshmygo",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "out": "build",
   "buildCommand": "node scripts/build-runtime.mjs",
   "windows": {

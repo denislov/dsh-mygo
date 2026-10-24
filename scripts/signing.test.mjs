@@ -3,7 +3,17 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { hasAuthenticodeSignature, subjectCN } from './signing.mjs'
+import { hasAuthenticodeSignature, subjectCN, windowsReleaseFiles } from './signing.mjs'
+
+test('release verification selects the current version even when older installers remain', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-mygo-release-files-'))
+  try {
+    writeFileSync(join(dir, 'versions.json'), '{"version":"0.1.1"}')
+    const files = windowsReleaseFiles(dir)
+    assert.equal(files[0], join(dir, 'build/windows-amd64/dsh-mygo.exe'))
+    assert.equal(files[1], join(dir, 'build/windows-amd64/dsh-mygo Setup 0.1.1 amd64.exe'))
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
 
 test('subjectCN reads slash and comma separated subjects', () => {
   assert.equal(subjectCN('/CN=dsh-mygo (self-signed)/O=dsh-mygo'), 'dsh-mygo (self-signed)')

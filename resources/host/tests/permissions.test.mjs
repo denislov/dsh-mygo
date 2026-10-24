@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { MygoServer } from '../server.mjs'
 
-const handshake = { protocolVersion: 1, client: { name: 'test', version: '0.1.0', platform: 'test', locale: 'zh-CN' }, capabilities: ['session.permissions'] }
+const handshake = { protocolVersion: 1, client: { name: 'test', version: '0.1.1', platform: 'test', locale: 'zh-CN' }, capabilities: ['session.permissions'] }
 function runtime() {
   const listeners = new Map()
   const specs = { safe: { sandbox: 'workspace-write', approval: 'ask' }, wide: { sandbox: 'danger-full-access', approval: 'never' } }

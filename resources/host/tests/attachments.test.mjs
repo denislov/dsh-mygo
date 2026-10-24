@@ -6,7 +6,7 @@ import { maxBase64Bytes } from '../attachments.mjs'
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg=='
 const handshake = {
   protocolVersion: 1,
-  client: { name: 'dsh-mygo', version: '0.1.0', platform: 'test', locale: 'en-US' },
+  client: { name: 'dsh-mygo', version: '0.1.1', platform: 'test', locale: 'en-US' },
   capabilities: ['attachments'],
 }
 

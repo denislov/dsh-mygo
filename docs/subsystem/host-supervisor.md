@@ -42,7 +42,7 @@ Host 入口在启动前完成版本校验、`mygo` profile 选择与会话创建
 
 ### 首启 profile
 
-启动前确保 `$DSH_HOME/profiles/mygo` 存在。不存在时从 `resources/host` 复制出 `node_modules/@dsh-mygo/host`，写入 profile manifest 与空 `cordis.patch.yml`；已存在不覆盖。创建失败时窗口进入 `Host error`，不启动 Host。
+启动前确保 `$DSH_HOME/profiles/mygo` 存在。不存在时从 `resources/host` 复制出 `node_modules/@dsh-mygo/host`，写入 profile manifest 与空 `cordis.patch.yml`。已有 profile 的 manifest、patch、设置和凭据保持原样；应用自有 Host 包版本不同时，先将旧包保留到同一命名空间下的 `.host-backup-*`，再以暂存副本替换，替换失败回滚。升级前校验包身份、入口和解析后的目录归属；同版本开发链接保持，异版本外部链接不自动替换。创建或升级失败时窗口进入 `Host error`，不启动 Host。
 
 ### 环境
 

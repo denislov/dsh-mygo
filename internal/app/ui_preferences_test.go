@@ -27,7 +27,7 @@ func TestUIPreferencesSaveWithDraftAndHandshakeLocale(t *testing.T) {
 		t.Fatalf("state=%+v theme=%s err=%v", state, theme, err)
 	}
 	client := &fakeClient{results: map[string]json.RawMessage{
-		"initialize":     json.RawMessage(`{"protocolVersion":1,"server":{"name":"host","version":"0.1.0","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`),
+		"initialize":     json.RawMessage(`{"protocolVersion":1,"server":{"name":"host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`),
 		"session/create": json.RawMessage(`{"session":{"id":"new","status":"idle","nextSeq":0}}`),
 	}}
 	if _, err := a.initialize(context.Background(), client, ""); err != nil {

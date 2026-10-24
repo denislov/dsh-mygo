@@ -7,17 +7,22 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // EnsureProfile creates the named DSH profile from the bundled host package
-// when the profile does not exist. It never overwrites an existing profile.
+// when the profile does not exist. Existing user configuration stays intact;
+// an older app-owned Host package is backed up before it is upgraded.
 func EnsureProfile(dshHome, bundleDir, profile string) error {
 	if dshHome == "" || bundleDir == "" || profile == "" {
 		return errors.New("host: profile seed requires a home, bundle, and profile name")
 	}
+	if profile == "." || profile == ".." || strings.ContainsAny(profile, `:/\`) {
+		return errors.New("host: invalid profile name")
+	}
 	profileDir := filepath.Join(dshHome, "profiles", profile)
 	if _, err := os.Stat(filepath.Join(profileDir, "package.json")); err == nil {
-		return nil
+		return upgradeHostBundle(profileDir, bundleDir)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("host: inspect profile %s: %w", profileDir, err)
 	}
@@ -72,6 +77,90 @@ func EnsureProfile(dshHome, bundleDir, profile string) error {
 			return nil
 		}
 		return fmt.Errorf("host: create profile %s: %w", profileDir, err)
+	}
+	return nil
+}
+
+func upgradeHostBundle(profileDir, bundleDir string) error {
+	readIdentity := func(path string) (string, string, error) {
+		data, err := os.ReadFile(filepath.Join(path, "package.json"))
+		if err != nil {
+			return "", "", err
+		}
+		var identity struct {
+			Name    string `json:"name"`
+			Version string `json:"version"`
+		}
+		if json.Unmarshal(data, &identity) != nil || identity.Version == "" {
+			return "", "", errors.New("host: invalid Host package identity")
+		}
+		return identity.Name, identity.Version, nil
+	}
+	if _, err := os.Stat(filepath.Join(bundleDir, "package.json")); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	sourceName, sourceVersion, err := readIdentity(bundleDir)
+	if err != nil || sourceName != "@dsh-mygo/host" {
+		return errors.New("host: bundled Host package identity is invalid")
+	}
+	scope := filepath.Join(profileDir, "node_modules", "@dsh-mygo")
+	target := filepath.Join(scope, "host")
+	info, err := os.Lstat(target)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil || !info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
+		return errors.New("host: profile Host package is not an app-owned directory")
+	}
+	targetName, targetVersion, err := readIdentity(target)
+	if err != nil || targetName != sourceName {
+		return errors.New("host: cannot verify the installed profile Host package")
+	}
+	if sourceVersion == targetVersion {
+		return nil
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("host: linked development Host has a different version; update its source before starting")
+	}
+	if info, err := os.Stat(filepath.Join(bundleDir, "index.mjs")); err != nil || !info.Mode().IsRegular() {
+		return errors.New("host: bundled Host entry is missing; the installed package was retained")
+	}
+	resolvedProfile, err := filepath.EvalSymlinks(profileDir)
+	if err != nil {
+		return err
+	}
+	resolvedScope, err := filepath.EvalSymlinks(scope)
+	if err != nil {
+		return err
+	}
+	relative, err := filepath.Rel(resolvedProfile, resolvedScope)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return errors.New("host: profile Host package points outside its profile")
+	}
+	target = filepath.Join(resolvedScope, "host")
+	staging, err := os.MkdirTemp(resolvedScope, ".host-next-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(staging)
+	if err := copyTree(bundleDir, staging); err != nil {
+		return err
+	}
+	backup, err := os.MkdirTemp(resolvedScope, ".host-backup-")
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(backup); err != nil {
+		return err
+	}
+	if err := os.Rename(target, backup); err != nil {
+		return err
+	}
+	if err := os.Rename(staging, target); err != nil {
+		if rollbackErr := os.Rename(backup, target); rollbackErr != nil {
+			return errors.New("host: Host upgrade failed; the previous package is retained in the profile backup")
+		}
+		return err
 	}
 	return nil
 }
