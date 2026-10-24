@@ -134,14 +134,15 @@ UI 偏好属于 Go 进程，持久化在 `PathUserData`，写入使用原子替�
 - 草稿按会话有界保存，退出/切换后仍可恢复；编辑状态的确切格式和预算见下节。
 - 主题默认跟随系统；语言与 Host locale 可以不同。
 
-### 界面偏好面板
+### 设置中心的设备分区
 
-- Preferences 是设备级入口，不依赖 Host 的模型/权限 capability。加载编辑文件后可打开；表单保存自己的草稿，Cancel/Escape 丢弃表单变更，Reset 只重置表单，Apply 校验后才切换运行状态并立即请求后台保存。不操作 DSH 设置、会话模型、权限或凭据。
+- 设置中心的 General 与 Shortcuts 是设备级分区，不依赖 Host 的模型/权限 capability；两者共用设备偏好草稿。加载编辑文件后可打开；Cancel/Escape 丢弃表单变更并关闭中心，Reset 只重置表单，Apply 校验后才切换运行状态并立即请求后台保存。不操作 DSH 设置、会话模型、权限或凭据。
+- 设置中心其余分区（Conversation model、Permissions、Connection、About）按模型目录、权限与配置能力显示；能力缺失时隐藏而不是展示死入口。General/Shortcuts/About 在旧 Host 或未协商能力时仍可打开。
 - theme 只接受 system/light/dark，locale 只接受 en-US/zh-CN；默认保留英文和 Enter 发送。主题通过 MyGo Theme.SetSource 与原生语义调色板生效；语言通过集中词表与 App.SetLocale 同步内建控件，MyGo 自身文案的简体中文由主程序链接 `github.com/egoist/mygo/locales/zh-Hans` 词表包提供，不随应用词表重写。编辑文件是权威来源，MyGo 自动保存的 locale 仅为运行时镜像，启动时以编辑文件覆盖；窗口尺寸/位置仍由 StateKey 管理。
 - 语言即时作用于应用标签、状态和提示，技术诊断允许保留原文；用户消息、代码、会话标题、提问内容/选项、工具参数/结果与 provider/model id 不经过翻译。下拉绑定稳定值，仅展示标签随语言变化；切换不重写日志、发送内容或权限判断依据。
 - Host 握手使用启动前已加载的 locale；运行中切换只改变本机界面与下次启动的 client.locale，不为此重启 Host。后台初始化通过独立同步的 locale 值读取，不能依赖尚未执行的 UI 回调。
 - send 允许 Enter 或 Ctrl+Enter，Shift+Enter 始终换行。三个命令只接受 None、Ctrl+N、Ctrl+Shift+N、Ctrl+,、Ctrl+Shift+P、Ctrl+.、Ctrl+Shift+X，启用的组合不得重复；None 可重复。默认新建 Ctrl+N、偏好 Ctrl+,、停止 Ctrl+.；不重绑 Escape，不接受任意按键/脚本。
-- 命令只在前台原生视图声明，并复用动作的能力、busy 和审批/提问门禁；任意模态打开时暂停命令。界面偏好打开时禁止背后发送/导航；工作中可编辑设备偏好，新审批/提问或 Host 失败优先关闭该面板，不自动应用表单。
+- 命令只在前台原生视图声明，并复用动作的能力、busy 和审批/提问门禁；任意模态打开时暂停命令。设置中心打开时禁止背后发送/导航；工作中可编辑 General/Shortcuts，新审批/提问或 Host 失败优先显示，设置中心让位且不自动应用表单。
 - 应用变更后文件失败不撤销正在使用的界面，也不假报保存成功：显示统一的本机状态错误，保留草稿和上次文件；修正后可重试，退出遵守原保存屏障。SDK/无 PreferencesPath 模式只临时应用，明确提示无法保存。
 
 ### 编辑状态文件

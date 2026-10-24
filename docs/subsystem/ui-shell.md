@@ -22,7 +22,7 @@ UI 壳层是 MyGo 进程里的原生界面：
 | `internal/app/sessions.go` / `session_reader.go` | 会话操作、草稿隔离、列表/历史分页校验与后台回放 |
 | `internal/view/sessions.go`、`session_groups.go` | 原生固定侧栏、日期分组、窄窗口弹窗、标题搜索、会话管理表单与 transcript 控件重置 |
 | `internal/app/session_management.go` | 重命名、归档/取消归档、Host 确认与失败刷新屏障 |
-| `internal/app/settings.go` / `internal/view/settings.go` | 白名单模型目录、会话级应用状态机与原生 Settings 面板 |
+| `internal/app/settings.go` / `internal/view/settings.go`、`settings_center.go` | 白名单模型目录、会话级应用状态机与统一设置中心 |
 | `internal/app/configuration.go` / `internal/view/configuration.go` | 持久默认模型、只写密码凭据、配置快照校验与超时后刷新屏障 |
 | `internal/projection/` | 提交事件 → `Item`（user / assistant / tool / notice） |
 | `main.go` | flag、窗口、退出时停止 Host |
@@ -30,7 +30,7 @@ UI 壳层是 MyGo 进程里的原生界面：
 会话主界面由自绘标题栏、transcript 列表与 composer 组成：
 
 - 窗口使用 MyGo `TitleBarHidden`，保留 Windows 自绘的最小化/最大化/关闭按钮；视图通过 `c.TitleBar()` 取得系统按钮占位，标题栏整行 `DragWindow()`，操作按钮始终避开 `bar.Right`。标题栏左侧为应用菜单、侧栏开关与 New chat，中间为会话标题与连接/工作状态，右侧为连接、子代理、会话列表、界面偏好与会话详情入口；窄窗口把次要入口收进菜单。无标题时使用本地化的未命名提示，不把会话 ID 当作页面标题。模型入口放在 composer 工具条，点击沿用 Settings 的能力与写入门禁。
-- 应用菜单使用 MyGo 原生系统菜单：New conversation、Sessions、Show/Hide sidebar、Subagents、Connect DeepSeek、Preferences、Quit；不可用的能力隐藏或禁用，不提供无后端动作的菜单项。
+- 应用菜单使用 MyGo 原生系统菜单：New conversation、Sessions、Show/Hide sidebar、Subagents、Connect DeepSeek、Settings、About dsh-mygo、Quit；不可用的能力隐藏或禁用，不提供无后端动作的菜单项。
 - 会话详情在宽度至少 1180 DIP 时显示为右侧 300 DIP 常驻面板，包含 Progress / Working folder / Context 三张可折叠卡片，展示模型完整路由、工作目录、session id、Host/DSH 版本、实际权限、usage/context、计划/目标与子代理摘要；窄窗口回退为 MyGo Popover。面板默认打开、仅由标题栏入口切换，内容有界滚动，工作期间仍可查看；打开任意 Modal 时面板保留在遮罩下且不重排，Popover 则关闭且不自动重开。两种布局共用同一只读内容，不与审批/提问/检视器叠加。
 - 聊天与输入区共享最大 760 DIP 的居中阅读宽度。助手消息直接在页面上排版，不再显示可见的角色行；用户消息使用 `UserBubble` 暖色背景、圆角与右对齐，正文使用 15 DIP 字号，用户原文与助手 Markdown 维持各自解释规则。角色名保留为消息容器的可访问名称。复制动作位于消息下方并右对齐，默认降低不透明度、在消息 hover 或键盘焦点进入时恢复；使用带名称、Tooltip 和反馈图标的原生按钮，不以长文字按钮占据正文。
 
@@ -52,7 +52,7 @@ UI 壳层是 MyGo 进程里的原生界面：
 - 会话详情显示最新一步 token 用量与路由容量（`Context 已用 / 容量 · 百分比 · In / Out · cache`），只在 Host 提供对应事件时出现；容量或用量未知时省略对应片段，不阻塞 Sessions/Settings 入口，也不参与发送或历史回放。
 - 仅 idle 且无审批/提问时允许导航。刷新可 Close/Escape 取消；历史加载期间显示 Loading、禁用发送与编辑，不能重复新建/切换或关闭弹窗。失败保留当前 transcript/草稿，弹窗中显示可重试的安全错误；审批/提问优先，不叠加会话弹窗与工具检视器。
 - 切换成功后才整体替换 transcript，清除工具展开/检视器、复制反馈、旧 ListState 和临时流式状态；transcript 与 composer 的控件身份包含 session id。草稿按会话隔离并通过设备级编辑文件恢复。新建使用启动 cwd；新建/冷恢复按 Host 默认或显式 flags 选择模型，冷恢复保持持久 cwd，仍由 Host 持有的会话保持原路由。
-- Settings 提供当前会话模型面板：provider、模型目录建议、实际 Model ID、effort 与 Refresh/Apply model/Close。只在 idle 无交互、无会话操作时启用，Host 确认后显示新模型；读取可取消，提交期间防重复/禁止关闭，失败保留表单和草稿。面板内容可滚动，底部操作始终可达；composer 的模型入口与 header 的会话详情分工，避免窄窗口挤掉常用操作。
+- 设置中心的 Conversation model 分区提供当前会话模型面板：provider、模型目录建议、实际 Model ID、effort 与 Refresh/Apply model/Close。只在 idle 无交互、无会话操作时启用，Host 确认后显示新模型；读取可取消，提交期间防重复/禁止关闭，失败保留表单和草稿。分区正文可滚动，底部操作始终可达；composer 的模型入口直接打开该分区，标题栏的 Preferences 入口打开 General，避免窄窗口挤掉常用操作。
 - 协商 settings.configuration 后，Settings 可滚动区域增加 Save selection as default、DeepSeek 凭据状态、Password 输入与确认清除；操作范围、存储与默认 flags 优先级以 [设置与凭据](settings-credentials.md) 为准。密码提交/刷新/关闭后清空并更换稳定 key；写入期间不能关闭或重复操作，超时/失败后禁止发送/导航，必须 Refresh 确认。底部 Close/Refresh/Apply 始终可达。
 
 ## 视图模型
@@ -172,7 +172,7 @@ App
 - 暂存图片通过后台 MyGo DecodeBitmap 生成原生预览；独立的预览准入上限为单图 400 万像素，超限或解码失败保留元数据行，不改变附件发送准入。MyGo 处理 EXIF 方向、缩小显示与纹理生命周期；结果通过 Window.Update 对应的发布队列返回，并检查会话身份与单调暂存 ID，移除/清空/切换后的迟到结果丢弃。预览与字节都不落入本机草稿文件；历史附件继续只显示 Host 提供的引用元数据，不把标识符解释成路径。
 - `/` 命令：提供命令补全与执行；不要伪造不存在的命令。
 - 发送失败：保留草稿，显示错误；不要丢失用户输入。
-- 独立 Preferences 面板配置主题、语言、发送键和应用命令，不依赖会话 Settings 能力。表单与已应用值分离，底部取消/重置/应用动作在最小窗口保持可达；滚动只包围表单内容。固定状态、菜单标签、无障碍名称随语言切换，原始消息/代码/提问与工具载荷保留原文。
+- 设置中心的 General 与 Shortcuts 分区配置主题、语言、发送键和应用命令，不依赖会话 Settings 能力。表单与已应用值分离，底部取消/重置/应用动作在最小窗口保持可达；滚动只包围表单内容。固定状态、菜单标签、无障碍名称随语言切换，原始消息/代码/提问与工具载荷保留原文。
 
 ## 审批与提问
 
@@ -196,23 +196,24 @@ App
 - 协商 session.release 时，下一次导航/管理操作前释放非当前和非目标的退休句柄，不把所有访问过的会话长期保活。目标验证失败保留当前 Agent，目标句柄待后续回收；后台重命名同样纳入回收。已释放会话重新打开采用冷恢复路由；紧邻返回、仍被拥有的会话保持原路由。释放不删除日志/草稿，也不改变归档状态。
 - 管理成功以 Host 摘要与新列表的目标身份、标题/归档状态为准；当前会话重命名还需匹配有序到达的 `session/title` 提交及 nextSeq。失败或超时保留表单与草稿，禁止发送、导航和设置写入，要求 Refresh sessions；重命名涉及当前会话时刷新还需回放 history 校准序列。失败、关闭和新操作通过 operation 身份丢弃迟到结果，不让旧响应覆盖新会话。
 
-## 设置
+## 设置中心
 
-设置页覆盖影响使用的配置：
+设置中心是一个 MyGo Modal：左侧分区导航、右侧可滚动正文、固定页脚。分区按能力出现，不显示死入口：
 
-| 设置 | 来源 |
-| --- | --- |
-| Provider / Model / Effort | `model/list`、`model/select` |
-| 权限模式 | Host 会话权限快照；初值来自部署配置，切换写入当前会话日志 |
-| 语言 | 本地 + Host locale |
-| 主题 | MyGo 主题（跟随系统） |
-| 快捷键 | 本地 |
-| 关于/版本 | 本地 + `initialize.server` |
-| 更新 | MyGo updater |
+| 分区 | 内容 | 来源 |
+| --- | --- | --- |
+| General | 主题、语言、Host 语言提示 | 本地偏好 |
+| Conversation model | Provider / Model / Effort、目录建议、持久默认模型 | `model/list`、`model/select`、`configuration/default-model` |
+| Permissions | 权限模式、实际 sandbox/approval、危险确认 | Host 会话权限快照 |
+| Connection | DeepSeek API 凭据 | `configuration/credential` |
+| Shortcuts | 发送键与三个可配置命令 | 本地偏好 |
+| About | App 版本、Host/DSH、session id | 本地 + `initialize.server` |
+
+General、Shortcuts、About 不依赖 Host 能力；Conversation、Permissions、Connection 分别按模型目录、权限能力与配置能力显示。标题栏 Preferences、Ctrl+, 与菜单 Settings 打开 General；composer 模型 chip 打开 Conversation；首次使用 Connect DeepSeek 打开仅含 Connection 的精简模式。切换宿主机分区时在点击回调里触发 RefreshSettings，不在渲染期读取。
 
 其余 DSH 设置通过 `settings/get` / `settings/set` 接入；不要一次性复刻 Web 设置页。所有权与凭据规则见 [设置与凭据](settings-credentials.md)。
 
-权限能力独立于模型目录，任一能力可打开 Settings；当前权限在会话页展示，权限表单排在可滚动正文首部。选择使用稳定 preset id，确认按目标 preset 绑定，默认不勾选；写入期间显示 Applying permissions，禁用关闭、重复提交和导航。失败后保留草稿，通过 Refresh 读取 Host 真相，发送区显示权限未确认提示。Close/Refresh 等页脚动作在最小窗口保持可达；具体风险判定和确认契约见 [权限模式](settings-credentials.md#权限模式)。
+权限能力独立于模型目录，任一能力可打开设置中心；当前权限在会话页展示，权限表单位于 Permissions 分区。选择使用稳定 preset id，确认按目标 preset 绑定，默认不勾选；写入期间显示 Applying permissions，禁用关闭、重复提交和导航。失败后保留草稿，通过 Refresh 读取 Host 真相，发送区显示权限未确认提示。Close/Refresh 等页脚动作在最小窗口保持可达；具体风险判定和确认契约见 [权限模式](settings-credentials.md#权限模式)。
 
 编辑框通过绑定后的变更回调触发本机草稿快照，不在构建视图时启动文件 I/O。保存失败提示独立于 Host 错误，不清空编辑；普通关闭需等待后台保存，失败后由用户重试或显式放弃。Host 恢复对话框内同样能选择放弃未保存编辑，避免两种错误互相遮挡。格式、隔离与恢复规则见 [编辑状态文件](settings-credentials.md#编辑状态文件)。
 
@@ -221,7 +222,7 @@ App
 - 主题：c.Theme() 的语义色，允许跟随系统或固定浅色/深色；选择不直接修改控件的持久状态或绘制回调。窗口外观通过 MyGo Theme.SetSource 同步，视图使用对应原生调色板。
 - 视觉样式以 MyGo LightTheme/DarkTheme 为底，统一中性色、低饱和强调色、字阶与组件圆角；Windows 英文界面使用 Segoe UI，中文使用 Microsoft YaHei UI，其他平台沿用系统字体。图标是一次解析的静态 SVG，交给 ui.Icon 渲染；图标按钮始终有本地化 Label 与 Tooltip。
 - Toolbar 负责轻量按钮、键盘组导航和溢出；系统菜单、Popover、Collapsible 与 Modal 负责各自的焦点及关闭行为。动效复用 MyGo 的颜色 Transition、状态 ContentTransition、工作 Spinner 与弹层/折叠动画，遵循 ReduceMotion；不为流式正文添加位置/尺寸动画或人为逐字延时，不自行实现计时器或动画引擎。
-- 语言：应用字符串集中管理，支持英文/简体中文并同步 MyGo 内建控件；不翻译数据载荷。Host locale 通过 initialize.client.locale 传入，运行中切换在 Host 下次启动采用；格式与持久化契约见 [界面偏好面板](settings-credentials.md#界面偏好面板)。
+- 语言：应用字符串集中管理，支持英文/简体中文并同步 MyGo 内建控件；不翻译数据载荷。Host locale 通过 initialize.client.locale 传入，运行中切换在 Host 下次启动采用；格式与持久化契约见 [设置中心的设备分区](settings-credentials.md#设置中心的设备分区)。
 - 无障碍：为按钮、输入、列表行、弹窗提供名称/角色/描述；不要把关键操作只放在图标上。
 - 高对比度/减少动态：遵循系统设置；流式淡入可关闭。
 

@@ -36,7 +36,7 @@ func (model *Model) ClearCredentialDraft() {
 	model.CredentialVersion++
 }
 
-func configurationControls(c *mgo.Context, model *Model, disabled bool) {
+func defaultModelControls(c *mgo.Context, model *Model, disabled bool) {
 	if !model.CanConfigure {
 		return
 	}
@@ -48,7 +48,6 @@ func configurationControls(c *mgo.Context, model *Model, disabled bool) {
 	}
 	mgo.Text(c, model.T("New conversations and cold restores use this default unless route flags override it. Current sessions stay unchanged.")).FontSize(11).TextColor(c.Theme().TextMuted)
 	mgo.Button(c.Key("settings-save-default"), model.T("Save selection as default")).Disabled(disabled || model.SaveDefaultModel == nil || model.ModelUncertain).OnClick(func() { model.SaveDefaultModel() })
-	credentialControls(c, model, disabled)
 }
 
 func credentialControls(c *mgo.Context, model *Model, disabled bool) {

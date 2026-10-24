@@ -47,6 +47,7 @@ type Model struct {
 	LocalState           LocalStateStatus
 	Phase                Phase
 	ModelLabel           string
+	AppVersion           string
 	Detail               string
 	Usage                projection.UsageView
 	Context              projection.ContextView
@@ -107,6 +108,7 @@ type Model struct {
 	ActiveRoute          ModelRoute
 	Catalog              ModelCatalog
 	SettingsOpen         bool
+	SettingsSection      SettingsSection
 	SettingsConnection   bool
 	SettingsBusy         bool
 	SettingsApplying     bool
@@ -220,9 +222,8 @@ func View(c *mgo.Context, model *Model) {
 	questionModal(c, model)
 	toolInspectorModal(c, model)
 	sessionsModal(c, model)
-	settingsModal(c, model)
+	settingsCenterModal(c, model)
 	recoveryModal(c, model)
-	preferenceModal(c, model)
 	subagentModal(c, model)
 }
 

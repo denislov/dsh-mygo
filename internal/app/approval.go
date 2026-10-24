@@ -13,9 +13,6 @@ import (
 func (a *App) publishApprovals() {
 	a.model.Approvals = a.approvals.Items()
 	a.model.ApprovalOpen = len(a.model.Approvals) > 0
-	if a.model.ApprovalOpen {
-		a.model.Prefs.Open = false
-	}
 }
 
 func (a *App) clearApprovals() {

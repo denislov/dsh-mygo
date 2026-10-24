@@ -22,7 +22,7 @@ func TestPreferencesEntryWithoutHostAndShortcutGates(t *testing.T) {
 	if err := tester.Click("Preferences"); err != nil {
 		t.Fatal(err)
 	}
-	if !model.Prefs.Open || !tester.HasText("Theme") {
+	if !model.SettingsOpen || model.SettingsSection != SettingsSectionGeneral || !tester.HasText("Theme") {
 		t.Fatal("preferences depend on Host capabilities")
 	}
 	tester.Key(ui.Ctrl, ui.KeyN)
@@ -66,14 +66,14 @@ func TestConfiguredApplicationCommandsAndStopGate(t *testing.T) {
 	model.CancelPending = false
 	tt.Frame()
 	tt.Key(ui.Ctrl, ui.KeyComma)
-	if !model.Prefs.Open {
+	if !model.SettingsOpen || model.SettingsSection != SettingsSectionGeneral {
 		t.Fatal("preferences command missing")
 	}
-	model.Prefs.Open = false
+	model.SettingsOpen = false
 	model.Prefs.Value.Preferences = "None"
 	tt.Frame()
 	tt.Key(ui.Ctrl, ui.KeyComma)
-	if model.Prefs.Open {
+	if model.SettingsOpen {
 		t.Fatal("disabled command remained registered")
 	}
 }
@@ -173,7 +173,7 @@ func TestPreferenceFormCancelValidationAndThemes(t *testing.T) {
 	_ = tt.Click("Preferences")
 	model.Prefs.Draft.Stop = model.Prefs.Draft.NewSession
 	_ = tt.Click("Apply preferences")
-	if !model.Prefs.Open || model.Prefs.Error == "" {
+	if !model.SettingsOpen || model.Prefs.Error == "" {
 		t.Fatal("conflicting shortcuts accepted")
 	}
 	_ = tt.Click("Reset preferences")

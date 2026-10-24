@@ -56,7 +56,7 @@ func TestSubagentPanelOpensDuringWorkCopiesOutputAndKeepsParentDraft(t *testing.
 		t.Fatal("copy lost source or changed parent")
 	}
 	m.OpenPreferences()
-	if m.Prefs.Open || m.CanRefreshSessions() || m.CanEditSettings() {
+	if m.SettingsOpen || m.CanRefreshSessions() || m.CanEditSettings() {
 		t.Fatal("inspection allowed competing navigation")
 	}
 	if err := tt.Click("Earlier activity"); err != nil {

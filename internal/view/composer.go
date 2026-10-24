@@ -13,8 +13,8 @@ func composer(c *mgo.Context, model *Model) {
 	theme := c.Theme()
 	tokens := tokensFor(theme)
 	services := c.Services()
-	stopped := model.Phase == PhaseStopped || model.Phase == PhaseFailed || model.Phase == PhaseResyncing || model.SessionSwitching || model.RecoveryOpen || model.LocalState.Closing || model.Prefs.Open || model.Inspection.Open
-	canSend := model.Phase == PhaseIdle && !model.SetupBlocked() && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy && !model.History.Detached && !model.SessionPanel.BlocksInput() && !model.SettingsOpen && !model.Prefs.Open && !model.Inspection.Open && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain && !model.Permission.Uncertain && !model.LocalState.Closing
+	stopped := model.Phase == PhaseStopped || model.Phase == PhaseFailed || model.Phase == PhaseResyncing || model.SessionSwitching || model.RecoveryOpen || model.LocalState.Closing || model.Inspection.Open
+	canSend := model.Phase == PhaseIdle && !model.SetupBlocked() && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy && !model.History.Detached && !model.SessionPanel.BlocksInput() && !model.SettingsOpen && !model.Inspection.Open && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain && !model.Permission.Uncertain && !model.LocalState.Closing
 	attachments := &model.Attachments
 	hasContent := func() bool { return strings.TrimSpace(model.Draft) != "" || len(attachments.Pending) > 0 }
 	zone := mgo.Column(c.Key("composer-zone")).Padding(space8, space24, space12, space24).Gap(space6).AlignItems(mgo.Center)
@@ -85,7 +85,7 @@ func composer(c *mgo.Context, model *Model) {
 					if model.Prefs.Value.Send == "Ctrl+Enter" {
 						mods = mgo.Ctrl
 					}
-					if key.Key != mgo.KeyEnter || key.Mods != mods || model.Prefs.Open {
+					if key.Key != mgo.KeyEnter || key.Mods != mods || model.SettingsOpen {
 						return false
 					}
 					text := strings.TrimSpace(key.Text())

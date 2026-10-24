@@ -59,7 +59,7 @@ func TestPasswordInputSubmissionClearsAcrossFrames(t *testing.T) {
 		}
 		saves++
 	}
-	tester := ui.NewTester(func(context *ui.Context) { configurationControls(context, model, false) }, 600, 600)
+	tester := ui.NewTester(func(context *ui.Context) { credentialControls(context, model, false) }, 600, 600)
 	if err := tester.Click("New API key"); err != nil {
 		t.Fatal(err)
 	}

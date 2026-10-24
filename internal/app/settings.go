@@ -95,6 +95,15 @@ func (a *App) openSettings(connection bool) {
 	}
 	a.model.SettingsOpen = true
 	a.model.SettingsConnection = connection
+	if connection {
+		a.model.SettingsSection = view.SettingsSectionConnection
+	} else {
+		a.model.SettingsSection = view.SettingsSectionConversation
+	}
+	if a.model.Prefs.Ready {
+		a.model.Prefs.Draft = a.model.Prefs.Value
+		a.model.Prefs.Error = ""
+	}
 	a.model.ConfigurationReady = false
 	a.model.SettingsNotice = ""
 	a.model.ConfirmCredentialClear = false
@@ -113,6 +122,7 @@ func (a *App) CloseSettings() {
 	a.cancelSettingsOperation()
 	a.model.SettingsOpen = false
 	a.model.SettingsConnection = false
+	a.model.SettingsSection = view.SettingsSectionConversation
 	a.model.ClearCredentialDraft()
 	a.model.ConfirmCredentialClear = false
 	a.model.Permission.Confirm = false

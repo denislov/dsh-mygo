@@ -157,6 +157,7 @@ func New(options Options) *App {
 	}
 	app := &App{options: options, sessionID: options.SessionID, stopped: make(chan struct{}), pendingUI: make(chan struct{}, maxPendingUIUpdates)}
 	app.model = view.NewModel()
+	app.model.AppVersion = channel.ReleaseVersion
 	app.model.Setup.ChooseFolder = app.ChooseProjectFolder
 	app.model.Setup.UseFolder = app.UseWorkingFolder
 	app.model.Setup.Connect = app.OpenConnectionSettings
@@ -720,9 +721,6 @@ func validSessionID(value string) bool {
 // Send queues one user prompt. It runs on the main thread and ignores calls
 // while the host is busy or not ready.
 func (a *App) Send(text string) {
-	if a.model.Prefs.Open {
-		return
-	}
 	original := originalSubmittedText(a.model.Draft, text)
 	text = strings.TrimSpace(text)
 	if a.model.Inspection.Open || a.model.SetupBlocked() {
@@ -1140,7 +1138,6 @@ func (a *App) fail(summary string, err error) {
 func (a *App) setFailure(summary string, err error) {
 	a.model.Setup.Picking = false
 	a.CloseSubagents()
-	a.model.Prefs.Open = false
 	if a.model.Phase == view.PhaseFailed {
 		return
 	}

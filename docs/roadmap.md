@@ -54,11 +54,11 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 | 流式 | `session/assistant-stream`、临时行、提交替换、缺口/abandoned/截断 | `internal/projection/stream.go`、`TestAgainstMygoRealStreaming` |
 | 人机交互 | approval 与 question 的 answerer、FIFO 队列、超时/撤销/过期身份、多问题表单 | `internal/interaction`、`TestAgainstMygoRealApprovals`、`TestAgainstMygoQuestions` |
 | 投影与渲染 | user/assistant/tool/diff/notice、原生 Markdown 流式与代码复制、工具折叠与只读 hunk | `internal/projection`、`internal/view/markdown.go`、`tools.go` |
-| 会话 UI | 宽窗口固定侧栏、窄窗口 Sessions 弹窗、标题搜索、归档筛选、重命名/归档/恢复；新建/刷新/恢复、草稿隔离与写入失败确认屏障 | `internal/view/sessions.go`、`internal/app/session_management.go`、`TestAgainstMygoSessionManagement`、`TestAgainstMygoSessionSwitching` |
+| 会话 UI | 自绘标题栏与应用菜单、可收起日期分组侧栏、宽窗口详情面板、窄窗口 Sessions 弹窗与详情 Popover、标题搜索、归档筛选、重命名/归档/恢复；新建/刷新/恢复、草稿隔离与写入失败确认屏障 | `internal/view/chrome.go`、`sessions.go`、`session_groups.go`、`details.go`、`internal/app/session_management.go`、`TestAgainstMygoSessionManagement`、`TestAgainstMygoSessionSwitching` |
 | 模型与设置 | `model.selection` 目录与 effort、`settings.configuration` 默认模型（revision）、DeepSeek 凭据只写 | `internal/app/settings.go`、`configuration.go`、`TestAgainstMygoConfiguration` |
 | 会话权限 | 独立能力、当前预设和实际 sandbox/approval、危险 bundle 确认、Host 公共服务切换/持久化、失败刷新门禁 | `resources/host/permissions.mjs`、`internal/app/permissions.go`、`internal/view/permissions.go`、`TestAgainstMygoPermissions` |
 | 本机编辑状态 | 按 DSH_HOME/profile 隔离的有界草稿与最近会话、原子保存/冲突检测/损坏备份、确认发送后清除、启动恢复/失败复制与异步退出保存 | `internal/preferences`、`internal/app/local_state.go`、`TestAgainstMygoLocalEditingState` |
-| 界面偏好 | 独立面板、跟随系统/浅色/深色、中英文界面、Enter/Ctrl+Enter 与有限命令改绑/禁用、v1→v2 迁移与保存失败保护 | `internal/view/preferences.go`、`internal/i18n`、`internal/app/ui_preferences.go`、偏好/输入/重启回归 |
+| 界面偏好与设置中心 | 统一设置中心（General/Conversation model/Permissions/Connection/Shortcuts/About）、跟随系统/浅色/深色、中英文界面、Enter/Ctrl+Enter 与有限命令改绑/禁用、v1→v2 迁移与保存失败保护 | `internal/view/settings_center.go`、`settings.go`、`preferences.go`、`internal/i18n`、`internal/app/ui_preferences.go`、偏好/输入/重启回归 |
 | 附件与引用 | 独立 `attachments` 能力与图片策略、canonical base64/类型/预算/路由校验、事件前持久提交、历史元数据行、粘贴/拖放/选择文件与 `@path` 补全 | `resources/host/attachments.mjs`、`internal/attachment`、`internal/app/attachments.go`、`internal/view/mentions.go`、`TestAgainstMygoRealAttachments` |
 | 深度信息（usage/context、plan/todo/goal、子代理） | 最新一步 token 与路由容量、待办整表与回合清空、计划模式 latest-wins、目标快照/清除、子代理 start/end 实时状态、header 与 composer 上方有界摘要 | `internal/projection`（usage、`request/context`、`todo/write`、`plan/mode`、`goal/change`）、`internal/view/usage.go`、`internal/view/depth.go`、`internal/view/subagents.go`、`internal/app/subagents.go`、`resources/host/server.mjs`、`TestAgainstMygoRealUsageContext`、`TestAgainstMygoRealTodoProjection`、`TestAgainstMygoRealSubagentStatus` |
 | 子代理详情/结果 | 工具栏只读目录、任务与状态、消息/工具输出/结束原因、早页/尾页/刷新、重启后持久读取、运行中查看与父任务停止 | `internal/app/subagent_inspection.go`、`internal/view/subagent_inspection.go`、`resources/host/subagents.mjs`、Node/Go/Tester 与真实 `TestAgainstMygoRealSubagentStatus` 冷暖读取 |
@@ -176,9 +176,9 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 ## 6. 建议的下一批任务（PR 粒度）
 
-界面美化已完成一轮：顶部改为会话标题与轻量状态，完整路由、路径、版本、权限及深度信息集中到 MyGo Popover；侧栏改为紧凑会话行、SearchField 与系统管理菜单；聊天正文与一体化 composer 使用统一阅读宽度和浅深语义主题，复制/发送/停止改用有名称和提示的原生图标按钮。任务使用 Collapsible 和有界滚动，图片暂存使用后台 MyGo DecodeBitmap 预览并拒绝跨会话/移除后的迟到结果。动效复用 Toolbar、Popover、Collapsible、Transition、ContentTransition 与 Spinner，不增加动画引擎、Web UI 或框架依赖。Windows 英文/中文字体分别为 Segoe UI 与 Microsoft YaHei UI，设置、审批/提问和发送门禁保持。
+界面已完成 Claude Desktop 风格重构：窗口使用 MyGo `TitleBarHidden` 自绘 44 DIP 标题栏（`c.TitleBar()` 系统按钮留白 + `DragWindow` + 原生应用菜单），宽窗口显示 260 DIP 日期分组侧栏与 300 DIP 右侧详情栏（窄窗口回退 Sessions 弹窗与详情 Popover），主区改为无角色行消息、`CollapsibleBase` 工具卡、`Progress` 任务卡与浮动 composer。Settings 与 Preferences 合并为带左侧分区的设置中心：General / Conversation model / Permissions / Connection / Shortcuts / About 按能力出现。视觉 token 集中在 `tokens.go`，浅深主题使用 Claude 暖灰 + 赤陶橙；动效复用 MyGo `Transition` / `ContentTransition` / `Spinner` / `CollapsibleBase` / `Progress`，没有新增动画引擎、Web UI 或框架依赖。侧栏/详情栏开关本轮仅内存保存，持久化留待 preferences schema 扩展。
 
-本轮检查：`CGO_ENABLED=0 go test ./...`（379 项通过，真实 Host/付费组默认跳过）、`go test -race ./internal/app ./internal/view`（246 项）、`go tool mygo vet .`、`go vet ./...` 通过；显式设置 `DSH_MYGO_RESOURCES_DIR=resources` 的 `go test ./internal/app -run TestAgainstMygoRealAttachments -count=1 -v -timeout 2m` 通过。Windows 原生窗口复核浅色/深色、中英文、Markdown、任务折叠、560×420 布局与 Sessions 弹窗；图片选择器实际暂存图片并显示预览，暂停流式回合经 Stop 返回就绪，草稿保持原文且 Settings 仍可打开。Tester 覆盖系统菜单目标身份与 busy 门禁、详情与 Modal 互斥、30 行草稿/64 项任务/8 张附件时发送仍可达，新增异步预览的移除/清空/切换与像素预算回归。本轮未重建安装器，未跑打包/安装 smoke 或 macOS 验收。
+本轮检查：`go test ./...`（419 项通过）、`go test -race ./internal/view ./internal/app`（282 项）、`go tool mygo vet .`、`go vet ./...`、`CGO_ENABLED=0 go test ./...` 均通过；无头渲染复核 1280×820 浅/深色会话、详情栏、设置中心 General/Model 与 560×420 弹窗可达性。真实桌面在实施期间处于锁屏状态，本轮未重新执行 Windows UI Automation 截图验收；发布前需在解锁的 Windows 原生窗口补做标题栏拖动/双击最大化、150% 缩放、中英文与最小窗口检查。
 
 1. **私有测试版试用反馈**：围绕安装、选择项目、配置 API key 与第一轮真实对话收集反馈，优先修复首发阻塞和稳定性问题；后台会话、compaction、子代理 token 流和递归后代导航按实际使用反馈排序。
 2. **M1-4 干净机器验收**：项目所有者因没有干净 Windows VM，决定本轮跳过并继续 M2；未验收，不标记通过。Windows 发布前重新安排离线首启与证书提示流程检查。

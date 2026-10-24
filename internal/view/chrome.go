@@ -5,7 +5,7 @@ import (
 )
 
 func overlayActive(model *Model) bool {
-	return model.SettingsOpen || model.Prefs.Open || model.SessionsOpen || model.Inspection.Open ||
+	return model.SettingsOpen || model.SessionsOpen || model.Inspection.Open ||
 		model.ToolInspector != nil || model.RecoveryOpen || len(model.Approvals) > 0 || len(model.Questions) > 0
 }
 
@@ -138,13 +138,20 @@ func titleBarMenu(menu *mgo.Menu, model *Model, width float32) {
 		}
 	}
 	if model.CanOpenPreferences() {
-		item := menu.Item(model.T("Preferences"))
+		item := menu.Item(model.T("Settings"))
 		if mods, key := commandKey(model.Prefs.Value.Preferences); key != mgo.KeyUnknown {
 			item.Shortcut(mods, key)
 		}
 		if item.Chosen() {
 			model.OpenPreferences()
 		}
+	} else if model.OpenSettings != nil && (model.CanModels || model.Permission.Available || model.CanConfigure) {
+		if menu.Item(model.T("Settings")).Chosen() {
+			model.OpenSettings()
+		}
+	}
+	if menu.Item(model.T("About dsh-mygo")).Chosen() {
+		model.OpenSettingsAt(SettingsSectionAbout)
 	}
 	if model.Quit != nil {
 		menu.Separator()

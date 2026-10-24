@@ -19,7 +19,7 @@ func (a *App) acceptUIPreferences(settings preferences.UISettings) {
 	}
 }
 func (a *App) ApplyUIPreferences() {
-	if !a.model.Prefs.Open || a.model.LocalState.Closing || a.model.RecoveryOpen || len(a.model.Approvals) > 0 || len(a.model.Questions) > 0 {
+	if !a.model.SettingsOpen || a.model.SettingsConnection || a.model.LocalState.Closing || a.model.RecoveryOpen || len(a.model.Approvals) > 0 || len(a.model.Questions) > 0 {
 		return
 	}
 	if err := a.model.Prefs.Draft.Validate(); err != nil {
@@ -28,6 +28,7 @@ func (a *App) ApplyUIPreferences() {
 	}
 	a.model.Prefs.Dirty = true
 	a.acceptUIPreferences(a.model.Prefs.Draft)
-	a.model.Prefs.Open = false
+	a.model.SettingsOpen = false
+	a.model.SettingsConnection = false
 	a.SaveLocalState()
 }
