@@ -160,6 +160,8 @@ type App struct {
 	settingsCancel      context.CancelFunc
 	runtimeGeneration   uint64
 	runtimeCancel       context.CancelFunc
+	switchMu            sync.Mutex
+	switchRuntime       *runtimeSwitch
 	inspectionRead      subagentReadState
 	restarting          bool
 
@@ -234,7 +236,11 @@ func New(options Options) *App {
 	app.model.Runtime.UseExternal = app.UseExternalRuntime
 	app.model.Runtime.UseInstalled = app.UseInstalledRuntime
 	app.model.Runtime.UseLegacy = app.UseLegacyRuntime
+	app.model.Runtime.Activate = app.ActivateRuntime
+	app.model.Runtime.Remove = app.RemoveRuntime
+	app.model.Runtime.Manage = app.OpenRuntimeSettings
 	app.model.Runtime.Cancel = app.CancelRuntimeOperation
+	app.model.Runtime.CanManage = options.Runtimes != nil
 	app.model.Restart = app.Restart
 	app.model.OpenLogs = app.OpenLogs
 	app.model.Quit = options.Quit
@@ -306,7 +312,17 @@ func (a *App) resolveLaunchPlan() (RuntimeLaunchPlan, error) {
 		if profile == "" {
 			profile = "mygo"
 		}
-		config, hostBundle, runtime, err := a.options.Runtimes.Launch(profile, a.options.CWD, a.options.DSHHome)
+		var (
+			config     host.Config
+			hostBundle string
+			runtime    runtimes.Runtime
+			err        error
+		)
+		if target, switching := a.pendingRuntimeSwitch(); switching {
+			config, hostBundle, runtime, err = a.options.Runtimes.LaunchRuntime(target, profile, a.options.CWD, a.options.DSHHome)
+		} else {
+			config, hostBundle, runtime, err = a.options.Runtimes.Launch(profile, a.options.CWD, a.options.DSHHome)
+		}
 		if err != nil {
 			return RuntimeLaunchPlan{}, err
 		}
@@ -327,6 +343,10 @@ func (a *App) startHost(recover bool, resumeID string) {
 	generation := a.hostGeneration.Add(1)
 	plan, err := a.resolveLaunchPlan()
 	if err != nil {
+		if a.hasPendingRuntimeSwitch() {
+			a.failRuntimeSwitch(err)
+			return
+		}
 		if a.options.Runtimes != nil {
 			a.awaitRuntime(err)
 			return
@@ -338,6 +358,10 @@ func (a *App) startHost(recover bool, resumeID string) {
 	if a.options.Runtimes != nil {
 		if plan.HostBundleDir != "" && a.options.PrepareProfile != nil {
 			if err := a.options.PrepareProfile(plan.HostBundleDir); err != nil {
+				if a.hasPendingRuntimeSwitch() {
+					a.failRuntimeSwitch(err)
+					return
+				}
 				a.fail("Could not prepare the DeepSeek Harness profile", err)
 				return
 			}
@@ -355,6 +379,10 @@ func (a *App) startHost(recover bool, resumeID string) {
 	a.logf("host start: generation=%d recover=%v command=%s", generation, recover, filepath.Base(plan.Config.Command))
 	supervisor, err := host.Start(context.Background(), plan.Config)
 	if err != nil {
+		if a.hasPendingRuntimeSwitch() {
+			a.failRuntimeSwitch(err)
+			return
+		}
 		summary := "Could not start the DeepSeek Harness host"
 		if recover {
 			summary = "Could not restart the DeepSeek Harness host"
@@ -414,8 +442,12 @@ func (a *App) startHost(recover bool, resumeID string) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), initializeTimeout)
 	defer cancel()
-	initialized, err := a.initializeSession(ctx, client, resumeID, !recover && resumeID != "")
+	initialized, err := a.initializeSession(ctx, client, resumeID, !recover && resumeID != "" && !a.switchNeedsResume())
 	if err != nil {
+		if a.hasPendingRuntimeSwitch() {
+			a.failRuntimeSwitch(err)
+			return
+		}
 		if !a.options.SDKProtocol && !recover {
 			err = fmt.Errorf("%w\n\nCheck that the mygo profile contains dsh-base and @dsh-mygo/host. Initialize a new development profile with resources/host/setup-profile.mjs --dsh-home <absolute-directory>", err)
 		}
@@ -429,6 +461,16 @@ func (a *App) startHost(recover bool, resumeID string) {
 	}
 	if a.hostGeneration.Load() != generation {
 		return
+	}
+	switchedID := ""
+	if a.hasPendingRuntimeSwitch() {
+		target, err := a.commitRuntimeSwitch()
+		if err != nil {
+			a.stopHost()
+			a.failRuntimeSwitch(err)
+			return
+		}
+		switchedID = target.ID
 	}
 
 	a.logf("session ready: %s", initialized.sessionID)
@@ -522,11 +564,16 @@ func (a *App) startHost(recover bool, resumeID string) {
 		a.model.Setup.Picking, a.model.Setup.Error = false, ""
 		a.model.Setup.WorkspaceRequired = a.options.RequireWorkspace && len(a.model.Items) == 0
 		a.model.Runtime.SetupRequired = false
+		a.model.Runtime.Switching = false
 		a.model.Runtime.Busy = false
 		a.model.Runtime.Progress = 0
 		a.model.Runtime.Status = ""
 		a.model.Runtime.Error = ""
 		a.model.Runtime.Notice = ""
+		if switchedID != "" {
+			a.model.SettingsNotice = "Runtime switched."
+			a.refreshRuntimeChoicesLocked()
+		}
 		if initialized.route.Provider != "" {
 			a.model.SetActiveRoute(initialized.route)
 		}
@@ -1292,6 +1339,10 @@ func (a *App) setFailure(summary string, err error) {
 	a.model.RecoveryOpen = true
 	a.model.Recoverable = !a.options.SDKProtocol && !a.shuttingDown.Load()
 	a.model.Restarting = false
+	a.model.Runtime.Switching = false
+	a.switchMu.Lock()
+	a.switchRuntime = nil
+	a.switchMu.Unlock()
 	a.model.RecoveryError = ""
 	a.model.ToolInspector = nil
 	a.awaitingTurn = false

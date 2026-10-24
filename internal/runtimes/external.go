@@ -59,6 +59,7 @@ func ProbeExternal(ctx context.Context, command string) (External, error) {
 	if err != nil {
 		return External{}, fmt.Errorf("resolve dsh command: %w", err)
 	}
+	absolute = stablePath(absolute)
 	if strings.ContainsAny(absolute, "\"\x00") {
 		return External{}, fmt.Errorf("dsh command contains unsupported characters")
 	}
@@ -70,6 +71,7 @@ func ProbeExternal(ctx context.Context, command string) (External, error) {
 	if err != nil {
 		return External{}, fmt.Errorf("resolve Node: %w", err)
 	}
+	node = stablePath(node)
 	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	nodeOutput, err := runVersion(probeCtx, node, "--version")
@@ -99,6 +101,15 @@ func ProbeExternal(ctx context.Context, command string) (External, error) {
 		result.Reason = fmt.Sprintf("DSH %s is installed; this app requires %s", dshVersion, version.DSH)
 	}
 	return result, nil
+}
+
+// stablePath resolves junction and symlink components so a version-manager
+// shim directory that is recreated per shell does not get persisted.
+func stablePath(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil && resolved != "" {
+		return resolved
+	}
+	return path
 }
 
 func runVersion(ctx context.Context, command string, args ...string) (string, error) {

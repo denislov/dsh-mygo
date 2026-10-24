@@ -1,6 +1,7 @@
 package runtimes
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -365,6 +366,20 @@ func (m *Manager) Launch(profile, cwd, dshHome string) (host.Config, string, Run
 	if !ok {
 		return host.Config{}, "", Runtime{}, ErrNoRuntime
 	}
+	return m.LaunchRuntime(runtime, profile, cwd, dshHome)
+}
+
+// LaunchRuntime builds the host process configuration for one runtime without
+// changing the selected entry. Callers commit the selection after the new host
+// initializes.
+func (m *Manager) LaunchRuntime(runtime Runtime, profile, cwd, dshHome string) (host.Config, string, Runtime, error) {
+	if runtime.Kind == KindExternal {
+		repaired, err := m.repairExternal(runtime)
+		if err != nil {
+			return host.Config{}, "", Runtime{}, err
+		}
+		runtime = repaired
+	}
 	hostBundle := m.HostBundleDir(runtime)
 	var config host.Config
 	var err error
@@ -382,6 +397,39 @@ func (m *Manager) Launch(profile, cwd, dshHome string) (host.Config, string, Run
 		return host.Config{}, "", Runtime{}, err
 	}
 	return config, hostBundle, runtime, nil
+}
+
+// repairExternal re-probes PATH when a version-manager shim directory was
+// removed between launches. It never changes the DSH version silently.
+func (m *Manager) repairExternal(runtime Runtime) (Runtime, error) {
+	if runtime.Command != "" && fileExists(runtime.Command) && runtime.NodePath != "" && fileExists(runtime.NodePath) {
+		return runtime, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	external, err := ProbeExternal(ctx, "")
+	if err != nil {
+		return Runtime{}, fmt.Errorf("the existing DSH installation is unavailable: %w", err)
+	}
+	if external.DSHVersion != runtime.DSH || !external.Compatible {
+		return Runtime{}, fmt.Errorf("PATH now provides DSH %s; the selected runtime requires %s", external.DSHVersion, runtime.DSH)
+	}
+	runtime.Command = external.Command
+	runtime.NodePath = external.Node
+	runtime.Node = external.NodeVersion
+	m.mu.Lock()
+	for index := range m.state.Runtimes {
+		if m.state.Runtimes[index].ID == runtime.ID {
+			m.state.Runtimes[index] = runtime
+			if err := m.saveLocked(); err != nil {
+				m.mu.Unlock()
+				return Runtime{}, fmt.Errorf("update runtime state: %w", err)
+			}
+			break
+		}
+	}
+	m.mu.Unlock()
+	return runtime, nil
 }
 
 // ErrNoRuntime means the store has no selected runtime.

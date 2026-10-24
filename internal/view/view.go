@@ -41,10 +41,13 @@ type RuntimeState struct {
 	SetupRequired bool
 	Checking      bool
 	Busy          bool
+	Switching     bool
+	CanManage     bool
 	Progress      float32
 	Status        string
 	Error         string
 	Notice        string
+	RemoveConfirm string
 	Current       RuntimeChoice
 	Installed     []RuntimeChoice
 	Candidates    []RuntimeChoice
@@ -58,6 +61,9 @@ type RuntimeState struct {
 	UseExternal  func(command string)
 	UseInstalled func(id string)
 	UseLegacy    func()
+	Activate     func(id string)
+	Remove       func(id string)
+	Manage       func()
 	Cancel       func()
 }
 

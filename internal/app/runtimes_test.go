@@ -3,10 +3,13 @@ package app
 import (
 	"archive/tar"
 	"compress/gzip"
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -86,13 +89,199 @@ func TestInstallRuntimeArchiveStartsHost(t *testing.T) {
 	}
 }
 
+func TestSwitchRuntimeCommitsAfterInitialize(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	fakeHost, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fake-mygo-host.mjs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := runtimes.NewManager(t.TempDir(), t.TempDir(), "denislov/dsh-mygo")
+	if err := manager.Load(); err != nil {
+		t.Fatal(err)
+	}
+	first, err := manager.InstallArchive(context.Background(), writeRuntimeArchiveNode(t, "24.14.0"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.InstallArchive(context.Background(), writeRuntimeArchiveNode(t, "24.15.0"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Select(first.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	updates := make(chan func(), 128)
+	application := New(Options{
+		CWD:      t.TempDir(),
+		Runtimes: manager,
+		Profile:  "mygo",
+		Provider: "test",
+		Model:    "echo",
+		RuntimeLaunch: func() (RuntimeLaunchPlan, error) {
+			return RuntimeLaunchPlan{Config: host.Config{Command: node, Args: []string{fakeHost, "--sessions", "--accept-resume"}}}, nil
+		},
+		Post: func(fn func()) { updates <- fn },
+	})
+	defer application.Shutdown(5 * time.Second)
+	go application.Start()
+	waitFor(t, application, updates, 10*time.Second, func() bool {
+		return application.Model().Phase == view.PhaseIdle
+	})
+	originalSession := application.sessionID
+	if originalSession == "" {
+		t.Fatal("host did not create a session")
+	}
+
+	application.OpenRuntimeSettings()
+	if !application.model.SettingsOpen || application.model.SettingsSection != view.SettingsSectionRuntime {
+		t.Fatal("runtime settings did not open")
+	}
+	application.ActivateRuntime(second.ID)
+	waitFor(t, application, updates, 15*time.Second, func() bool {
+		return !application.Model().Runtime.Switching && application.Model().Phase == view.PhaseIdle &&
+			application.Model().Runtime.Current.ID == second.ID
+	})
+	selected, ok := manager.Selected()
+	if !ok || selected.ID != second.ID {
+		t.Fatalf("selected = %+v, %v", selected, ok)
+	}
+	if application.sessionID != originalSession {
+		t.Fatalf("session = %q, want %q", application.sessionID, originalSession)
+	}
+	if application.model.SettingsNotice != "Runtime switched." {
+		t.Fatalf("settings notice = %q", application.model.SettingsNotice)
+	}
+}
+
+func TestSwitchRuntimeRollsBackOnFailure(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	fakeHost, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fake-mygo-host.mjs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := runtimes.NewManager(t.TempDir(), t.TempDir(), "denislov/dsh-mygo")
+	if err := manager.Load(); err != nil {
+		t.Fatal(err)
+	}
+	first, err := manager.InstallArchive(context.Background(), writeRuntimeArchiveNode(t, "24.14.0"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.InstallArchive(context.Background(), writeRuntimeArchiveNode(t, "24.15.0"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Select(first.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	var calls atomic.Int32
+	updates := make(chan func(), 128)
+	application := New(Options{
+		CWD:      t.TempDir(),
+		Runtimes: manager,
+		Profile:  "mygo",
+		Provider: "test",
+		Model:    "echo",
+		RuntimeLaunch: func() (RuntimeLaunchPlan, error) {
+			if calls.Add(1) == 2 {
+				return RuntimeLaunchPlan{}, errors.New("candidate host failed")
+			}
+			return RuntimeLaunchPlan{Config: host.Config{Command: node, Args: []string{fakeHost, "--sessions", "--accept-resume"}}}, nil
+		},
+		Post: func(fn func()) { updates <- fn },
+	})
+	defer application.Shutdown(5 * time.Second)
+	go application.Start()
+	waitFor(t, application, updates, 10*time.Second, func() bool {
+		return application.Model().Phase == view.PhaseIdle
+	})
+	originalSession := application.sessionID
+
+	application.OpenRuntimeSettings()
+	application.ActivateRuntime(second.ID)
+	waitFor(t, application, updates, 15*time.Second, func() bool {
+		return !application.Model().Runtime.Switching && application.Model().Phase == view.PhaseIdle &&
+			application.Model().SettingsError != ""
+	})
+	selected, ok := manager.Selected()
+	if !ok || selected.ID != first.ID {
+		t.Fatalf("selection after failure = %+v, %v", selected, ok)
+	}
+	if application.model.Runtime.Current.ID != first.ID {
+		t.Fatalf("current runtime = %+v", application.model.Runtime.Current)
+	}
+	if application.sessionID != originalSession {
+		t.Fatalf("session = %q, want %q", application.sessionID, originalSession)
+	}
+	if calls.Load() < 3 {
+		t.Fatalf("runtime launches = %d, want a rollback restart", calls.Load())
+	}
+}
+
+func TestRemoveUnselectedRuntime(t *testing.T) {
+	manager := runtimes.NewManager(t.TempDir(), t.TempDir(), "denislov/dsh-mygo")
+	if err := manager.Load(); err != nil {
+		t.Fatal(err)
+	}
+	first, err := manager.InstallArchive(context.Background(), writeRuntimeArchiveNode(t, "24.14.0"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.InstallArchive(context.Background(), writeRuntimeArchiveNode(t, "24.15.0"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Select(first.ID); err != nil {
+		t.Fatal(err)
+	}
+	updates := make(chan func(), 64)
+	application := New(Options{
+		Runtimes: manager,
+		Profile:  "mygo",
+		Post:     func(fn func()) { updates <- fn },
+	})
+	application.refreshRuntimeChoicesLocked()
+
+	application.RemoveRuntime(first.ID)
+	if application.model.Runtime.Error == "" {
+		t.Fatal("selected runtime removal was not rejected")
+	}
+	application.RemoveRuntime(second.ID)
+	waitFor(t, application, updates, 5*time.Second, func() bool {
+		return !application.Model().Runtime.Busy && application.Model().Runtime.Notice == "Runtime removed."
+	})
+	if _, ok := manager.Find(second.ID); ok {
+		t.Fatal("removed runtime is still installed")
+	}
+	selected, ok := manager.Selected()
+	if !ok || selected.ID != first.ID {
+		t.Fatalf("selected = %+v, %v", selected, ok)
+	}
+	if application.model.Runtime.Notice != "Runtime removed." {
+		t.Fatalf("notice = %q", application.model.Runtime.Notice)
+	}
+}
+
 func writeRuntimeArchive(t *testing.T) string {
+	t.Helper()
+	return writeRuntimeArchiveNode(t, "24.14.0")
+}
+
+func writeRuntimeArchiveNode(t *testing.T, node string) string {
 	t.Helper()
 	manifest := runtimes.Manifest{
 		SchemaVersion:   1,
 		Kind:            "dsh-runtime",
 		DSH:             version.DSH,
-		Node:            "24.14.0",
+		Node:            node,
 		Platform:        runtimes.CurrentExpected().Platform,
 		Arch:            runtimes.CurrentExpected().Arch,
 		ProtocolVersion: version.Protocol,
@@ -153,4 +342,30 @@ func writeRuntimeArchive(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func TestRuntimeSettingsOpenFromRecovery(t *testing.T) {
+	manager := runtimes.NewManager(t.TempDir(), t.TempDir(), "denislov/dsh-mygo")
+	if err := manager.Load(); err != nil {
+		t.Fatal(err)
+	}
+	application := New(Options{
+		Runtimes: manager,
+		Profile:  "mygo",
+		Post:     func(fn func()) { fn() },
+	})
+	application.model.Phase = view.PhaseFailed
+	application.model.RecoveryOpen = true
+	application.model.Recoverable = true
+	application.model.Error = "The host exited"
+
+	application.OpenRuntimeSettings()
+	if application.model.RecoveryOpen || !application.model.SettingsOpen ||
+		application.model.SettingsSection != view.SettingsSectionRuntime {
+		t.Fatalf("runtime settings did not replace recovery: %+v", application.model)
+	}
+	application.CloseSettings()
+	if !application.model.RecoveryOpen {
+		t.Fatal("closing runtime settings did not restore the recovery dialog")
+	}
 }

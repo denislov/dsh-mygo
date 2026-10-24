@@ -14,10 +14,41 @@ import (
 
 const runtimeCheckTimeout = 15 * time.Second
 
+// runtimeSwitch is one host restart around a candidate runtime. The selection
+// is committed only after the candidate initializes.
+type runtimeSwitch struct {
+	target   runtimes.Runtime
+	previous runtimes.Runtime
+	resumeID string
+}
+
 func (a *App) runtimeAvailable() bool { return a.options.Runtimes != nil }
 
+func (a *App) pendingRuntimeSwitch() (runtimes.Runtime, bool) {
+	a.switchMu.Lock()
+	defer a.switchMu.Unlock()
+	if a.switchRuntime == nil {
+		return runtimes.Runtime{}, false
+	}
+	return a.switchRuntime.target, true
+}
+
+func (a *App) hasPendingRuntimeSwitch() bool {
+	_, ok := a.pendingRuntimeSwitch()
+	return ok
+}
+
+// switchNeedsResume disables the new-session fallback when replacing a host:
+// a candidate that cannot restore the current session must roll back instead
+// of silently starting a different conversation.
+func (a *App) switchNeedsResume() bool {
+	a.switchMu.Lock()
+	defer a.switchMu.Unlock()
+	return a.switchRuntime != nil && a.switchRuntime.previous.ID != ""
+}
+
 func (a *App) beginRuntimeOperation(status string) (context.Context, uint64, bool) {
-	if !a.runtimeAvailable() || a.model.Runtime.Busy || a.shuttingDown.Load() {
+	if !a.runtimeAvailable() || a.model.Runtime.Busy || a.model.Runtime.Switching || a.shuttingDown.Load() {
 		return nil, 0, false
 	}
 	if a.runtimeCancel != nil {
@@ -71,7 +102,7 @@ func (a *App) reportRuntimeProgress(gen uint64, stage string, ratio float32) {
 // DetectRuntimes probes the dsh command on PATH and any runtime left by an
 // older installation. It never selects anything.
 func (a *App) DetectRuntimes() {
-	if !a.runtimeAvailable() || a.model.Runtime.Busy || a.model.Runtime.Checking {
+	if !a.runtimeAvailable() || a.model.Runtime.Busy || a.model.Runtime.Checking || a.model.Runtime.Switching {
 		return
 	}
 	a.model.Runtime.Checking = true
@@ -114,7 +145,7 @@ func (a *App) DetectRuntimes() {
 
 // BrowseDSH lets the user pick a dsh executable that is not on PATH.
 func (a *App) BrowseDSH() {
-	if !a.runtimeAvailable() || a.model.Runtime.Busy || a.model.Runtime.Checking {
+	if !a.runtimeAvailable() || a.model.Runtime.Busy || a.model.Runtime.Checking || a.model.Runtime.Switching {
 		return
 	}
 	go func() {
@@ -130,7 +161,7 @@ func (a *App) BrowseDSH() {
 }
 
 func (a *App) probeExternal(command string) {
-	if !a.runtimeAvailable() || a.model.Runtime.Busy || a.model.Runtime.Checking {
+	if !a.runtimeAvailable() || a.model.Runtime.Busy || a.model.Runtime.Checking || a.model.Runtime.Switching {
 		return
 	}
 	a.model.Runtime.Checking = true
@@ -164,7 +195,7 @@ func (a *App) probeExternal(command string) {
 
 // InstallRuntimeFile asks for a runtime archive and installs it.
 func (a *App) InstallRuntimeFile() {
-	if !a.runtimeAvailable() || a.model.Runtime.Busy || a.model.Runtime.Checking {
+	if !a.runtimeAvailable() || a.model.Runtime.Busy || a.model.Runtime.Checking || a.model.Runtime.Switching {
 		return
 	}
 	go func() {
@@ -192,15 +223,21 @@ func (a *App) installRuntimeArchive(path string) {
 			a.finishRuntimeOperation(generation, err, "")
 			return
 		}
-		a.postRuntime(generation, func() {
-			a.model.Runtime.Busy = false
-			a.model.Runtime.Progress = 0
-			a.model.Runtime.Status = ""
-			a.model.Runtime.Notice = "Runtime installed."
-			a.refreshRuntimeChoicesLocked()
-			a.activateRuntime(installed.ID)
-		})
+		a.postRuntime(generation, func() { a.installedRuntimeReady(installed) })
 	}()
+}
+
+func (a *App) installedRuntimeReady(installed runtimes.Runtime) {
+	a.model.Runtime.Busy = false
+	a.model.Runtime.Progress = 0
+	a.model.Runtime.Status = ""
+	a.model.Runtime.Notice = "Runtime installed."
+	a.refreshRuntimeChoicesLocked()
+	if a.model.SettingsOpen {
+		a.model.SettingsNotice = "Runtime installed. Use it to switch."
+		return
+	}
+	a.activateRuntime(installed.ID)
 }
 
 // DownloadRuntime downloads the newest compatible runtime, or a specific
@@ -229,14 +266,7 @@ func (a *App) DownloadRuntime(id string) {
 			a.finishRuntimeOperation(generation, err, "")
 			return
 		}
-		a.postRuntime(generation, func() {
-			a.model.Runtime.Busy = false
-			a.model.Runtime.Progress = 0
-			a.model.Runtime.Status = ""
-			a.model.Runtime.Notice = "Runtime installed."
-			a.refreshRuntimeChoicesLocked()
-			a.activateRuntime(installed.ID)
-		})
+		a.postRuntime(generation, func() { a.installedRuntimeReady(installed) })
 	}()
 }
 
@@ -275,9 +305,11 @@ func (a *App) CheckRuntimeUpdates() {
 	}()
 }
 
-// UseExternalRuntime probes and selects an installed dsh command.
+// UseExternalRuntime probes and adds an installed dsh command. In setup it
+// starts that runtime; from Settings it becomes an installed entry and is
+// switched to when the host is idle.
 func (a *App) UseExternalRuntime(command string) {
-	if !a.runtimeAvailable() || a.model.Runtime.Busy || a.model.Runtime.Checking {
+	if !a.runtimeAvailable() || a.model.Runtime.Busy || a.model.Runtime.Checking || a.model.Runtime.Switching {
 		return
 	}
 	ctx, generation, ok := a.beginRuntimeOperation("Checking installed DSH")
@@ -299,23 +331,24 @@ func (a *App) UseExternalRuntime(command string) {
 			a.finishRuntimeOperation(generation, err, "")
 			return
 		}
-		if err := a.options.Runtimes.Select(installed.ID); err != nil {
-			a.finishRuntimeOperation(generation, err, "")
-			return
-		}
 		a.postRuntime(generation, func() {
 			a.model.Runtime.Busy = false
 			a.model.Runtime.Progress = 0
 			a.model.Runtime.Status = ""
 			a.refreshRuntimeChoicesLocked()
+			if a.model.SettingsOpen {
+				a.model.SettingsNotice = "Runtime added. Use it to switch."
+				a.ActivateRuntime(installed.ID)
+				return
+			}
 			a.activateRuntime(installed.ID)
 		})
 	}()
 }
 
-// UseLegacyRuntime selects the runtime left beside a previous installation.
+// UseLegacyRuntime adds the runtime left beside a previous installation.
 func (a *App) UseLegacyRuntime() {
-	if !a.runtimeAvailable() {
+	if !a.runtimeAvailable() || a.model.Runtime.Busy || a.model.Runtime.Switching {
 		return
 	}
 	candidate, ok := a.options.Runtimes.LegacyCandidate()
@@ -328,37 +361,84 @@ func (a *App) UseLegacyRuntime() {
 		a.model.Runtime.Error = runtimeErrorMessage(err)
 		return
 	}
-	if err := a.options.Runtimes.Select(installed.ID); err != nil {
-		a.model.Runtime.Error = runtimeErrorMessage(err)
+	a.refreshRuntimeChoicesLocked()
+	if a.model.SettingsOpen {
+		a.ActivateRuntime(installed.ID)
 		return
 	}
 	a.activateRuntime(installed.ID)
 }
 
-// UseInstalledRuntime selects an already installed runtime.
+// UseInstalledRuntime starts an installed runtime from the setup screen.
 func (a *App) UseInstalledRuntime(id string) {
 	if !a.runtimeAvailable() {
-		return
-	}
-	if err := a.options.Runtimes.Select(id); err != nil {
-		a.model.Runtime.Error = runtimeErrorMessage(err)
 		return
 	}
 	a.activateRuntime(id)
 }
 
-func (a *App) activateRuntime(id string) {
-	if _, ok := a.options.Runtimes.Find(id); !ok {
+// ActivateRuntime switches a running app to another installed runtime.
+func (a *App) ActivateRuntime(id string) {
+	if !a.runtimeAvailable() || !a.model.CanActivateRuntime() {
+		return
+	}
+	target, ok := a.options.Runtimes.Find(id)
+	if !ok {
 		a.model.Runtime.Error = "The selected runtime is no longer installed."
 		a.refreshRuntimeChoicesLocked()
 		return
 	}
-	if err := a.options.Runtimes.Select(id); err != nil {
-		a.model.Runtime.Error = runtimeErrorMessage(err)
+	selected, hasSelected := a.options.Runtimes.Selected()
+	if hasSelected && selected.ID == target.ID {
+		a.model.Runtime.Notice = "This runtime is already selected."
+		return
+	}
+	if hasSelected && selected.Kind == runtimes.KindDirect {
+		a.model.Runtime.Error = "The development runtime is fixed for this launch."
+		return
+	}
+	a.beginRuntimeSwitch(target, selected, a.resumeSessionID())
+}
+
+func (a *App) resumeSessionID() string {
+	resumeID := a.sessionID
+	if resumeID == "" && a.local != nil {
+		resumeID = a.local.lastSession
+	}
+	if a.model.SessionPanel.ActiveArchived {
+		return ""
+	}
+	return resumeID
+}
+
+// activateRuntime starts a runtime chosen on the setup screen. The selection
+// is committed only after the new host initializes, like a Settings switch.
+func (a *App) activateRuntime(id string) {
+	if !a.runtimeAvailable() {
+		return
+	}
+	target, ok := a.options.Runtimes.Find(id)
+	if !ok {
+		a.model.Runtime.Error = "The selected runtime is no longer installed."
 		a.refreshRuntimeChoicesLocked()
 		return
 	}
-	a.refreshRuntimeChoicesLocked()
+	previous, _ := a.options.Runtimes.Selected()
+	a.beginRuntimeSwitch(target, previous, a.resumeSessionID())
+}
+
+func (a *App) beginRuntimeSwitch(target, previous runtimes.Runtime, resumeID string) {
+	if !a.runtimeAvailable() || a.model.Runtime.Switching || a.model.Runtime.Busy {
+		return
+	}
+	a.switchMu.Lock()
+	a.switchRuntime = &runtimeSwitch{target: target, previous: previous, resumeID: resumeID}
+	a.switchMu.Unlock()
+	a.cancelSessionOperation()
+	a.cancelResync()
+	a.CloseSubagents()
+	a.hostGeneration.Add(1)
+	a.model.Runtime.Switching = true
 	a.model.Runtime.SetupRequired = false
 	a.model.Runtime.Busy = false
 	a.model.Runtime.Checking = false
@@ -366,16 +446,125 @@ func (a *App) activateRuntime(id string) {
 	a.model.Runtime.Status = ""
 	a.model.Runtime.Error = ""
 	a.model.Runtime.Notice = ""
+	a.model.Runtime.RemoveConfirm = ""
+	a.model.SettingsError = ""
+	a.model.SettingsNotice = ""
 	a.model.Phase = view.PhaseStarting
 	a.model.Error = ""
 	a.model.ErrorDetail = ""
 	a.model.RecoveryOpen = false
-	a.logf("runtime selected: %s", id)
-	resumeID := ""
-	if a.local != nil {
-		resumeID = a.local.lastSession
+	a.model.Recoverable = false
+	a.model.Restarting = false
+	a.logf("runtime switch: %s -> %s", previous.ID, target.ID)
+	go func() {
+		a.stopHost()
+		a.startHost(false, resumeID)
+	}()
+}
+
+// commitRuntimeSwitch persists the candidate after its host initialized.
+func (a *App) commitRuntimeSwitch() (runtimes.Runtime, error) {
+	a.switchMu.Lock()
+	switching := a.switchRuntime
+	a.switchMu.Unlock()
+	if switching == nil {
+		return runtimes.Runtime{}, nil
 	}
-	go a.startHost(false, resumeID)
+	if err := a.options.Runtimes.Select(switching.target.ID); err != nil {
+		return runtimes.Runtime{}, err
+	}
+	a.switchMu.Lock()
+	if a.switchRuntime == switching {
+		a.switchRuntime = nil
+	}
+	a.switchMu.Unlock()
+	return switching.target, nil
+}
+
+// failRuntimeSwitch stops the candidate and restores the previous runtime. A
+// first start without a previous runtime returns to setup.
+func (a *App) failRuntimeSwitch(cause error) {
+	a.switchMu.Lock()
+	switching := a.switchRuntime
+	a.switchRuntime = nil
+	a.switchMu.Unlock()
+	if switching == nil {
+		return
+	}
+	a.logf("runtime switch failed: %v", cause)
+	a.stopHost()
+	if switching.previous.ID == "" {
+		a.post(func() {
+			a.model.Runtime.Switching = false
+			a.model.Runtime.SetupRequired = true
+			a.model.Phase = view.PhaseAwaitingRuntime
+			a.model.Runtime.Error = "Could not start this runtime. Choose another runtime or install a new one."
+			a.refreshRuntimeChoicesLocked()
+		})
+		return
+	}
+	if a.options.PrepareProfile != nil {
+		if err := a.options.PrepareProfile(a.options.Runtimes.HostBundleDir(switching.previous)); err != nil {
+			a.logf("restore previous profile: %v", err)
+		}
+	}
+	a.post(func() {
+		a.model.Runtime.Error = ""
+		a.model.Phase = view.PhaseStarting
+		a.model.SettingsError = "Could not switch runtime. The previous runtime was restored."
+		a.refreshRuntimeChoicesLocked()
+	})
+	a.startHost(false, switching.resumeID)
+}
+
+// OpenRuntimeSettings closes the recovery dialog and opens the runtime section.
+func (a *App) OpenRuntimeSettings() {
+	if !a.runtimeAvailable() {
+		return
+	}
+	a.model.RecoveryOpen = false
+	a.model.Error = ""
+	a.model.ErrorDetail = ""
+	a.model.RecoveryError = ""
+	a.model.SettingsOpen = true
+	a.model.SettingsConnection = false
+	a.model.SettingsSection = view.SettingsSectionRuntime
+	a.model.SettingsError = ""
+	a.model.SettingsNotice = ""
+	a.model.Runtime.Error = ""
+	a.model.Runtime.Notice = ""
+	a.model.Runtime.RemoveConfirm = ""
+	a.refreshRuntimeChoicesLocked()
+}
+
+// RemoveRuntime forgets an unselected runtime and deletes managed files.
+func (a *App) RemoveRuntime(id string) {
+	if !a.runtimeAvailable() || a.model.Runtime.Checking {
+		return
+	}
+	if a.model.Runtime.Current.ID == id {
+		a.model.Runtime.Error = "Switch to another runtime before removing this one."
+		return
+	}
+	_, generation, ok := a.beginRuntimeOperation("Removing runtime")
+	if !ok {
+		return
+	}
+	a.model.Runtime.RemoveConfirm = ""
+	go func() {
+		if err := a.options.Runtimes.Remove(id); err != nil {
+			a.finishRuntimeOperation(generation, err, "")
+			return
+		}
+		a.postRuntime(generation, func() {
+			a.model.Runtime.Busy = false
+			a.model.Runtime.Progress = 0
+			a.model.Runtime.Status = ""
+			a.model.Runtime.Error = ""
+			a.model.Runtime.Notice = "Runtime removed."
+			a.refreshRuntimeChoicesLocked()
+		})
+	}()
 }
 
 // CancelRuntimeOperation cancels the current download/install/probe.

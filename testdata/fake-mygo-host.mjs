@@ -187,15 +187,20 @@ if (process.argv.includes('--sessions')) {
     ctx.sessionProjectionCache = { cachedSnapshot: header => block(header.id), async write() {} }
   }
   ctx.agents.resume = async ({ resumeSessionId, setup, agentOptions }) => {
-    if (!stored.has(resumeSessionId)) throw new Error('Unknown fixture session')
+    if (!stored.has(resumeSessionId) && !process.argv.includes('--accept-resume')) throw new Error('Unknown fixture session')
     return ctx.agents.create({ sessionId: resumeSessionId, setup, agentOptions })
   }
+  const acceptResume = process.argv.includes('--accept-resume')
+  const fixture = id => stored.get(id) ?? (acceptResume
+    ? { header: { id, cwd: process.cwd(), createdAt: Date.now(), version: 1, isSeeded: false }, events: [] }
+    : undefined)
   ctx.sessionPersistence = {
     async list() { return [...stored.values()].map(({ header }) => ({ header })) },
-    async stat(id) { return stored.get(id) },
+    async stat(id) { return fixture(id) },
     async flush() {},
     async open(id) {
-      return { async read(offset, length) { return { events: stored.get(id).events.slice(offset, offset + length) } }, async close() {} }
+      const source = fixture(id)
+      return { async read(offset, length) { return { events: (source?.events ?? []).slice(offset, offset + length) } }, async close() {} }
     },
   }
 }

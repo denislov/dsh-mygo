@@ -125,7 +125,7 @@ func runtimeCandidateRow(c *mgo.Context, model *Model, choice RuntimeChoice) {
 		})
 		if choice.Compatible {
 			button := mgo.PrimaryButton(c.Key("runtime-use-"+choice.ID), model.T("Use this DSH"))
-			button.Disabled(model.Runtime.Busy)
+			button.Disabled(model.Runtime.Busy || model.Runtime.Switching)
 			if choice.Kind == "legacy" {
 				button.OnClick(model.Runtime.UseLegacy)
 			} else if model.Runtime.UseExternal != nil {

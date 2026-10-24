@@ -126,6 +126,9 @@ func (a *App) CloseSettings() {
 	a.model.ClearCredentialDraft()
 	a.model.ConfirmCredentialClear = false
 	a.model.Permission.Confirm = false
+	if (a.model.Phase == view.PhaseFailed || a.model.Phase == view.PhaseResyncing) && a.model.Recoverable {
+		a.model.RecoveryOpen = true
+	}
 }
 
 func (a *App) cancelSettingsOperation() {

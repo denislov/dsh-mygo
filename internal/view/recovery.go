@@ -40,6 +40,11 @@ func recoveryModal(c *mgo.Context, model *Model) {
 					model.OpenLogs()
 				}
 			}
+			if model.Runtime.CanManage && model.Runtime.Manage != nil {
+				if mgo.Button(c.Key("recovery-runtime"), model.T("Change runtime…")).Disabled(disabled).Clicked() && !disabled {
+					model.Runtime.Manage()
+				}
+			}
 			mgo.Spacer(c)
 			if model.Quit != nil {
 				label, quit := "Quit", model.Quit

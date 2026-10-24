@@ -18,10 +18,13 @@ const (
 	SettingsSectionGeneral
 	SettingsSectionShortcuts
 	SettingsSectionAbout
+	// SettingsSectionRuntime is appended to keep existing sections stable. It
+	// is always available and never asks the Host for state.
+	SettingsSectionRuntime
 )
 
 func (model *Model) settingsSections() []SettingsSection {
-	sections := []SettingsSection{SettingsSectionGeneral}
+	sections := []SettingsSection{SettingsSectionGeneral, SettingsSectionRuntime}
 	if model.CanModels {
 		sections = append(sections, SettingsSectionConversation)
 	}
@@ -37,7 +40,7 @@ func (model *Model) settingsSections() []SettingsSection {
 
 func (model *Model) settingsSectionAvailable(section SettingsSection) bool {
 	switch section {
-	case SettingsSectionGeneral, SettingsSectionShortcuts, SettingsSectionAbout:
+	case SettingsSectionGeneral, SettingsSectionShortcuts, SettingsSectionAbout, SettingsSectionRuntime:
 		return true
 	case SettingsSectionConversation:
 		return model.CanModels
@@ -90,7 +93,8 @@ func (model *Model) selectSettingsSection(section SettingsSection) {
 	if section == model.activeSettingsSection() || !model.settingsSectionAvailable(section) {
 		return
 	}
-	if model.SettingsApplying || model.SettingsWritingConfiguration || model.Permission.Writing {
+	if model.SettingsApplying || model.SettingsWritingConfiguration || model.Permission.Writing ||
+		model.Runtime.Busy || model.Runtime.Switching {
 		return
 	}
 	model.SettingsSection = section
@@ -107,7 +111,8 @@ func (model *Model) selectSettingsSection(section SettingsSection) {
 }
 
 func (model *Model) closeSettingsCenter() {
-	if model.SettingsApplying || model.SettingsWritingConfiguration || model.Permission.Writing {
+	if model.SettingsApplying || model.SettingsWritingConfiguration || model.Permission.Writing ||
+		model.Runtime.Busy || model.Runtime.Switching {
 		return
 	}
 	model.Prefs.Draft = model.Prefs.Value
@@ -138,6 +143,8 @@ func settingsSectionLabel(model *Model, section SettingsSection) string {
 		return model.T("Shortcuts")
 	case SettingsSectionAbout:
 		return model.T("About")
+	case SettingsSectionRuntime:
+		return model.T("Runtime")
 	default:
 		return model.T("Settings")
 	}
@@ -157,6 +164,8 @@ func settingsSectionKey(section SettingsSection) string {
 		return "shortcuts"
 	case SettingsSectionAbout:
 		return "about"
+	case SettingsSectionRuntime:
+		return "runtime"
 	default:
 		return "settings"
 	}
@@ -180,6 +189,9 @@ func settingsSectionTitle(model *Model, section SettingsSection) string {
 	}
 	if section == SettingsSectionPermissions {
 		return model.T("Permissions")
+	}
+	if section == SettingsSectionRuntime {
+		return model.T("Runtime")
 	}
 	return model.T("About dsh-mygo")
 }
@@ -217,6 +229,8 @@ func settingsCenterModal(c *mgo.Context, model *Model) {
 							permissionSettingsPage(c, model, disabled)
 						case SettingsSectionConnection:
 							connectionSettingsPage(c, model, disabled)
+						case SettingsSectionRuntime:
+							runtimeSettingsPage(c, model)
 						case SettingsSectionAbout:
 							aboutSettingsPage(c, model)
 						default:
@@ -230,7 +244,8 @@ func settingsCenterModal(c *mgo.Context, model *Model) {
 		})
 	})
 	if modal.Dismissed() {
-		if model.SettingsApplying || model.SettingsWritingConfiguration || model.Permission.Writing {
+		if model.SettingsApplying || model.SettingsWritingConfiguration || model.Permission.Writing ||
+			model.Runtime.Busy || model.Runtime.Switching {
 			model.SettingsOpen = true
 		} else {
 			model.closeSettingsCenter()
@@ -250,7 +265,8 @@ func settingsNav(c *mgo.Context, model *Model, active SettingsSection) {
 				Label(settingsSectionLabel(model, section)).FillWidth().Padding(space6, space8).
 				Radius(radiusSm).Background(background).TextColor(foreground).
 				BorderWidth(0, 0, 0, border).BorderColor(tokens.Accent).
-				Disabled(model.SettingsApplying || model.SettingsWritingConfiguration || model.Permission.Writing).
+				Disabled(model.SettingsApplying || model.SettingsWritingConfiguration || model.Permission.Writing ||
+					model.Runtime.Busy || model.Runtime.Switching).
 				OnClick(func() { model.selectSettingsSection(section) })
 			button.Children(func() {
 				mgo.Row(c).FillWidth().Justify(mgo.Start).Children(func() {
@@ -262,10 +278,18 @@ func settingsNav(c *mgo.Context, model *Model, active SettingsSection) {
 }
 
 func settingsStatus(c *mgo.Context, model *Model) {
+	tokens := tokensFor(c.Theme())
+	if model.Runtime.Switching {
+		mgo.Text(c.Key("settings-status"), model.T("Switching runtime…")).FontSize(textMicro).TextColor(tokens.TextMuted)
+		return
+	}
+	if model.Runtime.Busy && model.Runtime.Status != "" {
+		mgo.Text(c.Key("settings-status"), model.T(model.Runtime.Status)).FontSize(textMicro).TextColor(tokens.TextMuted)
+		return
+	}
 	if !model.SettingsBusy {
 		return
 	}
-	tokens := tokensFor(c.Theme())
 	label := "Loading model catalog…"
 	if model.SettingsConnection {
 		label = "Loading connection settings…"
@@ -343,6 +367,20 @@ func settingsFooter(c *mgo.Context, model *Model, section SettingsSection, disab
 			refreshButton()
 			mgo.Spacer(c)
 			closeButton()
+		case SettingsSectionRuntime:
+			if model.Runtime.Switching {
+				mgo.Spinner(c.Key("runtime-switch-spinner")).Size(12, 12)
+				mgo.Text(c, model.T("Switching runtime…")).FontSize(textMicro).TextColor(c.Theme().TextMuted)
+				mgo.Spacer(c)
+			} else if model.Runtime.Busy {
+				if model.Runtime.Cancel != nil {
+					mgo.Button(c.Key("runtime-operation-cancel"), model.T("Cancel")).OnClick(model.Runtime.Cancel)
+				}
+				mgo.Spacer(c)
+			} else {
+				mgo.Spacer(c)
+				closeButton()
+			}
 		default:
 			mgo.Spacer(c)
 			closeButton()
