@@ -18,7 +18,8 @@
 | Host 集成 | 真实 `dsh --profile mygo`、真实 session log | 进程测试 |
 | DSH 组合 | Loader 启动 profile | 临时 `DSH_HOME` + 真实 CLI |
 | E2E | 真实模型或 mock adapter | `DEEPSEEK_API_KEY` 可选 |
-| 打包 | 安装、启动、更新、签名 | 平台 CI |
+| Runtime | store、安装/下载、external、切换 | Go + Node 单元、真实归档 |
+| 打包 | 安装、首启引导、runtime 资产、签名 | 平台 CI |
 
 ## Go 单元
 
@@ -32,6 +33,7 @@
 - 会话管理：rename/archive/delete/fork 的参数、事件、列表更新与冲突。
 - 恢复：seq 缺口 resync、baseline 重连、resync 失败时的停止路径。
 - 通用设置与偏好：命名空间白名单、secret 排除、UI 偏好 schema/原子写/损坏回退。
+- 运行时：manifest/catalog 严格解析、状态损坏、归档路径/链接/上限、原子安装、SHA/下载取消、external `.cmd`/shim 修复、legacy 候选、事务切换与回滚。
 - 纯函数优先；I/O 用接口注入。
 
 ### 命令
@@ -101,7 +103,7 @@ node scripts/test-real-host.mjs --runtime
 node --test resources/host/tests/*.test.mjs
 ```
 
-脚本把 `DSH_MYGO_DSH_DIR` 固定到指定 checkout，或把 `DSH_MYGO_RESOURCES_DIR` 指向 `resources/` 以跑 bundled runtime；两者都跑 `TestAgainstMygo|TestMygoReal` 组。两个环境变量都不设置时，真实组合组自动 skip；报告结果时要区分"跑了"与"跳过"。
+脚本把 `DSH_MYGO_DSH_DIR` 固定到指定 checkout，或把 `DSH_MYGO_RUNTIME_DIR` 指向已构建的 `runtime/`（`--runtime`）以跑 managed 入口；两者都跑 `TestAgainstMygo|TestMygoReal` 组。`DSH_MYGO_RESOURCES_DIR` 保留给旧 bundle 布局。环境变量都不设置时，真实组合组自动 skip；报告结果时要区分"跑了"与"跳过"。
 
 测试用 `host.EnsureProfile` 在临时 `DSH_HOME` 里创建 mygo profile，和发布首启走同一条 Go 路径。
 
@@ -129,10 +131,10 @@ node --test resources/host/tests/*.test.mjs
 - 子代理详情：Node `subagent-inspection.test.mjs` 验证独立能力协商、所属父/直接子授权、fork 前缀隔离、连续分页、隐藏配置/reasoning 过滤、目录/页预算、观察句柄释放、父读取预占与退出中止、依赖错误脱敏。Go `subagent_inspection_test.go` 验证严格解码、运行中打开、迟到响应隔离和失败保持草稿；View Tester 验证原生列表/详情、Markdown 精确复制、早页/尾页、提问优先、旧 Host 隐藏与最小窗口按钮。`TestAgainstMygoRealSubagentStatus` 在真实 DSH 用 mock adapter 验证提交输出与结束原因，并用第二 Host 冷恢复父会话后读取持久子代理结果；不恢复子 Agent、不调用付费模型。Windows 原生窗口检查运行中详情、停止后刷新结果、宽窄布局与关闭返回。
 - `TestAgainstMygoPermissions`：fake/真实 Host 的初始化快照、会话权限切换、草稿保持、新建默认不变和切回；真实组 kill/Restart 后冷恢复确认权限持久化。`TestAgainstMygoPermissionEnforcement` 以真实 approval-probe 对比 ask 弹出审批与 never 拒绝显式审批，均不执行被拒绝的临时标记写入。
 - 权限单元与 Tester：白名单载荷/实际 knobs/危险确认/seq 冲突/写入屏障/失败刷新/旧 Host 隐藏/独立于模型能力/最小窗口。Windows 原生检查验证未勾选时禁用、勾选后幂等保存、当前权限和宽窄布局；完整选项切换使用 Tester 与真实 Host 验证。
-- `node scripts/test-real-host.mjs --runtime`：同一组测试改用 `resources/runtime` 的 Node、DSH 闭包与私有入口；用于打包前后检查运行时闭包。
+- `node scripts/test-real-host.mjs --runtime`：同一组测试改用 `runtime/` 的 Node、DSH 闭包与私有入口；用于打包前后检查运行时闭包。
 - 首次使用：`first_use_test.go` 覆盖文件夹路径校验、取消/失败/跨 generation 迟到结果、草稿与新会话边界、连接读取不依赖模型目录且不清除模型不确定状态；View Tester 验证目录/凭据禁发、精简密码表单和最小窗口。`TestAgainstMygoFirstUse` 使用 fake 与真实 mock Host 验证确认目录、新项目会话、配置读取与第一轮消息，第二 Host 从持久数据恢复项目目录和对话。入口测试验证安装版默认主目录、显式 cwd 优先与无 bundled runtime 的开发目录。
-- 发布资产：`scripts/release.test.mjs` 验证输出文件白名单、每个附件 SHA256、排除 PFX/密码/.env、版本身份冲突与未知输出拒绝；Windows 原生与打包/安装 smoke 验证实际发布二进制。上传后检查 release tag/commit、prerelease/draft 状态、资产名称/大小/digest，不以本地产物存在代替线上可下载。
-- 补丁重启回归：`runtime-assets.test.mjs` 验证固定模型清单的名称适配、字节保持、重复处理与未知依赖布局拒绝；打包 smoke 使用 bundled Node 实际导入 pi-ai，检查复制后资源。`profile_test.go` 覆盖应用私有 Host 升级、用户配置与旧副本保留、不完整升级失败保护、路径边界及兼容开发链接；`TestAgainstMygoProfileUpgradeAndSecondStart` 用真实 Host 从旧包升级后连续启动并恢复会话/草稿。签名脚本测试确保旧安装器不会影响本版选择。
+- 发布资产：`scripts/release.test.mjs` 验证应用输出白名单、每个附件 SHA256、排除 PFX/密码/.env、版本身份冲突、拒绝内嵌 runtime 与未知输出；`scripts/prepare-runtime-release.test.mjs` 验证 runtime catalog/归档/兼容范围与校验和。打包/安装 smoke 验证安装器不含 runtime、首启引导、显式 runtime 启动；上传后检查 release tag/commit、draft 状态、资产名称/大小/digest，不以本地产物存在代替线上可下载。
+- 补丁重启回归：`runtime-bundle.test.mjs` 验证确定性归档、manifest 首项、隐藏文件与 `go.mod` 排除；真实 runtime 测试使用 bundled Node 实际导入 DSH。`profile_test.go` 覆盖应用私有 Host 升级、用户配置与旧副本保留、不完整升级失败保护、路径边界及兼容开发链接；`TestAgainstMygoProfileUpgradeAndSecondStart` 用真实 Host 从旧包升级后连续启动并恢复会话/草稿。签名脚本测试确保旧安装器不会影响本版选择。
 
 需要真实模型与 key 的 `TestAgainstMygoRealModel` 默认跳过；运行前确认会产生 API 调用费用。
 

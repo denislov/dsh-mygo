@@ -4,7 +4,7 @@ DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node Host（`dsh-ba
 
 ## 下载与开始使用
 
-Windows x64 测试版通过[私有 GitHub Releases](https://github.com/denislov/dsh-mygo/releases) 分发，需要仓库访问权限。下载 `dsh-mygo-<版本>-windows-x64-setup.exe`，安装后选择项目文件夹，在「连接 DeepSeek」中保存自己的 API key，即可开始对话。安装包自带 Node 与 DSH，无需配置开发环境。
+Windows x64 测试版通过公开 [GitHub Releases](https://github.com/denislov/dsh-mygo/releases) 分发。应用安装器只含本体：下载 `dsh-mygo-<版本>-windows-x64-setup.exe`，首次启动时选择已安装的 DSH（精确版本 + Node 24+），或下载/导入独立的 `dsh-mygo-runtime-*.tgz`。安装后选择项目文件夹，在「连接 DeepSeek」中保存自己的 API key，即可开始对话。设置中心的 Runtime 分区可下载、更新、切换与移除运行时。
 
 详细步骤、数据位置和测试版限制见[首次使用指南](docs/getting-started.md)。当前使用自签名证书，Windows 可能显示发布者或 SmartScreen 提示；下载校验和与公开证书随 Release 提供。
 
@@ -14,7 +14,7 @@ Windows x64 测试版通过[私有 GitHub Releases](https://github.com/denislov/
 - 默认协议：自定义 channel（`mygo` profile）；SDK 通道只作显式回归。
 - 首发平台：Windows x64；macOS 随后，Linux 视需要。
 
-默认入口使用 `mygo` profile 的自定义 channel：校验 UI/Host/DSH 版本，显式创建会话，发送 prompt，显示 user/assistant/tool 事件与 running/idle 状态。原生助手正文支持 Markdown、只读高亮代码块与代码/源文复制；提供 Stop、审批与问答表单，保留下一条草稿。工具默认折叠，支持有界详情与只读 hunk；流式提交后不重复答案。Sessions 提供会话列表、新建、恢复、分页历史与草稿隔离；Settings 提供当前会话 provider/model/effort、持久默认模型和 DeepSeek 凭据配置。首发平台为 Windows（x64），发布包自带 Node + DSH runtime；macOS 随后。当前缺口、里程碑与验收见 [docs/roadmap.md](docs/roadmap.md)。
+默认入口使用 `mygo` profile 的自定义 channel：校验 UI/Host/DSH 版本与应用兼容范围，显式创建会话，发送 prompt，显示 user/assistant/tool 事件与 running/idle 状态。原生助手正文支持 Markdown、只读高亮代码块与代码/源文复制；提供 Stop、审批与问答表单，保留下一条草稿。工具默认折叠，支持有界详情与只读 hunk；流式提交后不重复答案。Sessions 提供会话列表、新建、恢复、分页历史与草稿隔离；Settings 提供当前会话 provider/model/effort、持久默认模型、DeepSeek 凭据与 Runtime 管理。应用安装器与 Node+DSH runtime 分开发布，支持使用已有精确版本 DSH；首发平台为 Windows（x64），macOS 随后。当前缺口、里程碑与验收见 [docs/roadmap.md](docs/roadmap.md)。
 
 ## 文档
 
@@ -33,9 +33,9 @@ Windows x64 测试版通过[私有 GitHub Releases](https://github.com/denislov/
 ```sh
 go tool mygo dev
 go test ./...
-go tool mygo build          # buildCommand 先构建 resources/runtime，并自动签名
-node scripts/build-runtime.mjs
-node scripts/smoke-packaged.mjs  # 打包产物 smoke（Windows）
+node scripts/build-runtime.mjs   # 生成 build/runtime/*.tgz + runtime-catalog.json
+go tool mygo build               # 仅应用本体，并自动签名
+node scripts/smoke-packaged.mjs  # 安装器无 runtime + 首启引导 + -runtime-dir（Windows）
 node scripts/smoke-installer.mjs # 安装/卸载 smoke（需干净环境）
 ```
 
@@ -50,13 +50,13 @@ node scripts/verify-signatures.mjs      # 校验 exe 与安装器签名
 node scripts/self-sign.mjs --remove-trust
 ```
 
-`mygo.json` 的 `windows.signCommand` 会签名 Go 二进制、安装器、卸载器，以及 `resources/` 中未签名的 PE 文件；Node 自带的 `node.exe` 已有 OpenJS Foundation 签名，会跳过。时间戳默认使用 DigiCert；时间戳服务器不可达时退回无时间戳签名（自签名证书可接受）。发布者应备份 `.signing/`；`--force` 会更换签名身份，已信任旧证书的用户需要重新信任新证书。
+`mygo.json` 的 `windows.signCommand` 会签名 Go 二进制、安装器与卸载器；`resources/` 只含 Host bundle 与图标。独立 runtime `.tgz` 使用 GitHub HTTPS + catalog SHA256，Node 自带的 `node.exe` 保留其上游签名。时间戳默认使用 DigiCert；时间戳服务器不可达时退回无时间戳签名（自签名证书可接受）。发布者应备份 `.signing/`；`--force` 会更换签名身份，已信任旧证书的用户需要重新信任新证书。
 
 自签名证书不会建立 SmartScreen 信誉：Windows 会显示 **Unknown publisher**，安装器可能被 SmartScreen 拦截。发布时请附上 `.signing/dsh-mygo.cer` 的 SHA-256 指纹与构建产物的校验和，让用户自行核验；不要引导用户无条件把自签名根证书加入信任库。开源项目后续可申请 [SignPath Foundation](https://signpath.io) 的免费 OSS 签名。
 
 `DSH_MYGO_SIGN=0` 可生成未签名构建；此时 MyGo 的构建日志仍会显示 `Signing`/`Signed`，但脚本实际跳过签名。`DSH_MYGO_REQUIRE_SIGNATURE=0` 可跳过打包 smoke 的签名检查。
 
-`node scripts/smoke-installer.mjs` 会把安装器静默安装到 `.tmp`，启动安装后的应用，校验安装后的 exe 与 `Uninstall.exe` 签名，再静默卸载，确认安装目录、快捷方式和卸载键被移除，同时 `$DSH_HOME` 与会话历史保留。它会写入真实的 Start Menu 快捷方式和 HKCU 卸载键，所以检测到已安装 dsh-mygo 时会拒绝运行；发布验收请使用干净 Windows VM。`--keep` 保留临时目录以便排查。
+`node scripts/smoke-installer.mjs` 会把安装器静默安装到 `.tmp`，校验安装布局不含 runtime、首次启动进入运行时引导，再用独立 runtime 启动并检查会话，校验 exe 与 `Uninstall.exe` 签名，最后静默卸载，确认安装目录、快捷方式和卸载键被移除，同时 `$DSH_HOME` 与会话历史保留。它会写入真实的 Start Menu 快捷方式和 HKCU 卸载键，所以检测到已安装 dsh-mygo 时会拒绝运行；发布验收请使用干净 Windows VM。`--keep` 保留临时目录以便排查。
 
 原生窗口 + fake host（无需 DSH 或 API key）：
 
@@ -101,11 +101,17 @@ go run . -dsh-dir D:/Workspace/deepseek-harness -dsh-home D:/Temp/dsh-mygo-dev
 
 首启自动从 `resources/host` 创建 `mygo` profile；已有 profile 不会被覆盖。需要把 bundle 以 junction 链接进 profile 时，仍可运行 `node resources/host/setup-profile.mjs --dsh-home <目录>`。
 
-不依赖 DSH checkout、直接验证 bundled runtime：
+不依赖 DSH checkout、直接验证已构建的 runtime：
 
 ```sh
 node scripts/build-runtime.mjs
-go run . -dsh-home D:/Temp/dsh-mygo-runtime
+go run . -runtime-dir runtime -dsh-home D:/Temp/dsh-mygo-runtime
+```
+
+首次无 runtime 的引导可单独验证（不会写用户的 runtime store）：
+
+```sh
+go run . -runtime-home D:/Temp/dsh-mygo-runtime-store -dsh-home D:/Temp/dsh-mygo-runtime
 ```
 
 真实历史保存在同一 `DSH_HOME`/profile 的 DSH 存储中。重新运行相同命令后会先创建新会话，再通过 **Sessions** 选择旧会话；冷恢复按上述默认/显式 flags 规则选择模型，使用历史记录中的工作目录。仅空闲时切换，各会话草稿只在本次 App 内存中保留。旧 Host/SDK 未协商 history 时隐藏入口。当前 Host 默认同时拥有最多 8 个会话，超限会提示失败，不静默删除历史。

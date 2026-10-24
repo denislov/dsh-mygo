@@ -14,7 +14,8 @@ dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：MyGo 负责窗口与 UI
 | 改 Host 侧 | [profile 与 bundle](subsystem/profile-bundle.md) → [通道协议](subsystem/channel-protocol.md) → [交互](subsystem/interaction.md) |
 | 改会话展示 | [会话投影](subsystem/session-projection.md) → [UI 壳层](subsystem/ui-shell.md) |
 | 改设置/模型/凭据 | [设置与凭据](subsystem/settings-credentials.md) → [交互](subsystem/interaction.md) |
-| 打包发布 | [打包与更新](subsystem/packaging-updates.md) |
+| 改 runtime 安装/下载/切换 | [运行时管理](subsystem/runtime-manager.md) → [宿主监督](subsystem/host-supervisor.md) |
+| 打包发布 | [打包与更新](subsystem/packaging-updates.md) → [运行时管理](subsystem/runtime-manager.md) |
 | 测试版安装与首次使用 | [开始使用](getting-started.md) |
 | 查子系统索引 | [subsystem/README.md](subsystem/README.md) |
 | 查取舍原因 | [研究文档](research/README.md) |

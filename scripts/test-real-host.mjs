@@ -8,14 +8,14 @@ const runtime = process.argv.includes('--runtime')
 const env = { ...process.env }
 
 if (runtime) {
-  const resources = resolve(root, 'resources')
-  if (!existsSync(resolve(resources, 'runtime', 'mygo-host.mjs'))) {
-    console.error(`Bundled runtime is not built: ${resources}`)
+  const runtimeDir = resolve(root, 'runtime')
+  if (!existsSync(resolve(runtimeDir, 'mygo-host.mjs')) || !existsSync(resolve(runtimeDir, 'manifest.json'))) {
+    console.error(`Runtime bundle is not built: ${runtimeDir}`)
     console.error('Run: node scripts/build-runtime.mjs')
     process.exit(2)
   }
-  env.DSH_MYGO_RESOURCES_DIR = resources
-  console.log(`Bundled runtime: ${resources}`)
+  env.DSH_MYGO_RUNTIME_DIR = runtimeDir
+  console.log(`Runtime bundle: ${runtimeDir}`)
 } else {
   const arg = process.argv[2] ?? process.env.DSH_MYGO_DSH_DIR
   if (!arg) {

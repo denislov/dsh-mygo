@@ -52,6 +52,7 @@ UI 壳层是 MyGo 进程里的原生界面：
 - 会话详情显示最新一步 token 用量与路由容量（`Context 已用 / 容量 · 百分比 · In / Out · cache`），只在 Host 提供对应事件时出现；容量或用量未知时省略对应片段，不阻塞 Sessions/Settings 入口，也不参与发送或历史回放。
 - 仅 idle 且无审批/提问时允许导航。刷新可 Close/Escape 取消；历史加载期间显示 Loading、禁用发送与编辑，不能重复新建/切换或关闭弹窗。失败保留当前 transcript/草稿，弹窗中显示可重试的安全错误；审批/提问优先，不叠加会话弹窗与工具检视器。
 - 切换成功后才整体替换 transcript，清除工具展开/检视器、复制反馈、旧 ListState 和临时流式状态；transcript 与 composer 的控件身份包含 session id。草稿按会话隔离并通过设备级编辑文件恢复。新建使用启动 cwd；新建/冷恢复按 Host 默认或显式 flags 选择模型，冷恢复保持持久 cwd，仍由 Host 持有的会话保持原路由。
+- 设置中心的 Runtime 分区管理本机 DSH 后端：当前/已安装/可下载条目、Use/Remove、检测已安装 DSH、从文件安装与检查更新；不依赖 Host，下载/安装/切换期间锁定关闭，详见下文“设置中心 Runtime 分区”。
 - 设置中心的 Conversation model 分区提供当前会话模型面板：provider、模型目录建议、实际 Model ID、effort 与 Refresh/Apply model/Close。只在 idle 无交互、无会话操作时启用，Host 确认后显示新模型；读取可取消，提交期间防重复/禁止关闭，失败保留表单和草稿。分区正文可滚动，底部操作始终可达；composer 的模型入口直接打开该分区，标题栏的 Preferences 入口打开 General，避免窄窗口挤掉常用操作。
 - 协商 settings.configuration 后，Settings 可滚动区域增加 Save selection as default、DeepSeek 凭据状态、Password 输入与确认清除；操作范围、存储与默认 flags 优先级以 [设置与凭据](settings-credentials.md) 为准。密码提交/刷新/关闭后清空并更换稳定 key；写入期间不能关闭或重复操作，超时/失败后禁止发送/导航，必须 Refresh 确认。底部 Close/Refresh/Apply 始终可达。
 
@@ -63,6 +64,7 @@ App
 ├─ Channel       *ChannelClient
 ├─ Sessions      SessionStore        // 摘要、当前会话、历史窗口
 ├─ Projection    *SessionProjection  // 当前会话的 transcript
+├─ Runtime       RuntimeState        // 当前/已安装/可下载 runtime、进度、切换状态
 ├─ Prefs         UIPreferences       // 主题、语言、快捷键、窗口状态
 ├─ Router        *ui.Router
 ├─ Dialogs       DialogState         // approval、question、rename、confirm
@@ -85,8 +87,9 @@ App
 | `/` | 首页/会话选择/新建 |
 | `/session/{id}` | 会话主界面 |
 | `/settings` | 设置首页 |
-| `/settings/{section}` | 设置子页（模型、外观、快捷键、权限、关于） |
+| `/settings/{section}` | 设置子页（模型、外观、运行时、快捷键、权限、关于） |
 | `/welcome` | 首次运行/登录 |
+| `/setup/runtime` | 无 runtime 时的全窗口引导 |
 
 路由状态属于 app；深链（`dsh-mygo://session/<id>`）通过 `router.Push` 进入对应页面。
 
@@ -122,6 +125,23 @@ App
 
 - 宽窗口未显示详情栏时，composer 上方使用带边框与阴影的浮动卡片，以 MyGo `CollapsibleBase` + `Progress` 展示最新 `todo/write` 清单：默认只显示 `Tasks done/total` 与完成度进度条，展开后在有界滚动区显示最多 8 行，完成/进行中/待办各有标记，超出显示 `+N more`；下一回合开始清空，清单不进入正文。详情栏显示时由 Progress 卡片承担同一清单，避免重复；展开高度根据窗口收紧并扣除标题栏高度，不把输入或发送按钮推出最小窗口。
 - 会话详情显示计划模式、当前目标（objective、phase、rounds）与子代理实时状态（运行中/已完成计数）；没有对应事件时不占位，切换会话清空子代理状态。
+
+### 运行时引导
+
+- 没有有效选中 runtime 时，根 View 只渲染全窗口引导，不渲染依赖 Host 的 shell；标题栏保留拖动、Quit 与系统按钮留白。
+- 两种来源：已安装 DSH（PATH 检测、自选 `dsh` 命令、显示 Node/DSH 版本与不兼容原因）和 runtime bundle（下载最新、导入本地 `.tgz`）。
+- 下载/校验/解压显示进度与可取消操作；失败保留重试与改选入口。安装成功后自动启动 Host。
+- 引导期间禁用设置、会话、子代理、快捷键与发送；最小窗口 560×420 下标题、来源与操作可达，内容可滚动。
+- 已有 legacy runtime 只作为候选显示，需用户确认；版本或协议不兼容时不提供使用按钮。
+
+### 设置中心 Runtime 分区
+
+- Runtime 分区始终可用，不依赖 Host capability，也不调用 Settings 刷新。
+- Current runtime：类型、DSH、Node、Host bundle 版本、路径与复制；错误/通知固定显示在正文。
+- Installed runtimes：当前项显示 Current；其他项可 Use / Remove；Remove 需二次确认，当前项不可移除，external/legacy 只遗忘条目。
+- Add runtime：Check installed DSH、Install from file…、Check for updates；下载/安装只加入列表，不自动切换。
+- 下载/安装/切换期间禁用关闭与导航，页脚显示进度并允许取消安装；切换只显示等待状态，完成后保留设置页并提示结果。
+- 切换失败恢复旧 runtime 时显示“已恢复之前的运行时”；旧 Host 也无法恢复时进入恢复对话框的 Change runtime。
 
 ### 首次使用与工作文件夹
 

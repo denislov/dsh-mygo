@@ -15,7 +15,7 @@
 
 `internal/host` 的契约：
 
-- `ResolveLaunch`：入口按 `-host-command` 覆盖、`-dsh-dir` source checkout、PATH 上的 `dsh` 依次解析；`-dsh-home` 以大小写不敏感的方式替换 `DSH_HOME`。发布版优先 `resources/` 下的私有入口。
+- `ResolveLaunch`：入口按 `-host-command` 覆盖、`-dsh-dir` source checkout、选中 runtime（managed/external/legacy/direct）依次解析；`-dsh-home` 以大小写不敏感的方式替换 `DSH_HOME`。设备级选择由 [运行时管理](runtime-manager.md) 持久化，Host 不自行寻找 `dsh`。
 - `Start`：建立 stdin/stdout/stderr 管道，stderr 保留最后 64 KiB；调用方通过 `Stdin` / `Stdout` 接 `ChannelClient`。
 - `Stop`：关闭 stdin，等待优雅退出；超时后杀进程。POSIX 杀进程组，Windows 用 Job Object 回收进程树。
 - Windows Job Object：`Start` 在 spawn 后立即把 Host 加入 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 的 Job；Host 启动的子进程继承 Job。Host 退出、`Stop` 完成或应用崩溃/被强杀时关闭 Job 句柄，内核回收 Host 与插件子进程。Job 创建或分配失败时启动失败，不运行无 Job 的 Host。
@@ -27,22 +27,29 @@ Host 入口在启动前完成版本校验、`mygo` profile 选择与会话创建
 
 | 模式 | 命令 | 用途 |
 | --- | --- | --- |
-| 开发 | `dsh --profile mygo` | 复用 CLI 的 profile 解析、`profileContext`、插件管理、`--patch` |
-| 发布 | 私有 `mygo-host`（调用 `runProfile`） | 控制参数、stdout、启动顺序；不依赖 PATH 上的 `dsh` |
+| managed runtime | `<runtime>/node/node(.exe) <runtime>/mygo-host.mjs <profile>` | 自带 Node、DSH、私有入口与配套 Host bundle；版本独立于应用 |
+| existing DSH | `dsh --profile mygo` 或 `cmd.exe /d /s /c call <dsh.cmd> --profile mygo` | 复用用户已安装的精确版本 DSH + 应用自带 Host bundle |
+| 开发 | `-host-command` / `-dsh-dir` / `-runtime-dir` | 显式命令、source checkout、已解压 runtime；不写入设备级选择 |
 
-两种模式必须启动同一个 profile 与 bundle。发布版不得回退到另一个组合。
+所有模式必须启动同一个 profile 组合，但允许不同的 runtime 版本；应用与托管 runtime 通过 `protocolVersion`、Host bundle 版本与 app 兼容范围配对。
 
 ### 入口解析顺序
 
-1. `resources/runtime/mygo-host.mjs`：私有入口，直接调用 `runProfile`，使用 `resources/runtime/node/` 下的 Node。
-2. `resources/runtime/node_modules/@deepseek-ai/dsh/lib/bin.js`：bundled `dsh` CLI（私有入口缺失时的兼容回退）。
-3. `PATH` 上的 `dsh`（仅开发期，且必须校验版本）。
+1. `-host-command` 或 `-dsh-dir`（开发/测试显式覆盖）。
+2. `-runtime-dir` 指定的已解压 runtime（开发/smoke，不写状态）。
+3. runtime store 中选中的 managed/external/legacy 条目。
+4. 无有效选择 → 运行时引导；不启动 Host。
 
-`-host-command` 与 `-dsh-dir` 分别覆盖前两项。bundled 入口存在但 Node 缺失、`runtime/manifest.json` 缺失或与本 app/协议/DSH 版本不一致时返回错误，不静默回退到 PATH。UI 显示可操作的错误。
+managed runtime 缺少 Node、入口、manifest 或与本 app/协议/DSH 不兼容时返回错误，不静默回退到 PATH。external 条目的命令或 Node 丢失时按 PATH 重新探测；只有 DSH 版本一致才修复条目。UI 显示可操作的错误与 Change runtime。
 
 ### 首启 profile
 
-启动前确保 `$DSH_HOME/profiles/mygo` 存在。不存在时从 `resources/host` 复制出 `node_modules/@dsh-mygo/host`，写入 profile manifest 与空 `cordis.patch.yml`。已有 profile 的 manifest、patch、设置和凭据保持原样；应用自有 Host 包版本不同时，先将旧包保留到同一命名空间下的 `.host-backup-*`，再以暂存副本替换，替换失败回滚。升级前校验包身份、入口和解析后的目录归属；同版本开发链接保持，异版本外部链接不自动替换。创建或升级失败时窗口进入 `Host error`，不启动 Host。
+启动前确保 `$DSH_HOME/profiles/mygo` 存在。不存在时写入 profile manifest、空 `cordis.patch.yml` 与 Host bundle：
+
+- managed/legacy/direct 使用该 runtime 自己的 `host/`；
+- external 使用应用安装目录下的 `host/`。
+
+已有 profile 的 manifest、patch、设置和凭据保持原样；Host 包版本或 `engines.dsh` 不同时，先将旧包保留到同一命名空间下的 `.host-backup-*`，再以暂存副本替换，替换失败回滚。升级前校验包身份、入口和解析后的目录归属；同版本开发链接保持，异版本外部链接不自动替换。创建或升级失败时窗口进入 `Host error`，不启动 Host。
 
 ### 环境
 
@@ -54,7 +61,7 @@ Host 继承启动环境，并显式设置：
 | `DSH_PERMISSION_MODE` | 部署提供新会话权限初值；UI 的会话权限选择经 Host 服务写入日志，不重写环境变量 |
 | `DEEPSEEK_API_KEY` / `DEEPSEEK_BASE_URL` | 模型凭据；也可由 DSH 的 `.env` 层解析 |
 | `LANG` / `LC_ALL` | Host 侧 locale；UI 自己也有 locale |
-| `PATH` | 让 Host 能找到 shell、git、pnpm 等工具；bundled 入口把 `resources/runtime/node/` 放在最前 |
+| `PATH` | 让 Host 能找到 shell、git、pnpm 等工具；managed/external runtime 把选中 Node 的目录放在最前 |
 
 规则：
 
@@ -82,10 +89,14 @@ Go ◀─ stderr ── Host      (日志、诊断、插件输出)
 ## 生命周期
 
 ```text
-Idle → Starting → Initializing → Ready → Stopping → Stopped
-                      │             │
-                      ├─ Fatal ─────┘
-                      └─ Timeout ───┘
+NoRuntime → AwaitingRuntime → Starting → Initializing → Ready → Stopping → Stopped
+                                   │             │
+                                   ├─ Fatal ─────┘
+                                   └─ Timeout ───┘
+
+Ready/Failed → SwitchRequested → Stopping → Starting(candidate) → Initializing
+                    │                                              │
+                    └──────────── rollback + old host ◀───────────┘
 ```
 
 ### 启动
@@ -111,6 +122,7 @@ Idle → Starting → Initializing → Ready → Stopping → Stopped
 - Host 退出码非 0、协议解析失败、启动超时都进入 `Fatal`。
 - UI 保留当前会话投影，显示不可 Escape 关闭的恢复对话框：
   - Restart host。
+  - Change runtime…（有 runtime store 时）。
   - View logs。
   - Quit。
 - 重启由用户触发：停止旧进程，启动新 Host，完成 `initialize`，再用 `session/resume` + `session/history` 回放同一会话；恢复失败保留旧投影并重新显示对话框。
@@ -140,9 +152,12 @@ Idle → Starting → Initializing → Ready → Stopping → Stopped
 
 | 失败 | 处理 |
 | --- | --- |
+| 没有选中 runtime | 进入运行时引导；不启动 Host |
+| runtime 文件/命令缺失 | external 先尝试 PATH 修复；失败进入引导或恢复中的 Change runtime |
 | 找不到 Host 入口 | 启动前失败；显示安装/路径错误 |
 | profile 缺失/损坏 | 提示初始化或修复；不静默创建错误组合 |
 | 版本不兼容 | 显示双方版本与修复建议；不继续 |
+| 切换候选初始化失败 | 恢复旧 profile 与旧 Host；候选不成为选中项 |
 | stdout 出现非协议文本 | 视为致命协议错误；关闭连接 |
 | 子进程无法杀死 | 记录 PID 与平台信息；提示重启系统 |
 | Job Object 创建/分配失败 | 启动失败；不静默运行无 Job 的 Host |
@@ -153,6 +168,7 @@ Idle → Starting → Initializing → Ready → Stopping → Stopped
 - 用 fake Host 进程验证启动/超时/崩溃/停止状态机。
 - 用真实 Host 验证 kill → Restart → `session/resume` + history 回放 → 继续发送。
 - 用真实 `dsh --profile mygo` 验证 initialize 与 shutdown。
+- 用已解压 runtime（`DSH_MYGO_RUNTIME_DIR` / `-runtime-dir`）验证 managed 入口、profile seed、会话与切换。
 - Windows 上用 helper 进程验证 Job Object 回收：Stop 杀 Host 后子进程消失；Host 自行退出后子进程也消失（`TestStopKillsProcessTree`、`TestHostExitKillsProcessTree`）。POSIX 上验证进程组回收。
 - 验证 stdout 纯净性：任何日志写入 stdout 都让测试失败。
 - 验证单实例与深链转发。
@@ -160,6 +176,7 @@ Idle → Starting → Initializing → Ready → Stopping → Stopped
 ## 相关文档
 
 - [通道协议](channel-protocol.md)
+- [运行时管理](runtime-manager.md)
 - [profile 与 bundle](profile-bundle.md)
 - [打包与更新](packaging-updates.md)
 - [架构](../architecture.md)

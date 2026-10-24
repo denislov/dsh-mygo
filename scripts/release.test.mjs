@@ -47,6 +47,13 @@ test('release assets use an exact allowlist and checksums match all attachments'
   }
 })
 
+test('release preparation rejects an installer that embeds a runtime', async t => {
+  const root = await fixture(t)
+  await mkdir(join(root, 'build/windows-amd64/runtime'), { recursive: true })
+  await writeFile(join(root, 'build/windows-amd64/runtime/manifest.json'), '{}')
+  await assert.rejects(prepareRelease(root), /must not contain/)
+})
+
 test('release preparation refuses mismatched Host identity and unexpected assets', async t => {
   const root = await fixture(t)
   await writeFile(join(root, 'build/windows-amd64/host/package.json'), '{"version":"other"}')

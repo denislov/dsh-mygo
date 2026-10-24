@@ -181,8 +181,9 @@ func realMygoLaunch(t *testing.T, mockModel bool) (host.Config, string) {
 	t.Helper()
 	dshDir := os.Getenv("DSH_MYGO_DSH_DIR")
 	resourcesDir := os.Getenv("DSH_MYGO_RESOURCES_DIR")
-	if dshDir == "" && resourcesDir == "" {
-		t.Skip("DSH_MYGO_DSH_DIR and DSH_MYGO_RESOURCES_DIR are not set")
+	runtimeDir := os.Getenv("DSH_MYGO_RUNTIME_DIR")
+	if dshDir == "" && resourcesDir == "" && runtimeDir == "" {
+		t.Skip("DSH_MYGO_DSH_DIR, DSH_MYGO_RESOURCES_DIR and DSH_MYGO_RUNTIME_DIR are not set")
 	}
 	if dshDir != "" {
 		if _, err := exec.LookPath("node"); err != nil {
@@ -198,18 +199,39 @@ func realMygoLaunch(t *testing.T, mockModel bool) (host.Config, string) {
 	if resourcesDir != "" {
 		bundleDir = filepath.Join(resourcesDir, "host")
 	}
-	if err := host.EnsureProfile(dshHome, bundleDir, "mygo"); err != nil {
-		t.Fatalf("seed profile: %v", err)
-	}
-	launch, err := host.ResolveLaunch(host.LaunchOptions{
-		DshDir:       dshDir,
-		Profile:      "mygo",
-		CWD:          root,
-		DSHHome:      dshHome,
-		ResourcesDir: resourcesDir,
-	})
-	if err != nil {
-		t.Fatal(err)
+	var launch host.Config
+	if runtimeDir != "" {
+		absolute, err := filepath.Abs(runtimeDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(filepath.Join(absolute, "manifest.json")); err != nil {
+			t.Fatalf("runtime bundle: %v", err)
+		}
+		bundleDir = filepath.Join(absolute, "host")
+		if err := host.EnsureProfile(dshHome, bundleDir, "mygo"); err != nil {
+			t.Fatalf("seed profile: %v", err)
+		}
+		launch, err = host.RuntimeLaunch(host.RuntimeLaunchOptions{
+			RuntimeDir: absolute, Profile: "mygo", CWD: root, DSHHome: dshHome,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		if err := host.EnsureProfile(dshHome, bundleDir, "mygo"); err != nil {
+			t.Fatalf("seed profile: %v", err)
+		}
+		launch, err = host.ResolveLaunch(host.LaunchOptions{
+			DshDir:       dshDir,
+			Profile:      "mygo",
+			CWD:          root,
+			DSHHome:      dshHome,
+			ResourcesDir: resourcesDir,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	if mockModel {
 		// Install the fixture under the profile so the loader resolves its

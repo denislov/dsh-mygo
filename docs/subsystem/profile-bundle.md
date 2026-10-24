@@ -12,7 +12,7 @@
 
 ## 组成
 
-实现位于 `resources/host/`：`index.mjs` 提供 startup，`channel.mjs` 装配 DSH 公开服务，`server.mjs` 实现会话方法，`transport.mjs` 负责有界 stdio 帧。bundle 是无需 JS 构建步骤的本地 ESM，由 profile 的 `node_modules` 引入，不发布 npm；发布分发（Node/DSH runtime、私有入口）见 [打包与更新](packaging-updates.md)。
+实现位于 `resources/host/`：`index.mjs` 提供 startup，`channel.mjs` 装配 DSH 公开服务，`server.mjs` 实现会话方法，`transport.mjs` 负责有界 stdio 帧。bundle 是无需 JS 构建步骤的本地 ESM，由 profile 的 `node_modules` 引入，不发布 npm。应用安装器携带一份 `host/` 供 existing DSH 与 profile seed 使用；每个 managed runtime `.tgz` 另带同一版本的副本，使 runtime 可独立于应用升级。见 [运行时管理](runtime-manager.md) 与 [打包与更新](packaging-updates.md)。
 
 profile 由 `dsh-base` + `@dsh-mygo/host` 组成。channel 依赖 launcher 的 `appReady`，只在真实 Loader 启动成功后接管 stdio；握手再次等待 Loader 稳定，并检查 `profileContext.startedBundles`。能力与版本以 [通道协议](channel-protocol.md) 为准。
 
@@ -53,6 +53,17 @@ base 只提供提问服务；自有 patch 增加稳定行 `tool-ask-user`，绑�
       "patch": "./cordis.patch.yml"
     }
   },
+  "engines": {
+    "node": ">=24",
+    "dsh": "0.2.1-rc.2"
+  },
+  "dshMygo": {
+    "protocolVersion": 1,
+    "appCompatibility": {
+      "min": "0.1.1",
+      "maxExclusive": "0.2.0"
+    }
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.5"
   }
@@ -61,6 +72,7 @@ base 只提供提问服务；自有 patch 增加稳定行 `tool-ask-user`，绑�
 
 - `main` 是 Cordis 插件入口。
 - `dsh.bundle.patch` 让 `dsh plugin --profile mygo add` 识别这个包是 bundle。
+- `engines.dsh` 固定该 bundle 允许的 DSH 版本；`dshMygo.appCompatibility` 声明可配套的应用版本范围。runtime manifest 必须与这些字段一致，安装与启动前都校验。
 - 本仓库不属于 DSH workspace，使用精确 peer 版本并由 profile 的 runtime resolution 提供；完整 manifest 见 `resources/host/package.json`。不依赖 DSH 内部实现路径。
 
 ## Bundle patch
@@ -120,12 +132,12 @@ base 已经包含这些行；bundle 不应重复插入，除非需要覆盖配�
 
 ### 发布入口：私有 `mygo-host`
 
-入口位于 `resources/runtime/mygo-host.mjs`：
+入口源位于 `runtime/mygo-host.mjs`，随 runtime bundle 分发：
 
 - 直接 `import { runProfile } from '@deepseek-ai/dsh/profile-boot'`，用 `loadLayeredEnv('dsh')` 提供 `environment`。
 - 接收 profile 名与 `--patch` 覆盖；其余参数交给 `runProfile` 的 `args`。
 - channel、审批、提问与 ready 由 profile 的 `@dsh-mygo/host` bundle 在 `runProfile` 内安装；入口不写 stdout。
-- 发布版使用该入口；开发期可以使用 `dsh --profile mygo` 或同一入口。
+- managed runtime 使用该入口；existing DSH 走其 `dsh` 命令并加载应用自带的 Host bundle。
 
 两种方案都必须在 `runProfile` 之后：
 
@@ -182,19 +194,20 @@ node resources/host/setup-profile.mjs --dsh-home D:/Temp/dsh-mygo-dev
 
 `host.EnsureProfile` 在启动 Host 前检查 `$DSH_HOME/profiles/mygo`：
 
-1. profile 已存在时不做任何修改。
-2. 不存在时在 staging 目录创建 profile：把 `resources/host` 复制到 `node_modules/@dsh-mygo/host`，写入 `dsh.profile.bundles: ["@deepseek-ai/dsh-base", "@dsh-mygo/host"]` 与空 `cordis.patch.yml`，再原子改名到目标目录。
+1. profile 已存在且完整时，仅按宿主 bundle 身份决定是否升级。
+2. 不存在时在 staging 目录创建 profile：把选中 runtime 的 Host bundle 复制到 `node_modules/@dsh-mygo/host`（managed/legacy/direct 用 runtime 自带 `host/`，external 用应用安装目录的 `host/`），写入 `dsh.profile.bundles: ["@deepseek-ai/dsh-base", "@dsh-mygo/host"]` 与空 `cordis.patch.yml`，再原子改名到目标目录。
 3. 创建失败时窗口进入 `Host error`，不启动 Host。
 
-该 profile 通过 DSH 的正式 CLI 和 Loader 启动，并复用安装侧公开 peer 包。发布时由安装器携带完整 bundle 与 runtime，不依赖开发机的仓库链接。
+该 profile 通过 DSH 的正式 CLI 和 Loader 启动，并复用安装侧公开 peer 包。发布时由安装器携带应用侧 bundle，runtime 自带托管副本，不依赖开发机的仓库链接。
 
 ### 首启校验（发布构建）
 
 发布构建在首启时校验：
 
 - manifest 存在且 `dsh.profile.bundles` 包含 base 与 mygo bundle。
-- bundle 版本与 UI 版本匹配（同一发布单元）。
-- 兼容性检查失败时显示修复命令，不自动改写用户 profile。
+- Host bundle 的 `version`、`engines.dsh` 与 `dshMygo.protocolVersion` 与所选 runtime manifest 一致。
+- 应用版本在 bundle 的 `appCompatibility` 范围内。
+- 兼容性检查失败时显示可操作的修复建议，不自动改写用户 profile。
 
 开发初始化脚本只创建并链接 profile；发布构建才执行上述校验。
 
@@ -206,9 +219,10 @@ node resources/host/setup-profile.mjs --dsh-home D:/Temp/dsh-mygo-dev
 
 ## 兼容性
 
-- 与 DSH 版本绑定：`dshVersion` 写入 channel 的 `initialize` 响应，UI 记录并展示。
+- 与 DSH 版本绑定：`engines.dsh` 与 `dshVersion` 一起写入 identity；managed runtime 的 manifest 必须一致，existing DSH 必须精确匹配，`initialize` 响应返回实际值供 UI 展示。
 - bundle 的 peer 依赖与 `dsh` 版本对齐；不依赖 `src/` 或未导出的内部模块。
-- 应用升级时，profile 中应用自有的 `@dsh-mygo/host` 副本随发布单元更新；先验证包身份与目录边界，保留旧副本再替换，失败回滚。用户 manifest、patch、设置、凭据和 session log 不参与此替换；兼容的开发链接保持原样，指向外部的异版本包交由开发者更新。
+- 应用与 Host bundle 不再要求版本完全相等：`appMin <= app < appMaxExclusive`，`protocolVersion` 精确匹配。旧 Host 不返回范围时回退到精确版本校验。
+- 运行时切换或应用升级时，profile 中应用自有的 `@dsh-mygo/host` 副本按 `version + engines.dsh` 更新；先验证包身份与目录边界，保留旧副本再替换，失败回滚。用户 manifest、patch、设置、凭据和 session log 不参与此替换；兼容的开发链接保持原样，指向外部的异版本包交由开发者更新。
 - 使用公开服务：`ctx.agents`、`ctx.session*`、`ctx.userQuestions`、`ctx.approval`、`ctx.settings`、`ctx.credentials` 等。
 - 可选服务用 `ctx.get(name)`，缺失时降级并报告，而不是崩溃。
 - 子代理只读查询使用公开 `ctx.subagents.listChildren` 与 `ctx.sessionQuery.observeSession`；两者同时可用才协商 `subagent.inspection`。只查询所属父会话的直接子代理，观察句柄及时 dispose，不调用 agents.resume、不注册子 Agent、不依赖私有日志结构。查询期间预占父句柄并参与退出中止与排空；线协议边界见 [通道协议](channel-protocol.md#子代理只读查询)。
@@ -218,8 +232,9 @@ node resources/host/setup-profile.mjs --dsh-home D:/Temp/dsh-mygo-dev
 
 | 失败 | 处理 |
 | --- | --- |
-| profile 缺失 | 提示初始化命令；不静默创建错误组合 |
-| bundle 未安装/版本不符 | 提示 `dsh plugin ... add`；不继续启动 |
+| profile 缺失 | 用所选 runtime 的 Host bundle 初始化；失败不启动 Host |
+| bundle 未安装/版本不符 | 提示 `dsh plugin ... add` 或切换 runtime；不继续启动 |
+| runtime Host bundle 与应用/DSH 不兼容 | 拒绝安装或激活；保持旧选择 |
 | base 行缺失 | 启动失败并指名缺失服务 |
 | 端口/stdio 冲突 | 不适用（stdio）；检查 stdout 是否被日志污染 |
 | 第三方插件启动失败 | 报告插件名与错误；提供禁用/救援路径 |
@@ -229,11 +244,13 @@ node resources/host/setup-profile.mjs --dsh-home D:/Temp/dsh-mygo-dev
 - **composition 测试**：加载 bundle patch + base patch，断言行、顺序、配置。
 - **real-composition**：通过 Loader 启动真实 profile，验证 `profileContext`、stdout 纯净、channel ready。
 - **profile 初始化**：临时 `DSH_HOME`，执行安装/初始化，断言 manifest。
-- **兼容性**：模拟 bundle 缺失、版本不符、base 行缺失。
+- **兼容性**：模拟 bundle 缺失、版本不符、base 行缺失、app 范围不匹配。
+- **运行时切换**：两个 runtime 的 Host bundle 身份不同，断言 profile 升级、备份与失败回滚。
 
 ## 相关文档
 
 - [研究：DSH 组合](../research/dsh-composition.md)
 - [通道协议](channel-protocol.md)
 - [宿主监督](host-supervisor.md)
+- [运行时管理](runtime-manager.md)
 - [打包与更新](packaging-updates.md)

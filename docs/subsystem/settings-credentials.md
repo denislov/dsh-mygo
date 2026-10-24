@@ -8,9 +8,19 @@
 | --- | --- | --- | --- |
 | DSH 设置与会话事实 | Host | `$DSH_HOME` 的 settings/credentials/session log | 默认模型、凭据、会话权限 |
 | Profile 配置 | Host / 文件 | `$DSH_HOME/profiles/mygo` | bundle 列表、插件配置、`cordis.patch.yml` |
+| Runtime 选择 | Go | MyGo `PathCache/runtimes` | 当前 runtime、已安装/可下载条目、安装文件 |
 | UI 偏好 | Go | MyGo `PathUserData` | 主题、语言、快捷键、窗口位置、最近会话、草稿 |
 
 原则：**一个设置只有一个权威来源**。UI 不缓存 DSH 设置的副本；显示时从 Host 读取，写入时走 Host。
+
+## 运行时设置
+
+- Runtime 选择是设备级配置，不按 `$DSH_HOME`/profile 分区；切换只改变 Host 启动命令与 profile Host bundle，不改会话、凭据或 DSH 设置。
+- Settings 的 Runtime 分区始终可用，不依赖 Host capability，不调用 model/permission/configuration 读取；安装/下载进度与错误属于该页，不混入 Conversation model 的 SettingsError。
+- Use 仅在 Host idle（或 failed/resyncing 且恢复对话框已让位）、无审批/提问、无会话/设置写入时可用；切换事务与失败回滚见 [运行时管理](runtime-manager.md#7-切换)。
+- 当前选中项不能移除；未选中 managed 项移除文件，external/legacy 只遗忘条目。Remove 二次确认，移除操作不阻塞 UI 线程。
+- 下载/安装期间关闭按钮禁用并提供 Cancel；取消后临时文件清理。安装完成只加入列表，不自动切换。
+- 该页不记录 secret：只显示 runtime id、版本、路径与字节数。
 
 ## 会话模型设置
 
@@ -136,7 +146,7 @@ UI 偏好属于 Go 进程，持久化在 `PathUserData`，写入使用原子替�
 
 ### 设置中心的设备分区
 
-- 设置中心的 General 与 Shortcuts 是设备级分区，不依赖 Host 的模型/权限 capability；两者共用设备偏好草稿。加载编辑文件后可打开；Cancel/Escape 丢弃表单变更并关闭中心，Reset 只重置表单，Apply 校验后才切换运行状态并立即请求后台保存。不操作 DSH 设置、会话模型、权限或凭据。
+- 设置中心的 General、Runtime 与 Shortcuts 是设备级分区，不依赖 Host 的模型/权限 capability；General/Shortcuts 共用设备偏好草稿，Runtime 使用独立的运行时 store。加载编辑文件后可打开；Cancel/Escape 丢弃表单变更并关闭中心，Reset 只重置表单，Apply 校验后才切换运行状态并立即请求后台保存。不操作 DSH 设置、会话模型、权限或凭据。
 - 设置中心其余分区（Conversation model、Permissions、Connection、About）按模型目录、权限与配置能力显示；能力缺失时隐藏而不是展示死入口。General/Shortcuts/About 在旧 Host 或未协商能力时仍可打开。
 - theme 只接受 system/light/dark，locale 只接受 en-US/zh-CN；默认保留英文和 Enter 发送。主题通过 MyGo Theme.SetSource 与原生语义调色板生效；语言通过集中词表与 App.SetLocale 同步内建控件，MyGo 自身文案的简体中文由主程序链接 `github.com/egoist/mygo/locales/zh-Hans` 词表包提供，不随应用词表重写。编辑文件是权威来源，MyGo 自动保存的 locale 仅为运行时镜像，启动时以编辑文件覆盖；窗口尺寸/位置仍由 StateKey 管理。
 - 语言即时作用于应用标签、状态和提示，技术诊断允许保留原文；用户消息、代码、会话标题、提问内容/选项、工具参数/结果与 provider/model id 不经过翻译。下拉绑定稳定值，仅展示标签随语言变化；切换不重写日志、发送内容或权限判断依据。
@@ -173,6 +183,8 @@ UI 偏好属于 Go 进程，持久化在 `PathUserData`，写入使用原子替�
 | 旧 Host 未协商 | 隐藏入口，未协商调用返回 capability-unavailable |
 | 未知命名空间/secret 写入 | `settings-rejected`；UI 展示不支持，不重试 |
 | 账户登录失败/过期 | 显示状态与重新登录入口；不显示 token |
+| runtime 下载/校验失败 | 删除临时文件，保留列表与重试/导入入口 |
+| runtime 切换失败 | 恢复旧 profile 与旧 Host，设置页显示结果；候选不成为选中项 |
 
 ## 测试
 
@@ -181,6 +193,7 @@ UI 偏好属于 Go 进程，持久化在 `PathUserData`，写入使用原子替�
 - 持久配置：revision 冲突、凭据 set/unset、安全状态、失败后必须刷新。
 - 通用设置：命名空间白名单、secret 排除、变更广播与多窗口刷新。
 - UI 偏好：schema、原子写、损坏回退、草稿有界恢复。
+- 运行时：store 损坏、安装/移除、Use/Remove 门禁、切换成功/回滚、最小窗口。
 - 账户登录：状态展示、退出清 token、失败重试（不触网时用 fake provider）。
 - UI：`ui.NewTester` 覆盖最小窗口、密码输入清空与控件重建。
 - 真实 Loader：`TestAgainstMygoModelSettings`、`TestAgainstMygoConfiguration` 验证实际请求路由与 Host 重启后的持久化。
@@ -189,6 +202,7 @@ UI 偏好属于 Go 进程，持久化在 `PathUserData`，写入使用原子替�
 
 - [交互](interaction.md)
 - [UI 壳层](ui-shell.md)
+- [运行时管理](runtime-manager.md)
 - [profile 与 bundle](profile-bundle.md)
 - [进度与路线](../roadmap.md)
 - [架构](../architecture.md)

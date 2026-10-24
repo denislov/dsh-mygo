@@ -2,11 +2,11 @@
 
 dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node Host（`dsh-base` + 自有 bundle）。不使用 `dsh-web-app`，不嵌入浏览器。
 
-当前阶段：**自定义 channel 可用（默认 `mygo` profile），SDK 通道只作显式回归**。首发平台 Windows（x64），发布包自带 Node + DSH runtime；macOS 随后。进度、缺口与里程碑只维护在 [docs/roadmap.md](docs/roadmap.md)，本文件不重复状态清单。
+当前阶段：**自定义 channel 可用（默认 `mygo` profile），应用与 Node+DSH runtime 分开分发**；SDK 通道只作显式回归。首发平台 Windows（x64），macOS 随后。进度、缺口与里程碑只维护在 [docs/roadmap.md](docs/roadmap.md)，本文件不重复状态清单。
 
 - 默认协议：`initialize` 协商版本与能力，随后 `session/create|list|resume|history|prompt|cancel`；通知为 `session/event`、`session/assistant-stream`、`session/status` 与交互请求。审批、提问、模型、配置各自通过 capability 协商。
-- UI 能力：原生 Markdown 流式与代码/源文复制、工具折叠与只读 diff、Sessions 弹窗、Settings（会话模型、持久默认模型、DeepSeek 凭据）。
-- 发布形态：MyGo 二进制 + `resources/`（私有 `mygo-host`、Node、DSH runtime、profile seed）；落地顺序见路线图。
+- UI 能力：原生 Markdown 流式与代码/源文复制、工具折叠与只读 diff、Sessions 弹窗、首启运行时引导、Settings（会话模型、持久默认模型、DeepSeek 凭据、Runtime 下载/切换/移除）。
+- 发布形态：应用安装器 = MyGo 二进制 + `resources/host` + 图标；独立 runtime `.tgz` = Node + DSH 闭包 + 私有 `mygo-host` + 配套 Host bundle + manifest。落地顺序见路线图。
 - 实现顺序看路线图：timed/continued 提问、实时缺口自动 resync、固定侧栏与会话管理、通用命名空间设置、多 provider 凭据、账户登录、RPC 请求级取消、打包按路线图推进。设计文档保留这些目标，不因尚未实现而删除；本文件不重复状态清单。
 
 ## 文档路由
@@ -22,6 +22,7 @@ dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node H
 | 子系统索引 | [docs/subsystem/README.md](docs/subsystem/README.md) |
 | 整体结构、进程边界、数据流 | [docs/architecture.md](docs/architecture.md) |
 | profile / bundle / DSH 组合 | [docs/subsystem/profile-bundle.md](docs/subsystem/profile-bundle.md)、[research/dsh-composition.md](docs/research/dsh-composition.md) |
+| runtime store、安装/下载/切换 | [docs/subsystem/runtime-manager.md](docs/subsystem/runtime-manager.md) |
 | Host 启动、stdio、崩溃、退出 | [docs/subsystem/host-supervisor.md](docs/subsystem/host-supervisor.md) |
 | JSON-RPC 方法/通知/版本/取消 | [docs/subsystem/channel-protocol.md](docs/subsystem/channel-protocol.md) |
 | 会话事件 → UI 状态、流式、历史 | [docs/subsystem/session-projection.md](docs/subsystem/session-projection.md) |
@@ -47,7 +48,7 @@ dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node H
 8. **协议版本化.** 破坏性变更提升 `protocolVersion`；新能力通过 capability 声明；旧 Host 不认识的能力不启用。
 9. **MyGo 元素是帧作用域的.** 不把 `ui.Element` / `ui.Context` 存进 app 状态或 goroutine；跨帧状态用字段、`ui.Handle`、`FocusBind`、`c.Key`。
 10. **主线程只做 UI.** 慢 I/O 与进程等待在 goroutine；结果用 `Window.Update` 发布。
-11. **版本绑定.** UI、Host、bundle 作为同一发布单元验证；不要只升级其中一个。
+11. **版本兼容.** 应用与运行时是独立发布单元；runtime manifest 声明 `protocolVersion`、Host bundle 版本与 app 兼容范围，UI 与 Host 按范围/身份校验。每次发布验证支持的组合，不接受“碰巧能启动”。
 12. **profile 是组合根.** 不改 DSH core；通过 bundle patch 增加/覆盖/禁用行。行 id 是兼容接口。
 
 ## 仓库布局
@@ -63,13 +64,14 @@ cmd/spike/           P0 协议验证：initialize → prompt → events
 scripts/             测试辅助脚本（真实 Host 入口）
 internal/channel/    JSON-RPC 编解码与客户端
 internal/host/       HostSupervisor + ResolveLaunch：spawn / stdio / stderr / stop
+internal/runtimes/   runtime store、manifest/catalog、安装/下载、external、launch
 internal/projection/ 提交的 session.event → transcript 行
 internal/view/       MyGo 原生界面（Model、List、Composer、状态）
-internal/app/        Host + channel + projection + window.Update 装配
+internal/app/        Host + channel + projection + runtime + window.Update 装配
 testdata/            fake-sdk-host.mjs 等测试数据
-resources/host/      自定义 Host bundle、profile seed 源、Node 协议测试
-resources/runtime/   私有 mygo-host 入口、Node/DSH 运行时清单与构建产物
-resources/           随应用分发的资源
+runtime/             Node+DSH+mygo-host 运行时源与构建产物（产物不提交）
+resources/host/      应用自带的 Host bundle、profile seed 源、Node 协议测试
+resources/           随应用分发的资源（不含 Node/DSH）
 docs/                研究、架构、子系统文档
 AGENTS.md            本文件
 ```
@@ -80,6 +82,7 @@ AGENTS.md            本文件
 internal/
   host/              HostSupervisor
   channel/           JSON-RPC client/server
+  runtimes/          runtime store、安装/下载、external/legacy、launch
   projection/        session 投影
   interaction/       审批/提问身份、载荷校验、FIFO 与表单状态
   view/              页面、组件、状态（不叫 ui，避免与 MyGo ui 包重名）
@@ -93,8 +96,8 @@ docs/
 
 ```sh
 go tool mygo dev                    # 开发运行（默认 dsh --profile mygo；首启自动创建 profile）
-go tool mygo build                  # 打包（buildCommand 先构建 resources/runtime）
-node scripts/build-runtime.mjs      # 单独构建 bundled runtime（Node + DSH 闭包）
+go tool mygo build                  # 打包应用本体（不含 Node/DSH runtime）
+node scripts/build-runtime.mjs      # 构建独立 runtime（Node + DSH 闭包 + manifest + tgz）
 node scripts/self-sign.mjs          # 生成/复用自签名证书（.signing/，不入库）
 node scripts/self-sign.mjs --trust  # 本机信任证书（测试用）
 node scripts/verify-signatures.mjs  # 校验打包产物签名
@@ -111,8 +114,14 @@ go run . -host-command node -host-arg testdata/fake-mygo-host.mjs
 # 原生窗口 + 真实 DSH source checkout（key 只从环境读取；首启自动创建 profile）
 go run . -dsh-dir D:/Workspace/deepseek-harness -dsh-home <临时目录>
 
+# 原生窗口 + 已构建的独立 runtime（不写设备级选择）
+go run . -runtime-dir runtime -dsh-home <临时目录>
+
+# 无 runtime 首启引导（隔离 runtime store）
+go run . -runtime-home <临时目录> -dsh-home <临时目录>
+
 node --test resources/host/tests/*.test.mjs
-# 无需 key 的真实组合测试（source checkout 或 bundled runtime）
+# 无需 key 的真实组合测试（source checkout 或 runtime bundle）
 node scripts/test-real-host.mjs D:/Workspace/deepseek-harness
 node scripts/test-real-host.mjs --runtime
 go test ./internal/app -run TestAgainstMygoRealComposition -v -timeout 2m

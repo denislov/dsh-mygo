@@ -7,6 +7,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const appDir = join(root, 'build', 'windows-amd64')
 const versions = JSON.parse(readFileSync(join(root, 'versions.json'), 'utf8'))
 const installerPath = join(appDir, `dsh-mygo Setup ${versions.version} amd64.exe`)
+const runtimeDir = resolve(process.env.DSH_MYGO_RUNTIME_DIR ?? join(root, 'runtime'))
 const keep = process.argv.includes('--keep')
 
 if (process.argv.includes('--help') || process.argv.includes('-h')) {
@@ -20,6 +21,11 @@ if (process.platform !== 'win32') {
 if (!existsSync(installerPath)) {
   console.error(`Missing ${installerPath}`)
   console.error('Run: go tool mygo build')
+  process.exit(2)
+}
+if (!existsSync(join(runtimeDir, 'manifest.json')) || !existsSync(join(runtimeDir, 'mygo-host.mjs'))) {
+  console.error(`Runtime bundle is missing at ${runtimeDir}`)
+  console.error('Run: node scripts/build-runtime.mjs')
   process.exit(2)
 }
 
@@ -49,6 +55,8 @@ const work = join(root, '.tmp', `installer-smoke-${process.pid}-${Date.now()}`)
 const installDir = join(work, 'app')
 const dshHome = join(work, 'dsh-home')
 const logs = join(work, 'logs')
+const setupLogs = join(work, 'setup-logs')
+const setupRuntimeHome = join(work, 'runtime-home')
 mkdirSync(dshHome, { recursive: true })
 writeFileSync(join(dshHome, 'keep.txt'), 'keep\n')
 
@@ -102,39 +110,55 @@ try {
   if (verify.status === 0) pass('installed exe and Uninstall.exe are Authenticode-signed')
   else fail('installed exe or Uninstall.exe is not signed')
 
-  child = spawn(join(installDir, 'dsh-mygo.exe'), ['-dsh-home', dshHome, '-log-dir', logs, '-ui-state-dir', join(work, 'ui-state')], {
-    cwd: work,
-    env: { ...process.env, PATH: '' },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
-  child.stdout.on('data', (chunk) => {
-    appOutput += chunk
-  })
-  child.stderr.on('data', (chunk) => {
-    appOutput += chunk
-  })
-  child.on('exit', () => {
-    exited = true
-  })
+  const start = args => {
+    child = spawn(join(installDir, 'dsh-mygo.exe'), args, {
+      cwd: work,
+      env: { ...process.env, PATH: '' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    exited = false
+    child.stdout.on('data', (chunk) => {
+      appOutput += chunk
+    })
+    child.stderr.on('data', (chunk) => {
+      appOutput += chunk
+    })
+    child.on('exit', () => {
+      exited = true
+    })
+  }
+  const stop = async () => {
+    killTree(child.pid)
+    try {
+      await waitFor(() => exited, 10000, 'app exit')
+    } catch {
+      fail('installed app did not exit after taskkill')
+    }
+    await delay(1000)
+  }
 
+  start(['-runtime-home', setupRuntimeHome, '-dsh-home', dshHome, '-log-dir', setupLogs, '-ui-state-dir', join(work, 'ui-state-setup')])
+  await waitFor(() => existsSync(join(setupLogs, 'dsh-mygo.log')), 30000, 'setup application log')
+  await delay(3000)
+  const setupLog = readFileSync(join(setupLogs, 'dsh-mygo.log'), 'utf8')
+  if (setupLog.includes('app created:') && !setupLog.includes('host start:')) pass('installed app shows runtime setup without a runtime')
+  else fail('installed app started a host without a selected runtime')
+  if (!existsSync(join(dshHome, 'profiles', 'mygo', 'package.json'))) pass('runtime setup did not seed a profile')
+  else fail('runtime setup seeded a profile')
+  await stop()
+
+  start(['-runtime-dir', runtimeDir, '-dsh-home', dshHome, '-log-dir', logs, '-ui-state-dir', join(work, 'ui-state')])
   await waitFor(() => existsSync(join(dshHome, 'profiles', 'mygo', 'package.json')), 30000, 'profile seed')
-  pass('installed app created the mygo profile')
-  await waitFor(() => hasSessionLog(dshHome), 30000, 'session log')
+  pass('installed app seeded the mygo profile with an explicit runtime')
+  await waitFor(() => hasSessionLog(dshHome), 90000, 'session log')
   pass('installed app created a session')
   await waitFor(
     () => existsSync(join(logs, 'dsh-mygo.log')) && readFileSync(join(logs, 'dsh-mygo.log'), 'utf8').includes('session ready:'),
-    30000,
+    90000,
     'session-ready application log',
   )
   pass('installed app recorded the session')
-
-  killTree(child.pid)
-  try {
-    await waitFor(() => exited, 10000, 'app exit')
-  } catch {
-    fail('installed app did not exit after taskkill')
-  }
-  await delay(1000)
+  await stop()
 
   const uninstaller = join(installDir, 'Uninstall.exe')
   if (!existsSync(uninstaller)) {
@@ -248,8 +272,9 @@ function usage() {
   console.log(`Usage: node scripts/smoke-installer.mjs [--keep]
 
 Installs build/windows-amd64/dsh-mygo Setup <version> amd64.exe silently
-into .tmp, launches the installed app, verifies the installed exe and
-Uninstall.exe signatures, uninstalls, and checks that $DSH_HOME survives.
+into .tmp, verifies the app-only layout, checks the first-run runtime
+setup, starts with an explicit runtime bundle, verifies exe/Uninstall.exe
+signatures, uninstalls, and checks that $DSH_HOME survives.
 
 This touches the real Start Menu shortcut and HKCU uninstall key, so it
 refuses to run when dsh-mygo is already installed. Use a clean Windows VM

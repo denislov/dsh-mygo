@@ -29,11 +29,12 @@ dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：
 │  App 状态：会话摘要、transcript 投影、UI 选择、偏好、草稿    │
 │  HostSupervisor：spawn / stdio / 生命周期 / 重启 / 崩溃恢复   │
 │  ChannelClient：JSON-RPC 请求、通知、取消、版本协商          │
+│  RuntimeManager：安装/校验/选择 runtime，解析 launch         │
 └───────────────────────────────┬──────────────────────────────┘
                                 │ stdio: newline-delimited JSON-RPC
                                 │ stdout = 协议，stderr = 日志
 ┌───────────────────────────────▼──────────────────────────────┐
-│ Node Host（dsh --profile mygo）                               │
+│ 选中的 DSH runtime（managed bundle 或 existing DSH）          │
 │                                                              │
 │  @deepseek-ai/dsh-base                                       │
 │    llm / agent / session / tools / settings / credentials    │
@@ -59,6 +60,7 @@ dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：
 | 用户输入 | 键盘、输入法、粘贴、拖放、附件、`@` 引用 |
 | Host 监督 | 启动、就绪、健康检查、停止、重启、崩溃恢复、日志尾 |
 | 通道客户端 | JSON-RPC 编解码、请求关联、取消、事件排序 |
+| 运行时管理 | 下载/导入/校验/移除运行时，持久化选择，解析每次启动的命令和环境 |
 | 本地配置 | 窗口、主题、语言、快捷键、最近会话、草稿等设备级偏好 |
 | 系统集成 | 菜单、托盘、通知、深链、单实例、文件对话框 |
 | 更新 | MyGo updater；更新前后协调 Host 生命周期 |
@@ -100,13 +102,15 @@ Profile 是组合根。设计：
 ### 5.1 启动
 
 1. Go 进程启动，加载设备级偏好（窗口、主题、语言、快捷键、最近会话）。
-2. 解析 `$DSH_HOME`，确认 `profiles/mygo` 存在；首启则初始化。
-3. 解析 Host 入口并启动子进程（开发期 `dsh --profile mygo`；发布版私有 `mygo-host`）。
+2. 解析 `$DSH_HOME`，读取设备级 runtime store。没有可用选择时进入运行时引导，不启动 Host。
+3. 校验选中 runtime（managed bundle / existing DSH / legacy）并用它解析 Host 入口、Node、profile seed 与工作目录；首启按需创建 `profiles/mygo`。
 4. Host 完成 Cordis boot，channel server 就绪。
-5. Go 发送 `initialize`，协商协议版本与能力。
+5. Go 发送 `initialize`，协商协议版本、app 兼容范围与能力；身份必须匹配所选 runtime。
 6. Go 尝试恢复设备级状态中的最近会话，读取 Host 历史；不可用时新建并保留旧草稿。随后后台拉取 `session/list`，渲染首页。
 7. 用户选择会话或新建；`session/resume` / `session/create`，正文与模型上下文始终来自 Host。
 8. 用户输入 → `session/prompt`；Host 回 `session/assistant-stream`、`session/event` 与 `session/status`。
+
+开发入口（`-host-command`、`-dsh-dir`、`-runtime-dir`、SDK 回归）绕过设备级选择，直接使用显式命令。
 
 默认使用 `mygo` profile 的自定义 channel。`-sdk-protocol -profile sdk` 是旧 SDK 回归入口：它只消费提交后的 `session/event`，不提供流式、审批、提问、历史与设置。自定义协议的方法、通知与能力边界见 [通道协议](subsystem/channel-protocol.md)。
 
@@ -191,6 +195,9 @@ Go 的 `SessionProjection` 从 `session/assistant-stream` 与 `session/event` �
 
 | 场景 | 行为 |
 | --- | --- |
+| 没有可用 runtime | 进入运行时引导；选择/安装后启动 Host，不静默回退到 PATH |
+| 所选 runtime 失效 | 进入引导或恢复中的 Change runtime；不把失败候选保留为选中项 |
+| 切换 runtime | 停止旧 Host → 候选初始化成功后才提交选择；失败恢复旧 profile 与旧 Host |
 | Host 启动失败 | UI 显示错误摘要 + 重试/退出；stderr 尾部写入日志 |
 | 协议帧非法 | 关闭连接；Host 退出；UI 报错，不尝试猜测 |
 | 请求超时 | 返回结构化超时；UI 标记对应操作失败 |
@@ -198,7 +205,7 @@ Go 的 `SessionProjection` 从 `session/assistant-stream` 与 `session/event` �
 | 用户取消 | `session/cancel`；只取消当前回合，不关闭会话 |
 | Host 崩溃 | UI 保留当前投影，显示恢复对话框；提供重启 |
 | Go 崩溃 | Host 因 stdin EOF 退出；下次启动恢复会话 |
-| 更新中 | 先停止 Host 或等待回合结束；更新单元包含 UI + Host + profile 版本 |
+| 更新中 | 先停止 Host 或等待回合结束；应用与 runtime 是独立发布单元，切换前验证 manifest 的协议与 app 兼容范围 |
 
 细节见 [宿主监督](subsystem/host-supervisor.md)。
 
@@ -213,13 +220,14 @@ Go 的 `SessionProjection` 从 `session/assistant-stream` 与 `session/event` �
 
 ## 11. 打包与更新
 
-发布包由 MyGo 二进制与 `resources/` 组成：`resources/` 携带私有 `mygo-host`、Node、DSH runtime、自有 bundle 与 profile seed；首发 Windows x64，macOS 随后。
+应用安装器只包含 MyGo 二进制、自有 `@dsh-mygo/host` bundle 与图标；Node、DSH 闭包、`mygo-host` 入口和配套 Host bundle 作为独立 runtime `.tgz` 分发。首发 Windows x64，macOS 随后。
 
-- 首启创建/校验 profile；离线可用；第三方插件安装走 profile 的 pnpm。
-- UI、Host、profile 版本作为一个发布单元验证，不独立升级。
-- MyGo updater 负责签名、delta、更新窗口；更新前协调 Host 收尾。
+- 首次启动选择已安装 DSH 或安装 runtime bundle；离线环境可从本地 `.tgz` 导入。
+- 应用与 runtime 独立升级，通过 `protocolVersion`、Host bundle 版本与 `appMin <= app < appMaxExclusive` 组合校验；不兼容的候选不能安装或激活。
+- 首启创建/校验 profile；managed runtime 用自己的 Host bundle 做 seed，existing DSH 使用应用自带的 Host bundle。
+- MyGo updater 负责应用签名与更新；运行时的下载、校验、切换与移除由应用内运行时管理完成。
 
-打包、签名、首启校验与更新的实现契约见 [打包与更新](subsystem/packaging-updates.md)。
+打包、签名、运行时资产、首启校验与更新的实现契约见 [打包与更新](subsystem/packaging-updates.md) 与 [运行时管理](subsystem/runtime-manager.md)。
 
 ## 12. 测试
 
@@ -249,9 +257,10 @@ Go 的 `SessionProjection` 从 `session/assistant-stream` 与 `session/event` �
 | 产品协议 | 自定义 channel | 审批/提问/历史/设置按 UI 需要设计 |
 | 传输 | stdio | 生命周期简单、无端口/认证 |
 | 会话真相 | DSH session log | 模型可见 ⟺ 已记录；UI 不造第二份真相 |
-| 打包 | MyGo build + resources | 统一签名/更新；Host 作为资源分发 |
+| 打包 | 应用本体 + 独立 runtime 资产 | 应用可单独更新，DSH 可独立升级或复用已有安装 |
+| 运行时 | managed bundle / existing DSH | 默认自带 Node + DSH；已有精确版本 DSH 可直接使用 |
 | 首发平台 | Windows x64 | 覆盖主要桌面用户，安装器与签名链路最短；macOS 随后 |
-| 分发 | 自带 Node + DSH runtime + 私有 `mygo-host` | 离线首启，不依赖用户预装环境 |
+| 分发 | GitHub Releases（应用与 runtime 分开发布） | 公开下载、无 token；本地 `.tgz` 作为离线与镜像保底 |
 
 ## 15. 文档路由
 
@@ -262,6 +271,7 @@ Go 的 `SessionProjection` 从 `session/assistant-stream` 与 `session/event` �
 | Host 监督 | [subsystem/host-supervisor.md](subsystem/host-supervisor.md) |
 | 通道协议 | [subsystem/channel-protocol.md](subsystem/channel-protocol.md) |
 | Profile/bundle | [subsystem/profile-bundle.md](subsystem/profile-bundle.md) |
+| 运行时管理 | [subsystem/runtime-manager.md](subsystem/runtime-manager.md) |
 | 会话投影 | [subsystem/session-projection.md](subsystem/session-projection.md) |
 | 审批/提问 | [subsystem/interaction.md](subsystem/interaction.md) |
 | 设置/模型/凭据 | [subsystem/settings-credentials.md](subsystem/settings-credentials.md) |

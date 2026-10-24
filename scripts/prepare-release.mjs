@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { copyFile, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,6 +13,7 @@ export async function prepareRelease(root) {
   const identity = JSON.parse(await readFile(join(root, 'versions.json'), 'utf8'))
   if (!/^\d+\.\d+\.\d+$/.test(identity.version)) throw new Error('Invalid release version')
   const app = join(root, 'build/windows-amd64')
+  if (existsSync(join(app, 'runtime'))) throw new Error('The app installer must not contain the separate DSH runtime')
   const host = JSON.parse(await readFile(join(app, 'host/package.json'), 'utf8'))
   const compatibility = identity.appCompatibility
   if (host.version !== identity.version || host.engines?.dsh !== identity.dsh || host.dshMygo?.protocolVersion !== identity.protocolVersion ||

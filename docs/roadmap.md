@@ -1,48 +1,48 @@
 # 开发进度与路线图
 
-> 统计基线：`9faa9b6`（2026-10-23 13:51）；能力进度包含 M2-4a 草稿、M3-2 大历史、M2-4b 界面偏好、M2-5 附件/引用、M2-6a usage/context、M2-6b plan/todo/goal、M2-6c 子代理状态与 M2-6d 子代理详情/结果，更新于 2026-10-24。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
+> 统计基线：2026-10-25（运行时拆分完成）；能力进度包含应用/runtime 拆分、首启运行时引导、设置中心 Runtime 分区与事务式切换，更新于 2026-10-25。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
 
 ## 1. 结论
 
 项目在约 11 小时内从零走到"核心聊天闭环全部跑通"：自定义 channel、流式、回合取消、审批、提问、历史/会话、模型与凭据设置均已落地，并有真实 DSH Loader（`0.2.1-rc.2`）集成测试覆盖。当前处于**阶段 C（Windows 私有测试版首发）**。
 
-一句话：**Windows 私有测试版 v0.1.1 修复包已发布，后续用安装版试用反馈推进迭代。**
+一句话：**应用与 Node+DSH runtime 已拆分；首启引导、运行时下载/导入/切换/移除与事务回滚可用，下一步是重新打包发布应用安装器与独立 runtime 资产并做干净机器验收。**
 
-判断依据：协议与 UI 主链路已经闭环，M0 工程基线、M1 运行时/打包/安装器 smoke、自签名发布构建、手工崩溃恢复、会话管理、缺口恢复、权限 UI、草稿/界面偏好、附件与引用、有界历史窗口/句柄回收已完成，深度信息已有 usage/context、plan/todo/goal、子代理实时状态与持久详情/结果；干净机器验收、多会话后台交互与 Windows 发布工程仍是主要缺口；macOS 作为后续发布单元。
+判断依据：协议与 UI 主链路已经闭环，M0 工程基线、自签名发布构建、手工崩溃恢复、会话管理、缺口恢复、权限 UI、草稿/界面偏好、附件与引用、有界历史窗口/句柄回收、运行时 store 与设置中心管理已完成；干净机器验收、运行时线上下载链路验证、多会话后台交互与 macOS 仍是主要缺口。
 
 ## 2. 事实快照
 
 | 项 | 值 |
 | --- | --- |
-| 提交 | 31 个，2026-10-22 15:00 → 2026-10-23 13:51（约 22.8 小时，含中断） |
-| 规模 | 136 个跟踪文件；Go 生产 6.1k 行 / Go 测试 5.8k 行；Node Host 1.1k 行 / 测试 1.0k 行；`docs/` 19 篇约 3.1k 行；runtime lock 约 400 KB |
-| 版本 | identifier `com.denislov.dshmygo`；app/host `0.1.1`、`protocolVersion 1`、DSH `0.2.1-rc.2`（精确绑定）、MyGo `v0.6.2`、Node >= 24、runtime Node `24.14.0` |
-| 测试 | Go 测试 235 项通过、24 项因缺少真实 Host 环境跳过 + 49 个 Node test；覆盖率 app 84%、view 89%、interaction 87%、projection 83%、channel 72%、host 70%、main 8.5% |
-| 构建产物 | v0.1.1 于 2026-10-24 发布；`build/release/v0.1.1/` 含安装器、公开证书、说明和校验和；安装器 123171808 bytes（约 117.5 MiB）、应用 12.3 MB，exe/安装器自签名；自带 Node 24.14.0 + DSH 0.2.1-rc.2 |
-| 工程基线 | 现有私有 remote；tag `v0.1.1` 指向 `728a3ed`；发布提交的 Windows 全量与 Linux Go CI 全绿，含 Node/签名/发布脚本测试；版本单点为 `versions.json` |
+| 提交 | 拆分工作从 `9faa9b6` 起至 `06bf5dd`；2026-10-24 → 2026-10-25 |
+| 规模 | `docs/` 21 篇；Go 生产/测试与 Node Host/测试继续增长；runtime lock 约 400 KB |
+| 版本 | identifier `com.denislov.dshmygo`；app/host `0.1.1`、`protocolVersion 1`、DSH `0.2.1-rc.2`、`appCompatibility 0.1.1 <= app < 0.2.0`、MyGo `v0.6.2`、Node 24+、runtime Node `24.14.0` |
+| 测试 | Go 487 项通过（CGO_ENABLED=0 同）；race app/view/runtimes 341 项；Node Host 84/84、scripts 10/10；`node scripts/test-real-host.mjs --runtime` 真实组合通过 |
+| 构建产物 | 拆分后本机构建：应用 exe 14.5 MB、安装器 4.9 MB；runtime `.tgz` 212.2 MB（约 202 MiB）与 catalog；未发布新资产。线上仍为旧 v0.1.1 单体安装器 |
+| 工程基线 | 现有 private remote；tag `v0.1.1` 指向 `728a3ed`；发布提交的 Windows 全量与 Linux Go CI 全绿；仓库公开切换由项目所有者执行 |
 
 2026-10-23 本机（Windows）实跑结果：
 
 ```sh
-go build ./...                                  # 通过
-go test ./...                                   # 通过（未设 DSH_MYGO_DSH_DIR 时真实链路自动跳过）
-go test -race ./...                             # 通过
-go tool mygo vet .                              # 通过
-node --test resources/host/tests/*.test.mjs     # 46/46 通过
-node --test scripts/*.test.mjs                  # 3/3 通过（签名脚本）
-DSH_MYGO_DSH_DIR=D:/Workspace/deepseek-harness \
-  go test ./internal/app -v                     # 真实 Loader 组全部通过
-node scripts/build-runtime.mjs                  # bundled runtime 构建
-node scripts/test-real-host.mjs --runtime       # bundled runtime 真实组合通过
-go tool mygo build                              # 含 runtime 的安装器
-node scripts/verify-signatures.mjs              # exe/安装器自签名通过
-node scripts/smoke-packaged.mjs                 # 打包资源 + 干净首启 + 日志
-node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 签名 + $DSH_HOME 保留
+go test ./...                                   # 487 项通过
+go test -race ./internal/app ./internal/view ./internal/runtimes   # 341 项通过
+CGO_ENABLED=0 go test ./...                     # 487 项通过
+go tool mygo vet . && go vet ./...              # 通过
+node --test resources/host/tests/*.test.mjs     # 84/84 通过
+node --test scripts/*.test.mjs                  # 10/10 通过（bundle/发布/签名）
+node scripts/build-runtime.mjs                  # runtime tgz + catalog
+node scripts/test-real-host.mjs --runtime       # 真实 runtime 组合通过
+go tool mygo build                              # 应用本体 14.5 MB + 安装器 4.9 MB
+node scripts/prepare-release.mjs                # 应用资产，签名通过
+node scripts/prepare-runtime-release.mjs        # runtime 资产
+node scripts/smoke-packaged.mjs                 # 无 runtime 首启 + -runtime-dir + 进程树
+node scripts/smoke-packaged.mjs                 # 解压发布 tgz 后重跑也通过
+node scripts/smoke-installer.mjs                # 未运行：本机已安装 dsh-mygo，脚本按设计拒绝
 ```
 
-真实链路覆盖：composition/lifecycle、approval、question、cancellation、streaming/Markdown、history 重启回放、session switching、model settings、configuration、host kill/restart、进程树回收、会话 resume 与安装器安装/卸载。
+真实链路覆盖：composition/lifecycle、approval、question、cancellation、streaming/Markdown、history 重启回放、session switching、model settings、configuration、host kill/restart、进程树回收、会话 resume 与运行时切换。
 
-未跑：真实付费模型 `TestAgainstMygoRealModel`（需要 key 且产生调用费用）、macOS 全部验证、干净机器验收、升级/更新验证。
+未跑：`smoke-installer`（本机已有真实安装，未卸载用户应用）、公开 GitHub runtime 下载链路（仓库仍为 private，等待所有者切换）、真实付费模型 `TestAgainstMygoRealModel`、macOS 全部验证、干净机器验收、应用自动更新。
 
 ## 3. 已完成（按子系统）
 
@@ -65,20 +65,23 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 | 大历史与资源回收 | 反向尾页/更早页/返回最新、独立持久目录投影、缓存缺失降级、只读旧窗口和展示缓存上限、非当前句柄回收 | `resources/host/catalog.mjs`、`history.mjs`、`server.mjs`、`internal/app/history_window.go`、`TestAgainstMygoLargeHistoryAndReleasedSessions` |
 | 回归入口 | 旧 SDK 链路保留为显式 `-sdk-protocol -profile sdk` | `main.go`、`testdata/fake-sdk-host.mjs` |
 | 工程基线 | 正式 identifier、版本单点、Windows/Linux CI、构建产物重建 | `versions.json`、`internal/version`、`.github/workflows/ci.yml` |
-| 运行时打包 | bundled Node + DSH 闭包 + 私有 `mygo-host` + 首启 profile seed + manifest 版本校验 | `resources/runtime/`、`scripts/build-runtime.mjs`、`internal/host/profile.go`、`internal/host/launch.go` |
-| 打包 smoke | 打包资源 composition/restart、干净首启、session 与应用日志 | `scripts/smoke-packaged.mjs` |
-| 安装器 smoke | 静默安装、安装布局、快捷方式/卸载键、安装后 exe 与 `Uninstall.exe` 签名、静默卸载、`$DSH_HOME` 与会话保留 | `scripts/smoke-installer.mjs` |
+| 运行时拆分 | 应用安装器只含本体；`runtime/` 生成 Node+DSH+`mygo-host`+Host bundle+manifest，确定性 `.tgz` 与 catalog | `runtime/`、`scripts/build-runtime.mjs`、`scripts/runtime-bundle.mjs`、`scripts/prepare-runtime-release.mjs` |
+| 运行时管理 | device-local store、manifest/catalog 严格校验、安全解压、GitHub 下载、external/legacy/direct、事务式切换与失败回滚、external shim 修复 | `internal/runtimes/`、`internal/app/runtime.go`、`internal/host/launch.go` |
+| 首启与运行时设置 | 全窗口引导（已安装 DSH / 下载 / 导入）、设置中心 Runtime 分区（Use/Remove/更新）、恢复对话框 Change runtime | `internal/view/runtime_setup.go`、`runtime_settings.go`、`settings_center.go`、`TestRuntimeSetup*`、`TestSwitchRuntime*` |
+| 打包 smoke | 安装布局无 runtime、空 store 首启不启动 Host、`-runtime-dir` 启动与进程树 | `scripts/smoke-packaged.mjs` |
+| 安装器 smoke | 静默安装、安装布局无 runtime、快捷方式/卸载键、签名、首次引导、显式 runtime 启动、静默卸载、`$DSH_HOME` 与会话保留 | `scripts/smoke-installer.mjs` |
 | 进程回收 | Windows Job Object（kill-on-close）与 POSIX 进程组；Host 退出、Stop、应用崩溃/强杀都回收 Host 与插件子进程 | `internal/host/job_windows.go`、`internal/host/supervisor.go`、`TestStopKillsProcessTree`、`TestHostExitKillsProcessTree` |
 | 崩溃恢复 | 恢复对话框、手工 Restart、`session/resume` + history 回放、`PathLogs` 日志与崩溃报告 | `internal/app/app.go`、`internal/app/crash.go`、`internal/view/recovery.go`、`TestAgainstMygoRestart` |
 | 实时缺口恢复 | `session.resync`、固定历史前缀、statusRevision 与流式 revision/activeAttempt 基线、有界缓冲/最多 3 次重读；持久/流式缺口在原 Host/会话续接，失败降级恢复 | `resources/host/history.mjs`、`stream-baseline.mjs`、`internal/app/resync.go`、`TestAgainstMygoResync` |
-| 发布签名 | 自签名证书生成与复用、MyGo `signCommand`、exe/安装器/卸载器/未签名 PE 签名、签名验证与 smoke 接入 | `scripts/self-sign.mjs`、`scripts/sign-windows.mjs`、`scripts/verify-signatures.mjs`、`scripts/smoke-packaged.mjs` |
+| 发布签名 | 自签名证书生成与复用、MyGo `signCommand`、exe/安装器/卸载器签名、签名验证与 smoke 接入；runtime 使用 catalog SHA256 | `scripts/self-sign.mjs`、`scripts/sign-windows.mjs`、`scripts/verify-signatures.mjs`、`scripts/prepare-runtime-release.mjs` |
 
 ## 4. 缺口
 
 ### 4.1 发布阻塞（没有它不能称为产品）
 
-- **运行时打包与分发**：`resources/runtime` 已有 bundled Node、DSH 闭包与私有 `mygo-host`，`PathResources` 解析、首启 profile seed 与 manifest 启动前版本校验可用；仍缺 profile 损坏修复与 macOS 产物。
-- **安装包与签名**：`go tool mygo build` 的产物已包含 `resources/runtime`，自签名 Authenticode 已接入构建，打包 smoke 与本机安装/卸载 smoke 均通过；已决定不购买公开 CA 证书，接受 Unknown publisher/SmartScreen 提示。仍无干净机器验收、macOS Developer ID/公证。
+- **运行时发布验收**：应用/runtime 拆分、首启引导、设置管理、下载/导入、事务切换已实现；仍需用新脚本构建并跑通 app-only 安装器与独立 `.tgz`，确认公开 GitHub 下载链路与 catalog 更新。macOS runtime 产物未开始。
+- **安装包与签名**：`go tool mygo build` 只打本体，自签名 Authenticode 已接入；runtime 使用 HTTPS + SHA256。仍无干净机器验收、macOS Developer ID/公证。
+- **运行时安全后续**：暂无 detached signature、增量下载与镜像源；GitHub 不可达时只能本地导入。
 - **恢复与诊断**：手工 Restart、持久历史回放、日志/崩溃报告与持久/流式缺口自动补齐已落地；日志轮转未做，自动重启退避/崩溃循环保护继续后续评估，维持用户触发 Host 重启的决策。
 - **发布工程**：已有 v0.1.0 私有 prerelease、版本 tag 与 Windows/Linux CI；真实 Host 组合仍在开发机使用 bundled runtime 验证，干净 Windows VM 与 macOS 发布矩阵待补。
 
@@ -130,10 +133,10 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 目标：不依赖开发机环境，装完即用。
 
-- 运行时打包（已完成）：`resources/runtime/{node,node_modules,mygo-host.mjs,manifest.json}`；私有 `mygo-host`（`runProfile`）入口；首启从 `resources/host` 创建 profile；`mygo.App.Path(PathResources)` 解析；manifest 启动前版本校验；离线可用。profile 损坏修复仍待补。
-- 打包 smoke（已完成）：`scripts/smoke-packaged.mjs` 覆盖打包资源 composition/restart、干净首启、session 与应用日志。
-- 安装器 smoke（已完成）：`scripts/smoke-installer.mjs` 覆盖静默安装、快捷方式/卸载键、安装后 exe 与 `Uninstall.exe` 签名、静默卸载与 `$DSH_HOME`/会话保留。
-- 安装与签名：Windows per-user 安装器 + 自签名 Authenticode；UI/Host/bundle 版本一致校验。macOS 的 `.app`/`.dmg` + Developer ID + 公证放到 macOS 发布单元。
+- 运行时拆分（已完成）：应用只含 `host/` + 图标；`runtime/{node,node_modules,mygo-host.mjs,host,manifest.json}` 生成确定性 `.tgz` + catalog；managed/external/legacy/direct 选择、安装、切换与回滚可用；离线可导入本地 `.tgz`。profile 损坏修复仍待补。
+- 打包 smoke：`scripts/smoke-packaged.mjs` 断言安装布局无 runtime、空 store 首启不启动 Host、`-runtime-dir` 启动与进程树回收。
+- 安装器 smoke：`scripts/smoke-installer.mjs` 覆盖静默安装、无 runtime 布局、快捷方式/卸载键、签名、首次引导、显式 runtime 启动、静默卸载与 `$DSH_HOME`/会话保留。
+- 安装与签名：Windows per-user 安装器 + 自签名 Authenticode；应用与 runtime 按 manifest 范围/身份组合。macOS 的 `.app`/`.dmg` + runtime 产物 + Developer ID + 公证放到 macOS 发布单元。
 - 生命周期收口（部分完成）：恢复对话框、手工重启、Windows Job Object、`PathLogs` 日志与崩溃报告已落地；自动重启退避与版本不匹配提示仍待补。
 - 验收：干净 Windows 机器安装 → 离线首启 → 完成一个 mock 回合；`kill` Host 可恢复；升级/卸载保留 `$DSH_HOME`。自签名安装器在干净机器上可能需要用户确认 SmartScreen 或预先导入公钥证书。
 
@@ -176,7 +179,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 ## 6. 建议的下一批任务（PR 粒度）
 
-界面已完成 Claude Desktop 风格重构：窗口使用 MyGo `TitleBarHidden` 自绘 44 DIP 标题栏（`c.TitleBar()` 系统按钮留白 + `DragWindow` + 原生应用菜单），宽窗口显示 260 DIP 日期分组侧栏与 300 DIP 右侧详情栏（窄窗口回退 Sessions 弹窗与详情 Popover），主区改为无角色行消息、`CollapsibleBase` 工具卡、`Progress` 任务卡与浮动 composer。Settings 与 Preferences 合并为带左侧分区的设置中心：General / Conversation model / Permissions / Connection / Shortcuts / About 按能力出现。视觉 token 集中在 `tokens.go`，浅深主题使用 Claude 暖灰 + 赤陶橙；动效复用 MyGo `Transition` / `ContentTransition` / `Spinner` / `CollapsibleBase` / `Progress`，没有新增动画引擎、Web UI 或框架依赖。侧栏/详情栏开关本轮仅内存保存，持久化留待 preferences schema 扩展。
+界面已完成 Claude Desktop 风格重构：窗口使用 MyGo `TitleBarHidden` 自绘 44 DIP 标题栏（`c.TitleBar()` 系统按钮留白 + `DragWindow` + 原生应用菜单），宽窗口显示 260 DIP 日期分组侧栏与 300 DIP 右侧详情栏（窄窗口回退 Sessions 弹窗与详情 Popover），主区改为无角色行消息、`CollapsibleBase` 工具卡、`Progress` 任务卡与浮动 composer。Settings 与 Preferences 合并为带左侧分区的设置中心：General / Runtime / Conversation model / Permissions / Connection / Shortcuts / About 按能力出现；Runtime 为设备级分区，始终可用。视觉 token 集中在 `tokens.go`，浅深主题使用 Claude 暖灰 + 赤陶橙；动效复用 MyGo `Transition` / `ContentTransition` / `Spinner` / `CollapsibleBase` / `Progress`，没有新增动画引擎、Web UI 或框架依赖。侧栏/详情栏开关本轮仅内存保存，持久化留待 preferences schema 扩展。
 
 本轮检查：`go test ./...`（420 项通过）、`go test -race ./internal/view ./internal/app`（283 项）、`go tool mygo vet .`、`go vet ./...`、`CGO_ENABLED=0 go test ./...` 均通过。真实 Windows 窗口（125% 缩放）通过 UI Automation 验收：1280×800 浅/深色会话、900×700 详情 Popover、560×420 composer 与设置中心、Sessions 弹窗、设置中心 General/Conversation model/Permissions/Connection/Shortcuts/About 全部分区；标题栏拖动位移 120×36 DIP、双击最大化/还原、系统最小化/最大化按钮均通过。验收中发现并修复标题栏标题区域未继承拖动属性、空状态建议被首次使用控件挡住、Shortcuts/About 标题重复。未覆盖 150% 缩放与 macOS 验收。
 
@@ -237,12 +240,18 @@ M2-6d 子代理详情/结果已完成：新增独立 `subagent.inspection` 与 l
 
 线上修复包：[v0.1.1 私有测试版](https://github.com/denislov/dsh-mygo/releases/tag/v0.1.1) 指向 `728a3edf49c0d8727a67d14f902feacd8fb7cc04`，prerelease=true、draft=false；[Windows/Linux CI](https://github.com/denislov/dsh-mygo/actions/runs/40077232233) 成功。5 个附件名称/大小/SHA256 与本地一致，重新下载线上安装器后校验一致；v0.1.0 发布页保留历史资产并提示使用修复版，仓库保持 private。
 
+应用与 runtime 拆分已完成：应用安装器只含 Go 二进制、`host/` 与图标；`runtime/` 生成 Node + DSH 闭包 + 私有 `mygo-host` + 配套 Host bundle + manifest，确定性 `.tgz` 约 212 MiB，应用安装器约 4.3 MiB、exe 约 12.4 MiB。设备级 runtime store 支持 managed/external/legacy/direct、安全解压、GitHub catalog/下载（SHA256/size）、external `.cmd`/shim 修复与事务式切换。首启无 runtime 时进入全窗口引导（已安装 DSH、下载、导入 `.tgz`）；设置中心 Runtime 分区支持查看、Use/Remove、检测 DSH、从文件安装、检查更新；切换在候选 initialize 成功后才持久化选择，失败恢复旧 profile 与旧 Host。真实窗口用 UIA 验证外部 DSH → managed 切换，会话 `d5497fc2` 保留，当前运行时/路径/版本正确显示；560×420 引导与设置页可用。
+
+本批实际检查：`go test ./...`（487）、`CGO_ENABLED=0 go test ./...`（487）、`go test -race ./internal/app ./internal/view ./internal/runtimes`（341）、`go tool mygo vet .`、`go vet ./...`、Node Host（84/84）、scripts（10/10）、`node scripts/test-real-host.mjs --runtime`、`go tool mygo build`、`node scripts/prepare-release.mjs`、`node scripts/prepare-runtime-release.mjs`、`node scripts/smoke-packaged.mjs`（源码 runtime 与解压后的发布 tgz 各一次）均通过。`smoke-installer` 因本机已安装 dsh-mygo 按设计拒绝运行；公开仓库下载链路因仓库仍为 private 未验收。干净 VM、macOS 仍需发布前确认。
+
 ## 7. 风险与依赖
 
 | 风险 | 影响 | 缓解 |
 | --- | --- | --- |
 | DSH `0.2.1-rc.2` 精确 pin + 精确 peer 依赖 | 上游任何 patch 都可能破坏 Host | 保持握手版本展示；补 conformance 与升级 runbook；DSH stable 后评估放宽版本范围 |
-| 打包复杂度（Node runtime 体积、原生模块 ABI、签名、公证、更新源） | M1/M4 延期，首发不可控 | 先做 Windows 最小可分发包，再补 macOS 与更新；签名已定为自签名，更新源提前确认 |
+| 打包复杂度（Node runtime 体积、原生模块 ABI、签名、公证、更新源） | M1/M4 延期，首发不可控 | 应用/runtime 已拆分；应用安装器 4.3 MB，runtime 独立 212 MB；签名自签名 + SHA256；macOS 与更新后续 |
+| GitHub 运行时下载不可达/限流 | 新用户无法在线安装 runtime | 本地 `.tgz` 导入保底；catalog 缓存与明确重试错误；发布验收验证公开下载链路 |
+| external DSH shim 路径变化 | 已保存的 existing DSH 启动失败 | PATH 重新探测且仅在同 DSH 版本时修复；版本不符回到引导 |
 | `app.go` / `view.Model` 集中式状态 | 设置、会话、交互交叉越权，回归难定位 | 继续用状态机测试守边界；M2 前拆 controller/子模型 |
 | 资源上限（16 MiB 帧、窗口展示/详情预算、8 个同时拥有句柄、目录总预算） | 单事件过大或极大目录仍会拒绝；DSH 冷恢复完整日志可能较慢 | 历史窗口与退休句柄回收控制 UI/Agent 累积；大日志真实回归，后续补定位与上游恢复基准 |
 | macOS 零验证 | 不影响 Windows 首发，但 macOS 发布单元有风险 | macOS 发布前接 CI 与真机验收清单 |
@@ -257,25 +266,26 @@ M2-6d 子代理详情/结果已完成：新增独立 `subagent.inspection` 与 l
 | 决策 | 选择 | 日期 |
 | --- | --- | --- |
 | 首发平台 | Windows x64；macOS 随后 | 2026-10-23 |
-| 分发形态 | 自带 Node + DSH runtime + 私有 `mygo-host` | 2026-10-23 |
+| 分发形态 | 应用安装器只含本体；Node + DSH + 私有 `mygo-host` + 配套 Host bundle 作为独立 `.tgz`（含 runtime 副本） | 2026-10-25 |
 | 会话管理 | 0.1 只做固定侧栏 + 重命名 + 归档；delete/fork 后置 | 2026-10-23 |
 | 仓库 | GitHub `denislov/dsh-mygo` | 2026-10-23 |
 | 应用标识 | `com.denislov.dshmygo`（发布后不再更改） | 2026-10-23 |
-| 首发优先级与渠道 | 先交付首次使用闭环与 Windows x64 测试版，在现有私有仓库发布，源码和安装包保持私有；功能后续按试用反馈迭代 | 2026-10-24 |
+| 首发优先级与渠道 | 先交付首次使用闭环与 Windows x64 测试版；仓库转为公开，应用与 runtime 使用独立 GitHub Releases | 2026-10-25 |
 | 崩溃恢复 | 用户触发重启 + `session/resume` + history 回放；不做自动重连 | 2026-10-23 |
-| 运行时来源 | npm `@deepseek-ai/dsh` 精确 pin + 私有 `resources/runtime/mygo-host.mjs` | 2026-10-23 |
+| 运行时来源 | managed `.tgz`（npm `@deepseek-ai/dsh` 精确 pin + 私有 `mygo-host`）或用户已有精确版本 DSH；legacy 仅作候选 | 2026-10-25 |
+| 运行时兼容 | `protocolVersion` 精确 + `appMin <= app < appMaxExclusive` + Host `engines.dsh`；切换成功 initialize 后才提交选择 | 2026-10-25 |
 | Windows 代码签名 | 自签名证书（零成本）；接受 Unknown publisher/SmartScreen 提示；后续若开源可评估 OSS 签名 | 2026-10-23 |
 
 待定：
 
-1. 更新基础设施：GitHub Releases / 自有源；首版是否做 delta。
+1. 应用自动更新器与 delta；runtime 增量/镜像源、detached signature。
 2. 0.1 范围：账户登录、多 provider、timed 提问是否进入首个安装版。
 3. 遗留代码策略：SDK 回归链路保留到何时，`cmd/spike` 是否移除。
-4. macOS 发布窗口与公证凭证。
+4. macOS 发布窗口、runtime 产物与公证凭证。
 
 ## 9. 0.1 完成定义
 
-- 干净 Windows 机器安装后离线启动，不要求预装 Node/DSH。
+- 干净 Windows 机器安装后，用本地 runtime `.tgz` 或已安装的精确版本 DSH 完成离线首启，不要求应用安装器自带 Node/DSH。
 - 完成一次真实回合；Host 崩溃可恢复；应用退出/被强杀后无 Host/插件子进程残留；日志可导出。
 - 会话、模型、凭据闭环在安装版可复现。
 - Windows Authenticode 签名可验证（自签名；接受 Unknown publisher/SmartScreen 提示）；卸载保留 `$DSH_HOME`。
@@ -291,6 +301,7 @@ macOS 不在 0.1 范围，作为后续发布单元。
 - [架构](architecture.md)
 - [通道协议](subsystem/channel-protocol.md)
 - [会话投影](subsystem/session-projection.md)
+- [运行时管理](subsystem/runtime-manager.md)
 - [打包与更新](subsystem/packaging-updates.md)
 - [测试](subsystem/testing.md)
 - [文档索引](README.md)

@@ -11,7 +11,8 @@
 
 ## 消息集与能力
 
-- UI/Host 发布版本 `0.1.0`、`protocolVersion: 1`、DSH `0.2.1-rc.2` 精确绑定；不匹配时拒绝进入 ready。
+- `protocolVersion: 1` 精确匹配；Host bundle 声明 `appMin <= app < appMaxExclusive`，UI 版本必须落在范围内，DSH 版本必须与所选 runtime 身份一致；不匹配时拒绝进入 ready。
+- UI 与 Host 是独立发布单元：UI 携带的 Host bundle 与 runtime `.tgz` 中的 bundle 各自满足兼容范围即可，不要求版本字符串相等。
 - 请求方法：`initialize`、`session/create`、`session/list`、`session/resume`、`session/release`、`session/rename`、`session/archive`、`session/delete`、`session/fork`、`session/history`、`session/prompt`、`session/cancel`、`session/queue`、`session/wait`、`session/working-directory/get`、`session/working-directory/set`、`model/list`、`model/select`、`settings/get`、`settings/set`、`settings/open-document`、`configuration/get`、`configuration/default-model`、`configuration/credential`、`permission/get`、`permission/select`、`approval/respond`、`question/respond`、`question/cancel`、`subagent/list`、`subagent/history`、`shutdown`。
 - 通知：`session/event`、`session/assistant-stream`、`session/status`、`approval/request`、`approval/closed`、`question/request`、`question/closed`、`subagent/started`、`subagent/finished`、`host/notice`、`host/fatal`。
 - UI 声明 `session.cancel`，Host 仅在双方支持时返回该 capability；未协商时调用取消返回 `protocol/capability-unavailable`。旧 Host 不声明时，UI 不展示 Stop。UI 通过 `session.history` 协商 list/resume/history，并提供原生 Sessions 入口。
@@ -63,7 +64,7 @@
 ```json
 {
   "protocolVersion": 1,
-  "client": { "name": "dsh-mygo", "version": "0.1.0", "platform": "win32", "locale": "zh-CN" },
+  "client": { "name": "dsh-mygo", "version": "0.1.1", "platform": "win32", "locale": "zh-CN" },
   "capabilities": ["session.cancel", "session.history", "session.assistant-stream", "approval", "question", "attachments", "model.selection", "settings.read", "settings.configuration", "session.delete"]
 }
 ```
@@ -72,7 +73,13 @@
 
 ```json
 {
-  "server": { "name": "dsh-mygo-host", "version": "0.1.0", "dshVersion": "0.2.1-rc.2" },
+  "server": {
+    "name": "dsh-mygo-host",
+    "version": "0.1.1",
+    "dshVersion": "0.2.1-rc.2",
+    "appMin": "0.1.1",
+    "appMaxExclusive": "0.2.0"
+  },
   "protocolVersion": 1,
   "capabilities": ["session.cancel", "session.history", "session.assistant-stream", "approval", "question", "attachments", "model.selection", "settings.read", "settings.configuration", "session.delete"],
   "attachments": {
@@ -93,7 +100,9 @@
 
 规则：
 
-- `protocolVersion`、客户端 release 或 DSH 版本不兼容时，Host 返回错误并退出；UI 显示版本不匹配。协议/能力校验通过后才发送 `session/create`。
+- `protocolVersion` 不相等时拒绝；Host 返回 `appMin`/`appMaxExclusive` 时，客户端版本必须落在范围内（仅数字三段），否则返回 `protocol/release-mismatch`。旧 Host 未返回范围时回退到 `server.version == client.version`。
+- UI 启动时必须同时用所选 runtime 的预期 Host bundle 版本与 DSH 版本校验响应；managed runtime 用 manifest，external/legacy 用应用自带 Host bundle。任一不符拒绝进入 ready，不把错误组合当作可用。
+- 协议/能力校验通过后才发送 `session/create`。
 - capability 取双方交集；UI 不调用未协商的方法。
 - `initialize` 之前只接受 `initialize` 与 `shutdown`。
 - 重复 `initialize` 返回 `already-initialized`。
@@ -331,11 +340,12 @@ type AssistantStreamFrame =
 - `protocolVersion` 是整数；破坏性变更 +1。
 - 新方法/通知通过 capability 声明；旧 Host 不声明时 UI 不调用。
 - 删除方法时先保留一个版本的兼容路径，再在新 major 中移除。
-- Host 与 UI 的发布版本绑定；协议版本是额外保险，不是独立升级承诺。
+- UI、Host bundle 与 runtime 可独立升级；`protocolVersion` 精确、app 范围为半开区间、DSH/Host 身份按所选 runtime 校验。兼容范围的变化视为协议契约变化，需同步本文、[运行时管理](runtime-manager.md)与测试。
 
 ## 测试
 
 - 协议 conformance：合法帧、非法帧、未知方法、版本不匹配、取消、重复回答。
+- 兼容握手：app 范围边界（min 接受、maxExclusive 拒绝）、旧 Host 回退精确匹配、所选 runtime 身份不符。
 - 顺序测试：乱序/缺口 resync、历史回放与实时事件衔接。
 - 背压测试：大事件流、慢 UI、附件上限。
 - 真实 Host 集成：用 `dsh --profile mygo` 跑一个回合，验证 approval/question 往返。
