@@ -17,16 +17,16 @@
 | 提交 | 拆分工作从 `9faa9b6` 起至 `06bf5dd`；2026-10-24 → 2026-10-25 |
 | 规模 | `docs/` 21 篇；Go 生产/测试与 Node Host/测试继续增长；runtime lock 约 400 KB |
 | 版本 | identifier `com.denislov.dshmygo`；app/host `0.1.1`、`protocolVersion 1`、DSH `0.2.1-rc.2`、`appCompatibility 0.1.1 <= app < 0.2.0`、MyGo `v0.6.2`、Node 24+、runtime Node `24.14.0` |
-| 测试 | Go 487 项通过（CGO_ENABLED=0 同）；race app/view/runtimes 341 项；Node Host 84/84、scripts 10/10；`node scripts/test-real-host.mjs --runtime` 真实组合通过 |
+| 测试 | Go 489 项通过（CGO_ENABLED=0 同）；race app/view/runtimes 343 项；Node Host 84/84、scripts 10/10；`node scripts/test-real-host.mjs --runtime` 真实组合通过 |
 | 构建产物 | 拆分后本机构建：应用 exe 14.5 MB、安装器 4.9 MB；runtime `.tgz` 212.2 MB（约 202 MiB）与 catalog；未发布新资产。线上仍为旧 v0.1.1 单体安装器 |
 | 工程基线 | 现有 private remote；tag `v0.1.1` 指向 `728a3ed`；发布提交的 Windows 全量与 Linux Go CI 全绿；仓库公开切换由项目所有者执行 |
 
 2026-10-23 本机（Windows）实跑结果：
 
 ```sh
-go test ./...                                   # 487 项通过
-go test -race ./internal/app ./internal/view ./internal/runtimes   # 341 项通过
-CGO_ENABLED=0 go test ./...                     # 487 项通过
+go test ./...                                   # 489 项通过
+go test -race ./internal/app ./internal/view ./internal/runtimes   # 343 项通过
+CGO_ENABLED=0 go test ./...                     # 489 项通过
 go tool mygo vet . && go vet ./...              # 通过
 node --test resources/host/tests/*.test.mjs     # 84/84 通过
 node --test scripts/*.test.mjs                  # 10/10 通过（bundle/发布/签名）
@@ -242,7 +242,7 @@ M2-6d 子代理详情/结果已完成：新增独立 `subagent.inspection` 与 l
 
 应用与 runtime 拆分已完成：应用安装器只含 Go 二进制、`host/` 与图标；`runtime/` 生成 Node + DSH 闭包 + 私有 `mygo-host` + 配套 Host bundle + manifest，确定性 `.tgz` 约 212 MiB，应用安装器约 4.3 MiB、exe 约 12.4 MiB。设备级 runtime store 支持 managed/external/legacy/direct、安全解压、GitHub catalog/下载（SHA256/size）、external `.cmd`/shim 修复与事务式切换。首启无 runtime 时进入全窗口引导（已安装 DSH、下载、导入 `.tgz`）；设置中心 Runtime 分区支持查看、Use/Remove、检测 DSH、从文件安装、检查更新；切换在候选 initialize 成功后才持久化选择，失败恢复旧 profile 与旧 Host。真实窗口用 UIA 验证外部 DSH → managed 切换，会话 `d5497fc2` 保留，当前运行时/路径/版本正确显示；560×420 引导与设置页可用。
 
-本批实际检查：`go test ./...`（487）、`CGO_ENABLED=0 go test ./...`（487）、`go test -race ./internal/app ./internal/view ./internal/runtimes`（341）、`go tool mygo vet .`、`go vet ./...`、Node Host（84/84）、scripts（10/10）、`node scripts/test-real-host.mjs --runtime`、`go tool mygo build`、`node scripts/prepare-release.mjs`、`node scripts/prepare-runtime-release.mjs`、`node scripts/smoke-packaged.mjs`（源码 runtime 与解压后的发布 tgz 各一次）均通过。`smoke-installer` 因本机已安装 dsh-mygo 按设计拒绝运行；公开仓库下载链路因仓库仍为 private 未验收。干净 VM、macOS 仍需发布前确认。
+本批实际检查：`go test ./...`（489）、`CGO_ENABLED=0 go test ./...`（489）、`go test -race ./internal/app ./internal/view ./internal/runtimes`（343）、`go tool mygo vet .`、`go vet ./...`、Node Host（84/84）、scripts（10/10）、`node scripts/test-real-host.mjs --runtime`、`go tool mygo build`、`node scripts/prepare-release.mjs`、`node scripts/prepare-runtime-release.mjs`、`node scripts/smoke-packaged.mjs`（源码 runtime 与解压后的发布 tgz 各一次）均通过。`smoke-installer` 因本机已安装 dsh-mygo 按设计拒绝运行；公开仓库下载链路因仓库仍为 private 未验收。干净 VM、macOS 仍需发布前确认。
 
 ## 7. 风险与依赖
 

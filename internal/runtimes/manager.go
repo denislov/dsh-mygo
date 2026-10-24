@@ -468,8 +468,11 @@ func (m *Manager) saveLocked() error {
 	return nil
 }
 
-// CleanupStaging removes abandoned extraction and download directories.
+// CleanupStaging removes abandoned extraction, download and trash directories.
+// Downloads are temporary by contract: a completed install deletes its archive,
+// so anything left after a crash or quit is incomplete.
 func (m *Manager) CleanupStaging() {
+	_ = os.RemoveAll(filepath.Join(m.Root, "downloads"))
 	entries, err := os.ReadDir(m.Root)
 	if err != nil {
 		return

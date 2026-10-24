@@ -1253,6 +1253,10 @@ func (a *App) Shutdown(timeout time.Duration) {
 	}
 	a.logf("shutdown requested")
 	close(a.stopped)
+	if a.runtimeCancel != nil {
+		a.runtimeCancel()
+		a.runtimeCancel = nil
+	}
 	if a.local != nil && a.local.writer != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		_ = a.local.writer.Flush(ctx)

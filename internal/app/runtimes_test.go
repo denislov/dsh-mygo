@@ -344,6 +344,24 @@ func writeRuntimeArchiveNode(t *testing.T, node string) string {
 	return path
 }
 
+func TestShutdownCancelsRuntimeOperation(t *testing.T) {
+	manager := runtimes.NewManager(t.TempDir(), t.TempDir(), "denislov/dsh-mygo")
+	if err := manager.Load(); err != nil {
+		t.Fatal(err)
+	}
+	application := New(Options{
+		Runtimes: manager,
+		Profile:  "mygo",
+		Post:     func(fn func()) { fn() },
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	application.runtimeCancel = cancel
+	application.Shutdown(time.Second)
+	if ctx.Err() == nil {
+		t.Fatal("shutdown did not cancel the runtime operation")
+	}
+}
+
 func TestRuntimeSettingsOpenFromRecovery(t *testing.T) {
 	manager := runtimes.NewManager(t.TempDir(), t.TempDir(), "denislov/dsh-mygo")
 	if err := manager.Load(); err != nil {

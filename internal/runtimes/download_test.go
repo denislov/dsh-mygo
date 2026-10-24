@@ -138,6 +138,30 @@ func TestDownloadRuntimeCancelLeavesNoPartFile(t *testing.T) {
 	}
 }
 
+func TestCleanupStagingRemovesDownloadsButKeepsRuntimes(t *testing.T) {
+	manager := NewManager(t.TempDir(), t.TempDir(), "owner/repo")
+	if err := manager.Load(); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{"downloads", ".staging-test", ".trash-test", "dsh-installed"} {
+		if err := os.MkdirAll(filepath.Join(manager.Root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(manager.Root, "downloads", "partial.part"), []byte("partial"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manager.CleanupStaging()
+	for _, dir := range []string{"downloads", ".staging-test", ".trash-test"} {
+		if _, err := os.Stat(filepath.Join(manager.Root, dir)); !os.IsNotExist(err) {
+			t.Fatalf("%s was not removed", dir)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(manager.Root, "dsh-installed")); err != nil {
+		t.Fatalf("installed runtime was removed: %v", err)
+	}
+}
+
 func TestFetchCatalogSkipsReleasesWithoutCatalog(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `[{"tag_name":"empty","draft":false,"assets":[]}]`)
