@@ -34,6 +34,9 @@ func emptyConversation(c *mgo.Context, model *Model) {
 		}
 		if model.Setup.ChooseFolder != nil {
 			firstUseControls(c, model)
+			if !compact && model.Draft == "" && model.Send != nil && !model.SetupBlocked() {
+				emptySuggestions(c, model)
+			}
 		} else if !compact && model.Draft == "" && model.Send != nil {
 			emptySuggestions(c, model)
 		}

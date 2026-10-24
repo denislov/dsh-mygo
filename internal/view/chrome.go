@@ -59,7 +59,8 @@ func titleBar(c *mgo.Context, model *Model) {
 				Disabled(!model.CanChooseSession()).OnClick(model.NewSession)
 		}
 
-		mgo.Column(c.Key("title-bar-title")).Grow(1).MinWidth(0).Padding(space4, space8).Gap(space2).Children(func() {
+		mgo.Column(c.Key("title-bar-title")).Grow(1).MinWidth(0).Padding(space4, space8).Gap(space2).
+			DragWindow().Children(func() {
 			mgo.Text(c.Key("title-bar-session"), activeSessionTitle(model)).FontSize(textLabel).Bold().SingleLine()
 			mgo.Row(c).Gap(space6).AlignItems(mgo.Center).Children(func() {
 				if model.Phase == PhaseRunning || model.Phase == PhaseStarting || model.Phase == PhaseResyncing {

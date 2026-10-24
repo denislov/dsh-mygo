@@ -370,9 +370,8 @@ func shortcutSettingsPage(c *mgo.Context, model *Model) {
 	tokens := tokensFor(c.Theme())
 	p := &model.Prefs
 	mgo.Column(c).Gap(space6).Children(func() {
-		mgo.Text(c, model.T("Keyboard shortcuts")).FontSize(textCaption).Bold()
 		mgo.Text(c, model.T("Send shortcut")).FontSize(textMicro).TextColor(tokens.TextMuted)
-		mgo.Select(c.Key("send-key"), &p.Draft.Send, []string{"Enter", "Ctrl+Enter"}).Label(model.T("Send shortcut"))
+		mgo.Select(c.Key("send-key"), &p.Draft.Send, []string{"Enter", "Ctrl+Enter"}).Width(220).Label(model.T("Send shortcut"))
 		for _, row := range []struct {
 			key, label string
 			value      *string
@@ -449,7 +448,6 @@ func connectionSettingsPage(c *mgo.Context, model *Model, disabled bool) {
 func aboutSettingsPage(c *mgo.Context, model *Model) {
 	tokens := tokensFor(c.Theme())
 	mgo.Column(c).Gap(space8).Children(func() {
-		mgo.Text(c, model.T("About dsh-mygo")).FontSize(textCaption).Bold()
 		detailField(c, model.T("Version"), model.AppVersion)
 		detailField(c, model.T("Host"), model.Detail)
 		detailField(c, model.T("Session ID"), model.SessionID)

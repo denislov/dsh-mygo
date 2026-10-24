@@ -178,7 +178,7 @@ node scripts/smoke-installer.mjs                # 安装/卸载 + Uninstall.exe 
 
 界面已完成 Claude Desktop 风格重构：窗口使用 MyGo `TitleBarHidden` 自绘 44 DIP 标题栏（`c.TitleBar()` 系统按钮留白 + `DragWindow` + 原生应用菜单），宽窗口显示 260 DIP 日期分组侧栏与 300 DIP 右侧详情栏（窄窗口回退 Sessions 弹窗与详情 Popover），主区改为无角色行消息、`CollapsibleBase` 工具卡、`Progress` 任务卡与浮动 composer。Settings 与 Preferences 合并为带左侧分区的设置中心：General / Conversation model / Permissions / Connection / Shortcuts / About 按能力出现。视觉 token 集中在 `tokens.go`，浅深主题使用 Claude 暖灰 + 赤陶橙；动效复用 MyGo `Transition` / `ContentTransition` / `Spinner` / `CollapsibleBase` / `Progress`，没有新增动画引擎、Web UI 或框架依赖。侧栏/详情栏开关本轮仅内存保存，持久化留待 preferences schema 扩展。
 
-本轮检查：`go test ./...`（419 项通过）、`go test -race ./internal/view ./internal/app`（282 项）、`go tool mygo vet .`、`go vet ./...`、`CGO_ENABLED=0 go test ./...` 均通过；无头渲染复核 1280×820 浅/深色会话、详情栏、设置中心 General/Model 与 560×420 弹窗可达性。真实桌面在实施期间处于锁屏状态，本轮未重新执行 Windows UI Automation 截图验收；发布前需在解锁的 Windows 原生窗口补做标题栏拖动/双击最大化、150% 缩放、中英文与最小窗口检查。
+本轮检查：`go test ./...`（420 项通过）、`go test -race ./internal/view ./internal/app`（283 项）、`go tool mygo vet .`、`go vet ./...`、`CGO_ENABLED=0 go test ./...` 均通过。真实 Windows 窗口（125% 缩放）通过 UI Automation 验收：1280×800 浅/深色会话、900×700 详情 Popover、560×420 composer 与设置中心、Sessions 弹窗、设置中心 General/Conversation model/Permissions/Connection/Shortcuts/About 全部分区；标题栏拖动位移 120×36 DIP、双击最大化/还原、系统最小化/最大化按钮均通过。验收中发现并修复标题栏标题区域未继承拖动属性、空状态建议被首次使用控件挡住、Shortcuts/About 标题重复。未覆盖 150% 缩放与 macOS 验收。
 
 1. **私有测试版试用反馈**：围绕安装、选择项目、配置 API key 与第一轮真实对话收集反馈，优先修复首发阻塞和稳定性问题；后台会话、compaction、子代理 token 流和递归后代导航按实际使用反馈排序。
 2. **M1-4 干净机器验收**：项目所有者因没有干净 Windows VM，决定本轮跳过并继续 M2；未验收，不标记通过。Windows 发布前重新安排离线首启与证书提示流程检查。

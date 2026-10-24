@@ -44,6 +44,21 @@ func TestEmptySuggestionFillsDraftWithoutSending(t *testing.T) {
 	}
 }
 
+func TestEmptySuggestionsWaitForSetupToFinish(t *testing.T) {
+	model := sessionModel()
+	model.Setup.ChooseFolder = func() {}
+	model.Send = func(string) {}
+	tt := tester(model)
+	if !tt.HasText("Summarize this project") {
+		t.Fatal("ready setup did not offer suggestions")
+	}
+	model.Setup.WorkspaceRequired = true
+	tt.Frame()
+	if tt.HasText("Summarize this project") {
+		t.Fatal("blocked setup still offered suggestions")
+	}
+}
+
 func TestComposerSendsOnEnter(t *testing.T) {
 	var sent []string
 	model := NewModel()
