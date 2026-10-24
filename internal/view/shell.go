@@ -8,52 +8,10 @@ import (
 
 // ShellState contains device-only disclosure state, never session facts.
 type ShellState struct {
-	DetailsOpen   bool
-	TasksExpanded bool
-}
-
-func header(c *mgo.Context, model *Model) {
-	theme := c.Theme()
-	mgo.Row(c.Key("conversation-header")).Padding(10, 20).Gap(12).AlignItems(mgo.Center).Children(func() {
-		mgo.Column(c).Grow(1).MinWidth(0).Gap(3).Children(func() {
-			title := model.T("Untitled conversation")
-			for _, session := range model.Sessions {
-				if session.ID == model.SessionID && session.Title != "" {
-					title = session.Title
-					break
-				}
-			}
-			mgo.Text(c, title).FontSize(15).Bold().SingleLine()
-			mgo.Row(c).Gap(6).AlignItems(mgo.Center).Children(func() {
-				if model.Phase == PhaseRunning || model.Phase == PhaseStarting || model.Phase == PhaseResyncing {
-					mgo.Spinner(c.Key("activity-spinner")).Size(10, 10)
-				} else {
-					mgo.Box(c.Key("activity-dot")).Size(5, 5).Radius(3).Background(phaseColor(model.Phase, theme)).Transition(quietTransition)
-				}
-				mgo.Text(c.Key("phase"), model.T(phaseLabel(model.Phase))).FontSize(11).TextColor(theme.TextMuted).
-					ContentTransition(mgo.ContentTransition{})
-			})
-		})
-		mgo.Toolbar(c.Key("header-actions"), func() {
-			if model.CanConfigure && model.Setup.Connect != nil {
-				iconButton(c.Key("connection"), model.T("Connect DeepSeek"), iconSettings).Disabled(!model.CanEditSettings()).OnClick(model.Setup.Connect)
-			}
-			if model.Inspection.Available {
-				iconButton(c.Key("subagents"), model.T("Subagents"), iconAgents).Disabled(!model.CanInspectSubagents()).OnClick(model.Inspection.Show)
-			}
-			if model.CanHistory && model.OpenSessions != nil {
-				iconButton(c.Key("sessions"), model.T("Sessions"), iconSessions).Disabled(!model.CanRefreshSessions()).OnClick(model.OpenSessions)
-			}
-			iconButton(c.Key("ui-preferences"), model.T("Preferences"), iconSettings).Disabled(!model.CanOpenPreferences()).OnClick(model.OpenPreferences)
-			anchor := iconButton(c.Key("details"), model.T("Conversation details"), iconInfo).Disabled(model.RecoveryOpen)
-			if anchor.Clicked() {
-				model.Shell.DetailsOpen = !model.Shell.DetailsOpen
-			}
-			if !model.SettingsOpen && !model.Prefs.Open && !model.SessionsOpen && len(model.Approvals) == 0 && len(model.Questions) == 0 && !model.RecoveryOpen {
-				mgo.Popover(c.Key("conversation-details"), anchor, &model.Shell.DetailsOpen, func() { conversationDetails(c, model) })
-			}
-		}).Label(model.T("Conversation actions"))
-	})
+	SidebarOpen        bool
+	DetailsOpen        bool
+	DetailsPopoverOpen bool
+	TasksExpanded      bool
 }
 
 func conversationDetails(c *mgo.Context, model *Model) {

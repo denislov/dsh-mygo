@@ -146,6 +146,8 @@ func NewModel() *Model {
 	model.List.FollowEnd = true
 	model.InterruptedMarkdown.CodeBlock = model.interruptedCodeBlock
 	model.Prefs = PreferencesState{Value: preferences.DefaultUI(), Ready: true}
+	model.Shell.SidebarOpen = true
+	model.Shell.DetailsOpen = true
 	model.Mention.CaretTarget = -1
 	model.List.Key = func(row int) any { return model.Items[row].ID }
 	return model
@@ -172,8 +174,8 @@ func View(c *mgo.Context, model *Model) {
 			c.SetTheme(lightChineseTheme)
 		}
 	}
-	if model.SettingsOpen || model.Prefs.Open || model.SessionsOpen || model.Inspection.Open || model.ToolInspector != nil || model.RecoveryOpen || len(model.Approvals) > 0 || len(model.Questions) > 0 {
-		model.Shell.DetailsOpen = false
+	if overlayActive(model) {
+		model.Shell.DetailsPopoverOpen = false
 	}
 	applicationShortcuts(c, model)
 	theme := c.Theme()
@@ -184,23 +186,24 @@ func View(c *mgo.Context, model *Model) {
 		}
 	}
 	model.InterruptedMarkdown.OnLink = model.Markdown.OnLink
-	mgo.Row(c.Key("shell")).Fill().Background(theme.Background).Children(func() {
-		width, _ := c.Size()
-		if width >= 820 && model.CanHistory && !model.SessionsOpen {
-			sessionSidebar(c, model)
-		}
-		mgo.Column(c.Key("conversation")).Grow(1).MinWidth(0).FillHeight().Children(func() {
-			header(c, model)
-			if !model.RecoveryOpen {
-				localStateStatus(c, model)
+	mgo.Column(c.Key("shell")).Fill().Background(theme.Background).Children(func() {
+		titleBar(c, model)
+		mgo.Row(c.Key("shell-body")).Grow(1).MinHeight(0).FillWidth().Children(func() {
+			if sidebarVisible(c, model) {
+				sessionSidebar(c, model)
 			}
-			if model.Error != "" && !model.RecoveryOpen {
-				errorBanner(c, model)
-			}
-			historyControls(c, model)
-			transcript(c, model)
-			taskPanel(c, model)
-			composer(c, model)
+			mgo.Column(c.Key("conversation")).Grow(1).MinWidth(0).FillHeight().Children(func() {
+				if !model.RecoveryOpen {
+					localStateStatus(c, model)
+				}
+				if model.Error != "" && !model.RecoveryOpen {
+					errorBanner(c, model)
+				}
+				historyControls(c, model)
+				transcript(c, model)
+				taskPanel(c, model)
+				composer(c, model)
+			})
 		})
 	})
 	approvalModal(c, model)

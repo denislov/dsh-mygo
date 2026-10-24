@@ -15,22 +15,23 @@ UI 壳层是 MyGo 进程里的原生界面：
 
 | 文件 | 责任 |
 | --- | --- |
-| `internal/view/view.go`、`shell.go`、`style.go` | `Model`、页面布局、紧凑 header、会话详情、transcript 行、语义主题与 SVG 图标 |
+| `internal/view/view.go`、`chrome.go`、`shell.go`、`style.go`、`tokens.go` | `Model`、页面布局、原生标题栏与菜单、会话详情、transcript 行、语义主题/尺寸 token 与 SVG 图标 |
 | `internal/view/composer.go`、`attachments.go` | 一体化输入区、发送/停止、附件暂存与原生图片预览 |
 | `internal/view/preferences.go`、`internal/i18n/` | 设备级偏好、受门禁约束的命令、集中双语文案 |
 | `internal/app/app.go` | Host 启动/停止、版本握手、`session/create` / `session/prompt`、有界通知分发、`Window.Update` |
 | `internal/app/sessions.go` / `session_reader.go` | 会话操作、草稿隔离、列表/历史分页校验与后台回放 |
-| `internal/view/sessions.go` | 原生固定侧栏、窄窗口弹窗、标题搜索、会话管理表单与 transcript 控件重置 |
+| `internal/view/sessions.go`、`session_groups.go` | 原生固定侧栏、日期分组、窄窗口弹窗、标题搜索、会话管理表单与 transcript 控件重置 |
 | `internal/app/session_management.go` | 重命名、归档/取消归档、Host 确认与失败刷新屏障 |
 | `internal/app/settings.go` / `internal/view/settings.go` | 白名单模型目录、会话级应用状态机与原生 Settings 面板 |
 | `internal/app/configuration.go` / `internal/view/configuration.go` | 持久默认模型、只写密码凭据、配置快照校验与超时后刷新屏障 |
 | `internal/projection/` | 提交事件 → `Item`（user / assistant / tool / notice） |
 | `main.go` | flag、窗口、退出时停止 Host |
 
-会话主界面由紧凑 header、transcript 列表与 composer 组成：
+会话主界面由自绘标题栏、transcript 列表与 composer 组成：
 
-- header 只常驻会话标题、连接/工作状态与会话列表、界面偏好、会话详情入口；无标题时使用本地化的未命名提示，不把会话 ID 当作页面标题。模型入口放在 composer 工具条，点击沿用 Settings 的能力与写入门禁。
-- 会话详情使用 MyGo Popover，按需展示模型完整路由、工作目录、session id、Host/DSH 版本、实际权限、usage/context、计划/目标与子代理摘要；内容有界滚动，工作期间仍可查看。打开任意 Modal 时关闭该详情，Modal 关闭后不自动重开，不与审批/提问/检视器叠加。
+- 窗口使用 MyGo `TitleBarHidden`，保留 Windows 自绘的最小化/最大化/关闭按钮；视图通过 `c.TitleBar()` 取得系统按钮占位，标题栏整行 `DragWindow()`，操作按钮始终避开 `bar.Right`。标题栏左侧为应用菜单、侧栏开关与 New chat，中间为会话标题与连接/工作状态，右侧为连接、子代理、会话列表、界面偏好与会话详情入口；窄窗口把次要入口收进菜单。无标题时使用本地化的未命名提示，不把会话 ID 当作页面标题。模型入口放在 composer 工具条，点击沿用 Settings 的能力与写入门禁。
+- 应用菜单使用 MyGo 原生系统菜单：New conversation、Sessions、Show/Hide sidebar、Subagents、Connect DeepSeek、Preferences、Quit；不可用的能力隐藏或禁用，不提供无后端动作的菜单项。
+- 会话详情使用 MyGo Popover，按需展示模型完整路由、工作目录、session id、Host/DSH 版本、实际权限、usage/context、计划/目标与子代理摘要；内容有界滚动，工作期间仍可查看。打开任意 Modal 时关闭该 Popover，Modal 关闭后不自动重开，不与审批/提问/检视器叠加。
 - 聊天与输入区共享最大 760 DIP 的居中阅读宽度。助手消息直接在页面上排版，用户消息使用中性背景与圆角；正文使用 15 DIP 字号，用户原文与助手 Markdown 维持各自解释规则。复制动作使用带名称、Tooltip 和反馈图标的原生按钮，不以长文字按钮占据正文。
 
 - transcript 显示提交后的 user 消息、assistant 文本、tool call/result 与 turn 结束通知；不显示 synthetic user context、system/developer 消息、reasoning。
@@ -47,7 +48,7 @@ UI 壳层是 MyGo 进程里的原生界面：
 - 协商 `question` 后，原生 Modal 支持整批单选、多选和自由文本，完整展示题目、选项说明和 detail；所有题目回答后一次提交。表单状态按请求/题目稳定绑定，重试保留答案，Escape/点击外部等同 Cancel question；Stop turn 另行停止回合。无 agent 请求明确标注，不显示 Stop turn。审批优先，同一时刻只有一个交互弹窗。
 - 工具卡片使用原生 Collapsible，默认折叠，展开状态绑定稳定工具行 ID，结果更新/列表位置变化不重置。展开显示预览和 `View details`；原生检视器提供 Arguments / Result / Changes、逐 hunk 导航和只读 DiffView，大 hunk 明确回退文本。不读写显示路径，不提供应用/撤销改动操作。
 - 检视器只保留一个 hunk 的 editor 状态；关闭、结果更新和淘汰释放旧缓冲。审批/提问优先，暂时隐藏检视器，避免两个 Modal 叠加；交互结束后可以继续查看。
-- 协商 `session.history` 后，header 提供 Sessions，当前会话 ID 与 cwd 在会话详情中查看。侧栏或选择弹窗显示当前 profile 的有界完整摘要列表、时间、状态与目录，支持 Refresh / New conversation / 选择恢复；窄窗口用弹窗降级。旧 Host/SDK 不显示入口。
+- 协商 `session.history` 后，标题栏提供 Sessions，当前会话 ID 与 cwd 在会话详情中查看。侧栏或选择弹窗显示当前 profile 的有界完整摘要列表、时间、状态与目录，支持 Refresh / New conversation / 选择恢复；窄窗口用弹窗降级。旧 Host/SDK 不显示入口。
 - 会话详情显示最新一步 token 用量与路由容量（`Context 已用 / 容量 · 百分比 · In / Out · cache`），只在 Host 提供对应事件时出现；容量或用量未知时省略对应片段，不阻塞 Sessions/Settings 入口，也不参与发送或历史回放。
 - 仅 idle 且无审批/提问时允许导航。刷新可 Close/Escape 取消；历史加载期间显示 Loading、禁用发送与编辑，不能重复新建/切换或关闭弹窗。失败保留当前 transcript/草稿，弹窗中显示可重试的安全错误；审批/提问优先，不叠加会话弹窗与工具检视器。
 - 切换成功后才整体替换 transcript，清除工具展开/检视器、复制反馈、旧 ListState 和临时流式状态；transcript 与 composer 的控件身份包含 session id。草稿按会话隔离并通过设备级编辑文件恢复。新建使用启动 cwd；新建/冷恢复按 Host 默认或显式 flags 选择模型，冷恢复保持持久 cwd，仍由 Host 持有的会话保持原路由。
@@ -92,14 +93,14 @@ App
 ### 会话主界面
 
 ```text
-┌───────────────┬──────────────────────────────────────────────┐
-│ Sidebar       │ Header: title / model / status / actions     │
-│ 会话列表      ├──────────────────────────────────────────────┤
-│ 搜索          │ Transcript (ui.List)                         │
+┌──────────────────────────────────────────────────────────────┐
+│ Title bar: ☰ / sidebar / new chat │ title + status │ actions │
+├───────────────┬──────────────────────────────────────────────┤
+│ Sidebar       │ Transcript (ui.List)                         │
 │ 新建          │  turn / assistant / tool / diff / notice     │
-│ 工作区        │                                              │
-│               ├──────────────────────────────────────────────┤
-│               │ Composer: 输入 / 附件 / @引用 / 发送          │
+│ 搜索/筛选     ├──────────────────────────────────────────────┤
+│ 日期分组会话  │ Composer: 输入 / 附件 / @引用 / 发送          │
+│ 状态/设置     │                                              │
 └───────────────┴──────────────────────────────────────────────┘
 ```
 
@@ -188,7 +189,8 @@ App
 - 列表包含 profile persistence 可见的根/分叉会话，不按工作目录筛选，不展示 subagent；不同目录明确显示。冷会话 stored 不代表未被其他进程占用，恢复失败可重试，不能绕过单写者约束。
 - 支持新建、刷新、恢复与空/错误/加载状态；最多加载 1000 条摘要。Host 数量与资源限制见 [通道协议](channel-protocol.md#host-历史能力)。
 - 侧栏固定展示会话列表，支持搜索、标题编辑、归档/删除、fork 与更大目录检索；不提供无后端能力的假按钮。
-- 窗口宽度至少 820 时显示宽 248 的固定侧栏；窄窗口通过 Sessions 打开弹窗，操作区保持可达。两种布局共用搜索、筛选、表单草稿与按 session id 绑定的列表身份，切换布局不提交表单或丢失输入。标题搜索使用 MyGo SearchField，在有界摘要上做大小写不敏感匹配，不搜索正文；列表按 Host 顺序展示标题、更新时间与状态，目录和缓存提示在 Tooltip 中提供，选择弹窗另显示目录。当前行以背景区分；重命名、归档/恢复放入各行带名称的原生系统菜单，菜单选择时再次校验能力和 busy 门禁。
+- 窗口宽度至少 820 时显示宽 260 的固定侧栏，可由标题栏开关收起；窄窗口通过 Sessions 打开弹窗，操作区保持可达。两种布局共用搜索、筛选、表单草稿与按 session id 绑定的列表身份，切换布局不提交表单或丢失输入。标题搜索使用 MyGo SearchField，在有界摘要上做大小写不敏感匹配，不搜索正文；列表按 Host 顺序展示标题、相对更新时间与状态，按本地日历日插入 Today / Yesterday / Previous 7 days / Older 粘性分组头，只分组不重排；目录和缓存提示在 Tooltip 中提供，选择弹窗另显示目录。当前行以 `AccentSoft` 背景与左侧强调条区分；归档筛选使用原生菜单，重命名、归档/恢复放入各行带名称的原生系统菜单，菜单选择时再次校验能力和 busy 门禁。
+- 侧栏顶部为品牌行、New conversation、标题搜索、归档筛选与 Refresh，底部显示当前连接状态与设置入口；入口不可用时禁用，不隐藏能力门控。
 - UI 分别协商 `session.rename` 与 `session.archive`，入口随能力显示。取消归档通过同一归档方法的 `archived:false`；目录请求在支持归档时携带 `includeArchived:true`，由 Show archived 本地筛选。归档会话的打开按钮禁用，先恢复再打开；重命名表单按目标会话 id 绑定，冷目标在后台 resume 取得 Host 单写者句柄后再 rename，不切换当前正文、模型或草稿。
 - 归档前提供目标操作确认，写入中不能关闭、切换、新建或重复提交。当前会话归档后保留可读正文及草稿，显示归档提示并禁用发送，允许新建、切换或恢复。Host 重启遇到已知归档的当前会话时新建会话，旧草稿留在原 id 下，不自动取消归档；恢复旧会话后取回该草稿。
 - 协商 session.release 时，下一次导航/管理操作前释放非当前和非目标的退休句柄，不把所有访问过的会话长期保活。目标验证失败保留当前 Agent，目标句柄待后续回收；后台重命名同样纳入回收。已释放会话重新打开采用冷恢复路由；紧邻返回、仍被拥有的会话保持原路由。释放不删除日志/草稿，也不改变归档状态。

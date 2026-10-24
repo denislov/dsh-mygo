@@ -6,7 +6,7 @@ import (
 
 // Layout metrics shared by the whole shell.
 const (
-	windowTitleBarHeight float32 = 44
+	WindowTitleBarHeight float32 = 44
 	sidebarWidth         float32 = 260
 	detailsWidth         float32 = 300
 	readingWidth         float32 = 760
@@ -67,11 +67,11 @@ type appTokens struct {
 	UserBubbleText mgo.Color
 	CodeBackground mgo.Color
 
-	Danger     mgo.Color
-	DangerSoft mgo.Color
-	Warning    mgo.Color
-	WarnSoft   mgo.Color
-	Success    mgo.Color
+	Danger      mgo.Color
+	DangerSoft  mgo.Color
+	Warning     mgo.Color
+	WarnSoft    mgo.Color
+	Success     mgo.Color
 	SuccessSoft mgo.Color
 
 	Selection mgo.Color

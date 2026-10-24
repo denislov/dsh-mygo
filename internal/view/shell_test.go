@@ -99,7 +99,7 @@ func TestConversationDetailsYieldToModalWithoutReopening(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Advance(300 * time.Millisecond)
-	if model.Shell.DetailsOpen || tt.HasText(model.Detail) {
+	if model.Shell.DetailsPopoverOpen || tt.HasText(model.Detail) {
 		t.Fatal("details compete with preferences")
 	}
 	tt.Key(0, ui.KeyEscape)
@@ -111,7 +111,7 @@ func TestConversationDetailsYieldToModalWithoutReopening(t *testing.T) {
 	model.SessionsOpen = true
 	tt.Frame()
 	tt.Advance(300 * time.Millisecond)
-	if model.Shell.DetailsOpen {
+	if model.Shell.DetailsPopoverOpen {
 		t.Fatal("details survived session navigation")
 	}
 }

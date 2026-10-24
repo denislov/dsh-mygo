@@ -157,12 +157,14 @@ func main() {
 
 	mygo.App.WhenReady(func() {
 		win := mygo.NewWindow(mygo.WindowOptions{
-			Title:     "dsh-mygo",
-			Width:     960,
-			Height:    760,
-			MinWidth:  560,
-			MinHeight: 420,
-			StateKey:  "main",
+			Title:          "dsh-mygo",
+			Width:          1280,
+			Height:         820,
+			MinWidth:       560,
+			MinHeight:      420,
+			TitleBarStyle:  mygo.TitleBarHidden,
+			TitleBarHeight: int(view.WindowTitleBarHeight),
+			StateKey:       "main-v2",
 			Content: ui.View(func(c *ui.Context) {
 				view.View(c, uiModel)
 			}),

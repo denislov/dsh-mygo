@@ -48,6 +48,8 @@ var chinese = map[string]string{
 	" selection":  "选择",
 	"dsh-mygo":    "dsh-mygo",
 	"Preferences": "界面偏好", "Interface preferences": "界面偏好", "Theme": "主题", "Language": "语言",
+	"Menu": "菜单", "New chat": "新对话", "Show sidebar": "显示侧栏", "Hide sidebar": "隐藏侧栏",
+	"Filter conversations": "筛选会话", "Today": "今天", "Yesterday": "昨天", "Previous 7 days": "过去 7 天", "Older": "更早", "Just now": "刚刚", "Open settings": "打开设置",
 	"system": "跟随系统", "light": "浅色", "dark": "深色", "en-US": "English", "zh-CN": "简体中文", "None": "禁用",
 	"Send shortcut": "发送快捷键", "New conversation shortcut": "新建会话快捷键", "Preferences shortcut": "界面偏好快捷键", "Stop shortcut": "停止回合快捷键",
 	"Host language changes on its next start.":                               "Host 语言在下次启动时生效。",
