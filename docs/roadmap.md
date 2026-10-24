@@ -6,7 +6,7 @@
 
 项目在约 11 小时内从零走到"核心聊天闭环全部跑通"：自定义 channel、流式、回合取消、审批、提问、历史/会话、模型与凭据设置均已落地，并有真实 DSH Loader（`0.2.1-rc.2`）集成测试覆盖。当前处于**阶段 C（Windows 私有测试版首发）**。
 
-一句话：**Windows 私有测试版 v0.1.0 已发布，后续用安装版试用反馈推进迭代。**
+一句话：**Windows 私有测试版 v0.1.1 修复包已发布，后续用安装版试用反馈推进迭代。**
 
 判断依据：协议与 UI 主链路已经闭环，M0 工程基线、M1 运行时/打包/安装器 smoke、自签名发布构建、手工崩溃恢复、会话管理、缺口恢复、权限 UI、草稿/界面偏好、附件与引用、有界历史窗口/句柄回收已完成，深度信息已有 usage/context、plan/todo/goal、子代理实时状态与持久详情/结果；干净机器验收、多会话后台交互与 Windows 发布工程仍是主要缺口；macOS 作为后续发布单元。
 
@@ -16,10 +16,10 @@
 | --- | --- |
 | 提交 | 31 个，2026-10-22 15:00 → 2026-10-23 13:51（约 22.8 小时，含中断） |
 | 规模 | 136 个跟踪文件；Go 生产 6.1k 行 / Go 测试 5.8k 行；Node Host 1.1k 行 / 测试 1.0k 行；`docs/` 19 篇约 3.1k 行；runtime lock 约 400 KB |
-| 版本 | identifier `com.denislov.dshmygo`；app/host `0.1.0`、`protocolVersion 1`、DSH `0.2.1-rc.2`（精确绑定）、MyGo `v0.6.2`、Node >= 24、runtime Node `24.14.0` |
+| 版本 | identifier `com.denislov.dshmygo`；app/host `0.1.1`、`protocolVersion 1`、DSH `0.2.1-rc.2`（精确绑定）、MyGo `v0.6.2`、Node >= 24、runtime Node `24.14.0` |
 | 测试 | Go 测试 235 项通过、24 项因缺少真实 Host 环境跳过 + 49 个 Node test；覆盖率 app 84%、view 89%、interaction 87%、projection 83%、channel 72%、host 70%、main 8.5% |
-| 构建产物 | v0.1.0 于 2026-10-24 发布；`build/release/v0.1.0/` 含安装器、公开证书、说明和校验和；安装器 123147064 bytes（约 117.4 MiB）、应用 12.3 MB，exe/安装器自签名；自带 Node 24.14.0 + DSH 0.2.1-rc.2 |
-| 工程基线 | 现有私有 remote；tag `v0.1.0` 指向 `cb52014`；发布提交的 Windows 全量与 Linux Go CI 全绿，含 Node/签名/发布脚本测试；版本单点为 `versions.json` |
+| 构建产物 | v0.1.1 于 2026-10-24 发布；`build/release/v0.1.1/` 含安装器、公开证书、说明和校验和；安装器 123171808 bytes（约 117.5 MiB）、应用 12.3 MB，exe/安装器自签名；自带 Node 24.14.0 + DSH 0.2.1-rc.2 |
+| 工程基线 | 现有私有 remote；tag `v0.1.1` 指向 `728a3ed`；发布提交的 Windows 全量与 Linux Go CI 全绿，含 Node/签名/发布脚本测试；版本单点为 `versions.json` |
 
 2026-10-23 本机（Windows）实跑结果：
 
@@ -231,9 +231,11 @@ M2-6d 子代理详情/结果已完成：新增独立 `subagent.inspection` 与 l
 
 线上发布：[v0.1.0 私有测试版](https://github.com/denislov/dsh-mygo/releases/tag/v0.1.0) 于 2026-10-24 发布，目标提交 `cb5201422597f0c9ae7531d703ffe5533e545aed`，prerelease=true、draft=false；仓库保持 private。发布提交的 [Windows/Linux CI](https://github.com/denislov/dsh-mygo/actions/runs/40063014325) 全绿；5 个附件名称/大小/SHA256 与本地核对一致，版本 tag 指向目标提交。已从线上重新下载安装器并确认 SHA256 一致；首次使用指南、签名证书和校验和随 Release 分发。
 
-0.1.1 二次启动修复准备完成：用户安装包的 pi-ai `.manifest.json` 被 MyGo 点文件过滤排除，导致提供已保存 magpie 默认模型的插件无法激活。补齐原版匹配的公开模型清单后，用户原安装版连续两次正常启动并恢复同一原会话，模型、凭据和会话设置保持；问题不需要修改默认模型。构建流程将该固定清单适配为 `models-manifest.json` 并修正生成依赖引用，保留原始 JSON 字节；补丁版本同步 UI/Host，已有 profile 的应用自有 Host 包先备份再升级，用户配置与兼容开发链接保留。
+0.1.1 二次启动修复已发布：用户安装包的 pi-ai `.manifest.json` 被 MyGo 点文件过滤排除，导致提供已保存 magpie 默认模型的插件无法激活。补齐原版匹配的公开模型清单后，用户原安装版连续两次正常启动并恢复同一原会话，模型、凭据和会话设置保持；问题不需要修改默认模型。构建流程将该固定清单适配为 `models-manifest.json` 并修正生成依赖引用，保留原始 JSON 字节；补丁版本同步 UI/Host，已有 profile 的应用自有 Host 包先备份再升级，用户配置与兼容开发链接保留。
 
-本批检查：Go 全量、Host/App 竞态、MyGo/Go vet、Node（90/90）与 bundled runtime 完整真实组合通过；新增旧 Host 包升级和第二次启动的真实回归。最终 `go tool mygo build -skip-build-command` 与 `node scripts/smoke-packaged.mjs` 通过，实际导入打包后的 pi-ai provider，`node scripts/prepare-release.mjs` 校验本版签名并准备资产。候选安装器 123171808 bytes（约 117.5 MiB）；7-Zip 只读解包确认清单与修正后的引用均在安装器内，JSON 字节与源数据一致。0.1.1 原生窗口连续两次就绪并恢复同一会话。现有用户安装保留，未运行会创建/清理真实卸载项的 fresh-install smoke；干净 VM、macOS 与付费回合本轮未运行。发布步骤另行核对 CI、tag 和线上附件。
+本批检查：Go 全量、Host/App 竞态、MyGo/Go vet、Node（90/90）与 bundled runtime 完整真实组合通过；新增旧 Host 包升级和第二次启动的真实回归。最终 `go tool mygo build -skip-build-command` 与 `node scripts/smoke-packaged.mjs` 通过，实际导入打包后的 pi-ai provider，`node scripts/prepare-release.mjs` 校验本版签名并准备资产。安装器 123171808 bytes（约 117.5 MiB）；7-Zip 只读解包确认清单与修正后的引用均在安装器内，JSON 字节与源数据一致。0.1.1 原生窗口连续两次就绪并恢复同一会话。现有用户安装保留，未运行会创建/清理真实卸载项的 fresh-install smoke；干净 VM、macOS 与付费回合本轮未运行。
+
+线上修复包：[v0.1.1 私有测试版](https://github.com/denislov/dsh-mygo/releases/tag/v0.1.1) 指向 `728a3edf49c0d8727a67d14f902feacd8fb7cc04`，prerelease=true、draft=false；[Windows/Linux CI](https://github.com/denislov/dsh-mygo/actions/runs/40077232233) 成功。5 个附件名称/大小/SHA256 与本地一致，重新下载线上安装器后校验一致；v0.1.0 发布页保留历史资产并提示使用修复版，仓库保持 private。
 
 ## 7. 风险与依赖
 
