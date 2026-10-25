@@ -26,14 +26,27 @@ const (
 	KindTool
 	// KindNotice is a turn-level message such as a failure or cancellation.
 	KindNotice
+	// KindReasoning is assistant thinking output. It is displayed inside an
+	// activity group, never merged into the assistant text row.
+	KindReasoning
 )
 
 // Item is one row the transcript list renders. ID is stable for the lifetime
 // of the row so the list keeps its scroll position and row state.
 type Item struct {
-	Seq         uint64
-	ID          string
-	Kind        Kind
+	Seq uint64
+	// Turn and Step locate the row in the session log. Zero means the source
+	// event did not carry a usable position; grouping tolerates that.
+	Turn uint64
+	Step uint64
+	ID   string
+	Kind Kind
+	// Time is the event or first streaming chunk time in milliseconds.
+	Time    int64
+	EndTime int64
+	// ActivityKey identifies a reasoning run across preview and commit. Tool
+	// rows leave it empty; grouping derives their group from the first row.
+	ActivityKey string
 	Title       string
 	Text        string
 	Detail      string
@@ -131,6 +144,10 @@ type Transcript struct {
 	seen            []sequenceRange
 	toolIndex       map[string]int
 	toolDetailBytes int
+	// turn and step follow the newest log position so rows that omit their own
+	// position can still join the right activity group.
+	turn uint64
+	step uint64
 	// Usage and Context are session-scoped metrics, not transcript rows. They
 	// follow the newest committed values and never advance nextSeq.
 	Usage   UsageView
@@ -169,7 +186,9 @@ func (t *Transcript) Apply(event Event) bool {
 	case "goal/change":
 		return t.applyGoalChange(event)
 	case "turn/start":
-		return t.applyTurnStart()
+		return t.applyTurnStart(event)
+	case "step/start", "step/end":
+		return t.applyStep(event)
 	case "tool/call":
 		return t.applyToolCall(event)
 	case "tool/result":
@@ -207,6 +226,8 @@ func (t *Transcript) applyUser(event Event) bool {
 
 func (t *Transcript) applyAssistant(event Event) bool {
 	var data struct {
+		Turn json.RawMessage `json:"turn"`
+		Step json.RawMessage `json:"step"`
 		Message struct {
 			Content []contentBlock `json:"content"`
 		} `json:"message"`
@@ -215,6 +236,7 @@ func (t *Transcript) applyAssistant(event Event) bool {
 	if json.Unmarshal(event.Data, &data) != nil {
 		return false
 	}
+	turn, step := t.position(parsePositionValue(data.Turn), parsePositionValue(data.Step))
 	changed := false
 	// Usage travels with the assistant message; a step may carry accounting
 	// without visible text (a tool-only step), so it updates the banner too.
@@ -222,17 +244,97 @@ func (t *Transcript) applyAssistant(event Event) bool {
 		t.Usage = usage
 		changed = true
 	}
-	text, truncated := assistantSource(data.Message.Content)
-	if text == "" {
-		return changed
+	runs := assistantRuns(data.Message.Content)
+	reasoningRun, textRun := 0, 0
+	for _, run := range runs {
+		if run.reasoning {
+			item := Item{
+				Seq:         event.Seq,
+				Turn:        turn,
+				Step:        step,
+				ID:          eventID(event) + ":r:" + strconv.Itoa(reasoningRun),
+				Kind:        KindReasoning,
+				Time:        event.Time,
+				EndTime:     event.Time,
+				ActivityKey: activityKey(turn, step, event.Seq, uint64(reasoningRun)),
+				Title:       "Reasoning",
+				Text:        run.text,
+				Truncated:   run.truncated,
+			}
+			if data.Interrupted {
+				item.State = "interrupted"
+			}
+			t.add(item)
+			reasoningRun++
+			continue
+		}
+		id := eventID(event)
+		if textRun > 0 {
+			id += ":t:" + strconv.Itoa(textRun)
+		}
+		item := Item{Seq: event.Seq, Turn: turn, Step: step, ID: id, Kind: KindAssistant, Time: event.Time, EndTime: event.Time, Title: "Assistant", Text: run.text, Truncated: run.truncated}
+		if data.Interrupted {
+			item.Detail = "Interrupted"
+			item.State = "interrupted"
+		}
+		t.add(item)
+		textRun++
 	}
-	item := Item{Seq: event.Seq, ID: eventID(event), Kind: KindAssistant, Title: "Assistant", Text: text, Truncated: truncated}
-	if data.Interrupted {
-		item.Detail = "Interrupted"
-		item.State = "interrupted"
+	return changed || len(runs) > 0
+}
+
+// position fills a missing turn/step from the newest tracked log position.
+// Malformed position fields are treated as absent and never suppress content.
+func (t *Transcript) position(turn, step uint64) (uint64, uint64) {
+	if turn != 0 {
+		t.turn = turn
+	} else {
+		turn = t.turn
 	}
-	t.add(item)
-	return true
+	if step != 0 {
+		t.step = step
+	} else {
+		step = t.step
+	}
+	return turn, step
+}
+
+func parsePositionValue(raw json.RawMessage) uint64 {
+	if len(raw) == 0 {
+		return 0
+	}
+	value, err := strconv.ParseUint(string(raw), 10, 64)
+	if err != nil || value == 0 || value > maxStreamInteger {
+		return 0
+	}
+	return value
+}
+
+// eventPosition reads the turn/step pair shared by DSH session events.
+func eventPosition(data json.RawMessage) (uint64, uint64) {
+	var position struct {
+		Turn json.RawMessage `json:"turn"`
+		Step json.RawMessage `json:"step"`
+	}
+	if json.Unmarshal(data, &position) != nil {
+		return 0, 0
+	}
+	return parsePositionValue(position.Turn), parsePositionValue(position.Step)
+}
+
+// activityKey keeps one reasoning run in the same activity group before and
+// after its preview commits. Falls back to the event seq when DSH omits a
+// position entirely.
+func activityKey(turn, step, seq, run uint64) string {
+	runLabel := strconv.FormatUint(run, 10)
+	switch {
+	case turn != 0 && step != 0:
+		return "activity:" + strconv.FormatUint(turn, 10) + ":" + strconv.FormatUint(step, 10) + ":r:" + runLabel
+	case turn != 0:
+		return "activity:" + strconv.FormatUint(turn, 10) + ":r:" + runLabel
+	default:
+		return "activity:" + strconv.FormatUint(seq, 10) + ":r:" + runLabel
+	}
 }
 
 // assistantUsage extracts the optional step accounting, dropping implausible
@@ -291,14 +393,32 @@ func (t *Transcript) applyRequestContext(event Event) bool {
 	return true
 }
 
-// applyTurnStart clears the standing checklist the way the Host's `todos`
-// projection does; finished lists stay visible until the next turn begins.
-func (t *Transcript) applyTurnStart() bool {
+// applyTurnStart records the new turn position and clears the standing
+// checklist the way the Host's `todos` projection does; finished lists stay
+// visible until the next turn begins.
+func (t *Transcript) applyTurnStart(event Event) bool {
+	if turn, _ := eventPosition(event.Data); turn != 0 {
+		t.turn, t.step = turn, 0
+	}
 	if len(t.Tasks) == 0 {
 		return false
 	}
 	t.Tasks = nil
 	return true
+}
+
+// applyStep follows the log position so rows that omit turn/step still join
+// the current activity group. Step boundaries alone do not add a row.
+func (t *Transcript) applyStep(event Event) bool {
+	if turn, step := eventPosition(event.Data); turn != 0 || step != 0 {
+		if turn != 0 {
+			t.turn = turn
+		}
+		if step != 0 {
+			t.step = step
+		}
+	}
+	return false
 }
 
 // applyTodoWrite replaces the standing checklist from one whole-list snapshot.
@@ -468,8 +588,12 @@ func (t *Transcript) applyToolCall(event Event) bool {
 	}
 	details := &ToolDetails{}
 	details.Arguments, details.ArgumentsTruncated = boundedToolText(data.Arguments, MaxToolDetailBytes)
+	turn, step := t.position(eventPosition(event.Data))
 	item := Item{
 		Seq:   event.Seq,
+		Turn:  turn,
+		Step:  step,
+		Time:  event.Time,
 		ID:    id,
 		Kind:  KindTool,
 		Title: "Tool · " + data.Name,
@@ -486,6 +610,10 @@ func (t *Transcript) applyToolCall(event Event) bool {
 		t.setToolDetails(index, details)
 		t.items[index].Title = item.Title
 		t.items[index].Text = item.Text
+		t.items[index].Turn, t.items[index].Step = turn, step
+		if t.items[index].Time == 0 {
+			t.items[index].Time = event.Time
+		}
 		return true
 	}
 	t.add(item)
@@ -527,6 +655,7 @@ func (t *Transcript) applyToolResult(event Event) bool {
 	if isError {
 		state = "error"
 	}
+	turn, step := t.position(eventPosition(event.Data))
 	callID := data.Message.ToolCallID
 	if index, ok := t.toolIndex[callID]; ok && callID != "" {
 		if previous := t.items[index].Tool; previous != nil {
@@ -539,6 +668,11 @@ func (t *Transcript) applyToolResult(event Event) bool {
 		item.Detail = detail
 		item.State = state
 		item.IsError = isError
+		item.Turn, item.Step = turn, step
+		item.EndTime = event.Time
+		if item.Time == 0 {
+			item.Time = event.Time
+		}
 		return true
 	}
 	id := "tool:" + callID
@@ -547,6 +681,10 @@ func (t *Transcript) applyToolResult(event Event) bool {
 	}
 	t.add(Item{
 		Seq:     event.Seq,
+		Turn:    turn,
+		Step:    step,
+		Time:    event.Time,
+		EndTime: event.Time,
 		ID:      id,
 		Kind:    KindTool,
 		Title:   "Tool result",
@@ -717,8 +855,12 @@ func eventID(event Event) string {
 }
 
 const (
-	maxMessageRunes = 8000
-	maxToolRunes    = 4000
+	maxMessageRunes   = 8000
+	maxReasoningRunes = 8000
+	// One event may alternate reasoning and text, but the row budget stays
+	// small enough for hostile logs.
+	maxAssistantParts = 8
+	maxToolRunes      = 4000
 	// Uploaded image references are display metadata only; bound everything a
 	// hostile event could inflate.
 	maxAttachmentsPerMessage = 8

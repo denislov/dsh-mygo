@@ -64,7 +64,7 @@ func (t *Transcript) Prepend(older *Transcript) bool {
 	// the UI requires returning to the latest window before another prompt.
 	bytes, keep := 0, 0
 	for _, item := range items {
-		size := len(item.ID) + len(item.Title) + len(item.Text) + len(item.Detail)
+		size := itemSize(item)
 		if keep >= MaxHistoryRows || bytes+size > MaxHistoryPreviewBytes {
 			break
 		}
@@ -100,20 +100,35 @@ func (t *Transcript) Prepend(older *Transcript) bool {
 	return dropped
 }
 
-// TrimRecent bounds a live transcript without limiting the size of its log.
-// The returned boundary can be used to load any evicted history again.
-func (t *Transcript) TrimRecent() (uint64, bool) {
-	bytes, start := 0, len(t.items)
-	for start > 0 && len(t.items)-start < MaxHistoryRows {
-		item := t.items[start-1]
-		size := len(item.ID) + len(item.Title) + len(item.Text) + len(item.Detail)
-		if bytes+size > MaxHistoryPreviewBytes {
+// itemSize is the bounded display payload one row can retain.
+func itemSize(item Item) int {
+	return len(item.ID) + len(item.Title) + len(item.Text) + len(item.Detail) + len(item.ActivityKey)
+}
+
+// trimStart chooses the oldest retained row without ever splitting the rows a
+// single event produced. Reloading a partial event would drop its reasoning.
+func trimStart(items []Item, maxRows, maxBytes int) int {
+	bytes, start := 0, len(items)
+	for start > 0 && len(items)-start < maxRows {
+		item := items[start-1]
+		size := itemSize(item)
+		if bytes+size > maxBytes {
 			break
 		}
 		bytes += size
 		start--
 	}
-	if start == 0 {
+	for start > 0 && start < len(items) && items[start-1].Seq == items[start].Seq {
+		start--
+	}
+	return start
+}
+
+// TrimRecent bounds a live transcript without limiting the size of its log.
+// The returned boundary can be used to load any evicted history again.
+func (t *Transcript) TrimRecent() (uint64, bool) {
+	start := trimStart(t.items, MaxHistoryRows, MaxHistoryPreviewBytes)
+	if start == 0 || start == len(t.items) {
 		return 0, false
 	}
 	t.items = append([]Item(nil), t.items[start:]...)

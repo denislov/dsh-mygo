@@ -13,38 +13,67 @@ func clipMarkdown(source string, limit int) (string, bool) {
 	return source, false
 }
 
-func assistantSource(blocks []contentBlock) (string, bool) {
-	var result strings.Builder
-	count := 0
-	appendText := func(text string) bool {
-		for _, character := range text {
-			if count == maxMessageRunes {
-				return false
-			}
-			result.WriteRune(character)
-			count++
+// contentRun is one adjacent group of reasoning or visible text blocks. The
+// committed log keeps reasoning and text blocks in model order, so runs map
+// directly onto transcript rows and streaming previews.
+type contentRun struct {
+	reasoning bool
+	text      string
+	runes     int
+	truncated bool
+}
+
+func (run *contentRun) append(text string, limit int) {
+	remaining := limit - run.runes
+	for _, character := range text {
+		if remaining == 0 {
+			run.truncated = true
+			return
 		}
-		return true
+		run.text += string(character)
+		run.runes++
+		remaining--
+	}
+}
+
+// assistantRuns splits a message into bounded reasoning and text runs without
+// leaking reasoning into the visible assistant source.
+func assistantRuns(blocks []contentBlock) []contentRun {
+	runs := make([]contentRun, 0, 4)
+	add := func(reasoning bool, text string) {
+		if strings.TrimSpace(text) == "" {
+			return
+		}
+		limit := maxMessageRunes
+		if reasoning {
+			limit = maxReasoningRunes
+		}
+		if last := len(runs) - 1; last >= 0 && runs[last].reasoning == reasoning {
+			if runs[last].runes > 0 {
+				runs[last].append("\n\n", limit)
+			}
+			runs[last].append(text, limit)
+			return
+		}
+		if len(runs) >= maxAssistantParts {
+			runs[len(runs)-1].truncated = true
+			return
+		}
+		run := contentRun{reasoning: reasoning}
+		run.append(text, limit)
+		runs = append(runs, run)
 	}
 	for _, block := range blocks {
-		text := ""
 		switch block.Type {
+		case "reasoning":
+			add(true, block.Text)
 		case "text":
-			text = block.Text
+			add(false, block.Text)
 		case "image":
-			text = "[image]"
+			add(false, "[image]")
 		case "file":
-			text = "[file]"
-		}
-		if strings.TrimSpace(text) == "" {
-			continue
-		}
-		if result.Len() > 0 && !appendText("\n\n") {
-			return result.String() + "…", true
-		}
-		if !appendText(text) {
-			return result.String() + "…", true
+			add(false, "[file]")
 		}
 	}
-	return result.String(), false
+	return runs
 }

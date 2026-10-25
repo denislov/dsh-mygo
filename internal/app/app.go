@@ -1165,7 +1165,6 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 		if a.canHistoryWindow {
 			if start, trimmed := a.transcript.TrimRecent(); trimmed {
 				a.model.History.Start = start
-				a.model.PruneTranscriptState(a.transcript.Items())
 			}
 		}
 		a.publishTranscript()

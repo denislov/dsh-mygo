@@ -40,6 +40,24 @@ func TestToolOnlyStepsUpdateUsageWithoutARow(t *testing.T) {
 	}
 }
 
+func TestReasoningOnlyStepsEmitARowAndUpdateUsage(t *testing.T) {
+	var transcript Transcript
+	event := Event{Seq: 1, Type: "assistant/message", Data: json.RawMessage(`{
+		"message": {"content": [{"type": "reasoning", "text": "thinking"}]},
+		"usage": {"inputTokens": 10, "outputTokens": 2, "reasoningTokens": 2}
+	}`)}
+	if !transcript.Apply(event) {
+		t.Fatal("reasoning-only step was not projected")
+	}
+	items := transcript.Items()
+	if len(items) != 1 || items[0].Kind != KindReasoning || items[0].Text != "thinking" {
+		t.Fatalf("items = %+v", items)
+	}
+	if transcript.Usage.ReasoningTokens != 2 {
+		t.Fatalf("usage = %+v", transcript.Usage)
+	}
+}
+
 func TestImplausibleUsageIsDroppedButTextSurvives(t *testing.T) {
 	var transcript Transcript
 	event := Event{Seq: 1, Type: "assistant/message", Data: json.RawMessage(`{

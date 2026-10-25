@@ -16,6 +16,17 @@ func (model *Model) PruneTranscriptState(items []projection.Item) {
 			delete(model.ToolCards, id)
 		}
 	}
+	groups := make(map[string]bool)
+	for _, row := range buildTranscriptRows(items) {
+		if row.activity != nil {
+			groups[row.activity.key] = true
+		}
+	}
+	for key := range model.Activity {
+		if !groups[key] {
+			delete(model.Activity, key)
+		}
+	}
 	if model.ToolInspector != nil && !visible[model.ToolInspector.ID] {
 		model.ToolInspector = nil
 	}

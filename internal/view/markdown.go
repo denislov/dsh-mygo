@@ -48,7 +48,7 @@ func messageCopyButton(c *mgo.Context, model *Model, item projection.Item, fromU
 	if model.CopiedMessageID == item.ID && model.CopiedMessageText == item.Text {
 		icon = iconCheck
 	}
-	return iconButton(c.Key("copy-message"), model.T(label), icon).Padding(space4).OnClick(func() {
+	return iconButton(c.Key("copy-message-"+item.ID), model.T(label), icon).Padding(space4).OnClick(func() {
 		services.WriteClipboard(item.Text)
 		model.CopiedMessageID = item.ID
 		model.CopiedMessageText = item.Text

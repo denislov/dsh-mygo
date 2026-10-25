@@ -93,6 +93,8 @@ func (a *App) publishTranscript() {
 	if item, visible := a.stream.Item(); visible {
 		a.model.Items = append(slices.Clone(a.model.Items), item)
 	}
+	// Prune with the merged rows so a live-only activity group keeps its state.
+	a.model.PruneTranscriptState(a.model.Items)
 }
 
 func (a *App) clearStream() {

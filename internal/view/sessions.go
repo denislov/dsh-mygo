@@ -309,8 +309,8 @@ func sessionTooltip(model *Model, session SessionSummary) string {
 func (model *Model) ResetTranscript(items []projection.Item) {
 	model.Items = items
 	model.List = mgo.ListState{FollowEnd: true}
-	model.List.Key = func(row int) any { return model.Items[row].ID }
 	model.ToolCards = nil
+	model.Activity = nil
 	model.ToolInspector = nil
 	model.CopiedMessageID = ""
 	model.CopiedMessageText = ""

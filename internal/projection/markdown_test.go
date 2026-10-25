@@ -2,8 +2,10 @@ package projection
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestAssistantMarkdownPreservesWhitespaceAndMarksTruncation(t *testing.T) {
@@ -18,6 +20,43 @@ func TestAssistantMarkdownPreservesWhitespaceAndMarksTruncation(t *testing.T) {
 	transcript.Apply(Event{Type: "assistant/message", Seq: 2, Data: data})
 	if !transcript.Items()[1].Truncated {
 		t.Fatal("truncated source presented as complete")
+	}
+}
+
+func TestAssistantReasoningHasItsOwnBudget(t *testing.T) {
+	var transcript Transcript
+	data, _ := json.Marshal(map[string]any{"message": map[string]any{"content": []any{
+		map[string]any{"type": "reasoning", "text": strings.Repeat("想", 9000)},
+		map[string]any{"type": "text", "text": "answer"},
+	}}})
+	transcript.Apply(Event{Type: "assistant/message", Seq: 1, Data: data})
+	items := transcript.Items()
+	if len(items) != 2 {
+		t.Fatalf("items = %+v", items)
+	}
+	if items[0].Kind != KindReasoning || !items[0].Truncated || utf8.RuneCountInString(items[0].Text) != 8000 {
+		t.Fatalf("reasoning truncation = %+v", items[0])
+	}
+	if items[1].Kind != KindAssistant || items[1].Text != "answer" || items[1].Truncated {
+		t.Fatalf("text starved by reasoning: %+v", items[1])
+	}
+}
+
+func TestAssistantRunCountIsBounded(t *testing.T) {
+	blocks := make([]any, 0, 20)
+	for index := 0; index < 10; index++ {
+		blocks = append(blocks, map[string]any{"type": "reasoning", "text": fmt.Sprintf("thought %d", index)})
+		blocks = append(blocks, map[string]any{"type": "text", "text": fmt.Sprintf("answer %d", index)})
+	}
+	data, _ := json.Marshal(map[string]any{"message": map[string]any{"content": blocks}})
+	var transcript Transcript
+	transcript.Apply(Event{Type: "assistant/message", Seq: 1, Data: data})
+	items := transcript.Items()
+	if len(items) != maxAssistantParts {
+		t.Fatalf("items = %d", len(items))
+	}
+	if !items[len(items)-1].Truncated {
+		t.Fatal("dropped runs were not marked truncated")
 	}
 }
 

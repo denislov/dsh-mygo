@@ -89,7 +89,6 @@ func readOpenHistory(ctx context.Context, client rpcClient, id string, minimum u
 }
 
 func (a *App) acceptHistoryWindow(snapshot historySnapshot) {
-	a.model.PruneTranscriptState(snapshot.Transcript.Items())
 	a.model.History.Start = snapshot.StartSeq
 	a.model.History.Detached = false
 	a.model.History.Error = ""

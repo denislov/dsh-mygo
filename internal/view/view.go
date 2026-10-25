@@ -90,6 +90,7 @@ type Model struct {
 	Mention              MentionState
 	QueryMentions        func(prefix string)
 	Items                []projection.Item
+	Activity             map[string]*ActivityState
 	History              HistoryState
 	Draft                string
 	DraftChanged         func()
@@ -134,6 +135,7 @@ type Model struct {
 	ToolInspector        *ToolInspectorState
 	Markdown             markdown.Options
 	InterruptedMarkdown  markdown.Options
+	ReasoningMarkdown    markdown.Options
 	CopiedMessageID      string
 	CopiedMessageText    string
 	CanHistory           bool
@@ -194,6 +196,7 @@ func NewModel() *Model {
 	model := &Model{Phase: PhaseStarting,
 		Markdown:            markdown.Options{Theme: &markdown.Theme{FontSize: 15, LineHeight: 1.55}, Reveal: &markdown.Reveal{Unit: markdown.AtOnce, Fade: -1}},
 		InterruptedMarkdown: markdown.Options{Theme: &markdown.Theme{FontSize: 15, LineHeight: 1.55}},
+		ReasoningMarkdown:   markdown.Options{Theme: &markdown.Theme{FontSize: 13, LineHeight: 1.5}, Reveal: &markdown.Reveal{Unit: markdown.AtOnce, Fade: -1}},
 	}
 	model.List.FollowEnd = true
 	model.InterruptedMarkdown.CodeBlock = model.interruptedCodeBlock
@@ -204,7 +207,6 @@ func NewModel() *Model {
 	model.Shell.FolderOpen = true
 	model.Shell.ContextOpen = true
 	model.Mention.CaretTarget = -1
-	model.List.Key = func(row int) any { return model.Items[row].ID }
 	return model
 }
 
@@ -241,12 +243,14 @@ func View(c *mgo.Context, model *Model) {
 	services := c.Services()
 	model.Markdown.Theme = markdownTheme(c)
 	model.InterruptedMarkdown.Theme = model.Markdown.Theme
+	model.ReasoningMarkdown.Theme = reasoningMarkdownTheme(c)
 	model.Markdown.OnLink = func(address string) {
 		if safeMarkdownLink(address) {
 			services.OpenURL(address)
 		}
 	}
 	model.InterruptedMarkdown.OnLink = model.Markdown.OnLink
+	model.ReasoningMarkdown.OnLink = model.Markdown.OnLink
 	mgo.Column(c.Key("shell")).Fill().Background(theme.Background).Children(func() {
 		titleBar(c, model)
 		mgo.Row(c.Key("shell-body")).Grow(1).MinHeight(0).FillWidth().Children(func() {
@@ -303,14 +307,20 @@ func errorBanner(c *mgo.Context, model *Model) {
 }
 
 func transcript(c *mgo.Context, model *Model) {
-	if len(model.Items) == 0 && model.History.Start == 0 {
+	rows := buildTranscriptRows(model.Items)
+	if len(rows) == 0 && model.History.Start == 0 {
 		mgo.Scroll(c.Key("empty-transcript-"+model.SessionID)).Grow(1).MinHeight(0).FillWidth().Padding(space20, space24).Children(func() { emptyConversation(c, model) })
 		return
 	}
-	mgo.List(c.Key("transcript-"+model.SessionID), &model.List, len(model.Items), func(row int) {
-		message(c, model, model.Items[row])
+	model.List.Key = func(row int) any { return rows[row].key }
+	mgo.List(c.Key("transcript-"+model.SessionID), &model.List, len(rows), func(row int) {
+		if group := rows[row].activity; group != nil {
+			activityCard(c, model, group)
+			return
+		}
+		message(c, model, *rows[row].item)
 	}).Grow(1).Gap(space24).Padding(space20, space24).Children(func() {
-		if len(model.Items) == 0 {
+		if len(rows) == 0 {
 			if model.History.Start > 0 {
 				mgo.Text(c, model.T("No visible messages in this history window.")).FontSize(13)
 			} else {
@@ -341,6 +351,25 @@ func markdownTheme(c *mgo.Context) *markdown.Theme {
 	return options
 }
 
+// reasoningMarkdownTheme keeps thinking text secondary to the answer while
+// retaining the same safe link and code treatment.
+func reasoningMarkdownTheme(c *mgo.Context) *markdown.Theme {
+	theme := c.Theme()
+	tokens := tokensFor(theme)
+	options := markdown.DefaultTheme(theme)
+	options.FontSize = 13
+	options.LineHeight = 1.5
+	options.Text = tokens.TextMuted
+	options.Muted = tokens.TextFaint
+	options.CodeBackground = tokens.CodeBackground
+	options.CodeBlockBackground = tokens.CodeBackground
+	options.CodeBlockBorder = tokens.Border
+	options.QuoteBar = tokens.Border
+	options.Rule = tokens.Border
+	options.Mark = tokens.AccentSoft
+	return options
+}
+
 func transcriptItem(c *mgo.Context, model *Model, item projection.Item) {
 	switch item.Kind {
 	case projection.KindUser:
@@ -354,6 +383,10 @@ func transcriptItem(c *mgo.Context, model *Model, item projection.Item) {
 	case projection.KindTool:
 		mgo.Row(c).Key(item.ID).FillWidth().Children(func() {
 			toolCard(c, model, item)
+		})
+	case projection.KindReasoning:
+		mgo.Row(c).Key(item.ID).FillWidth().Children(func() {
+			reasoningBlock(c, model, item)
 		})
 	default:
 		theme := c.Theme()
@@ -383,7 +416,7 @@ func card(c *mgo.Context, model *Model, item projection.Item, fromUser bool) {
 		if item.Detail != "" {
 			mgo.Row(c).Gap(space6).AlignItems(mgo.Center).Children(func() {
 				if item.State == "streaming" {
-					mgo.Spinner(c.Key("streaming-spinner")).Size(10, 10)
+					mgo.Spinner(c.Key("streaming-spinner-"+item.ID)).Size(10, 10)
 				}
 				color := tokens.TextMuted
 				if item.State == "interrupted" {
@@ -415,11 +448,11 @@ func card(c *mgo.Context, model *Model, item projection.Item, fromUser bool) {
 				mgo.Text(c, item.Text).FontSize(textBody).LineHeight(1.55).TextColor(color).Selectable()
 			}
 		} else if item.State == "streaming" {
-			markdown.Stream(c.Key("assistant-markdown"), item.Text, &model.Markdown).FillWidth()
+			markdown.Stream(c.Key("assistant-markdown-"+item.ID), item.Text, &model.Markdown).FillWidth()
 		} else if item.State == "interrupted" {
-			markdown.View(c.Key("assistant-markdown"), item.Text, &model.InterruptedMarkdown).FillWidth()
+			markdown.View(c.Key("assistant-markdown-"+item.ID), item.Text, &model.InterruptedMarkdown).FillWidth()
 		} else {
-			markdown.View(c.Key("assistant-markdown"), item.Text, &model.Markdown).FillWidth()
+			markdown.View(c.Key("assistant-markdown-"+item.ID), item.Text, &model.Markdown).FillWidth()
 		}
 		if item.Text != "" {
 			mgo.Row(c).FillWidth().Justify(mgo.End).Children(func() {
@@ -459,7 +492,7 @@ func toolCard(c *mgo.Context, model *Model, item projection.Item) {
 				if item.Detail != "" {
 					mgo.Text(c, item.Detail).FontSize(textCaption).TextColor(tokens.Text)
 				}
-				if mgo.Button(c.Key("tool-details"), model.T("View details")).Clicked() {
+				if mgo.Button(c.Key("tool-details-"+item.ID), model.T("View details")).Clicked() {
 					model.OpenToolDetails(item.ID)
 				}
 			})

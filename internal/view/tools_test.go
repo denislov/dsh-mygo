@@ -14,6 +14,7 @@ func toolModel() *Model {
 	model := NewModel()
 	model.Phase = PhaseIdle
 	model.Items = []projection.Item{{ID: "tool:c1", Kind: projection.KindTool, Title: "Tool · edit", Text: "arguments preview", Detail: "result preview", State: "done", Tool: &projection.ToolDetails{Arguments: "full arguments", Result: "full result", Diffs: []projection.FileDiff{{Path: "a.txt", OldText: "old", NewText: "new"}, {Path: "a.txt", OldText: "second old", NewText: "second new"}}}}}
+	model.Activity = map[string]*ActivityState{"activity:tool:c1": {Expanded: true}}
 	return model
 }
 

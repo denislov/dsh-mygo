@@ -41,14 +41,83 @@ func TestApplyUserAndAssistantMessages(t *testing.T) {
 		t.Fatal("assistant message did not change the transcript")
 	}
 	items := transcript.Items()
-	if len(items) != 2 {
+	if len(items) != 3 {
 		t.Fatalf("items = %+v", items)
 	}
 	if items[0].Kind != KindUser || items[0].Title != "You" || items[0].Text != "hello" {
 		t.Fatalf("user item = %+v", items[0])
 	}
-	if items[1].Kind != KindAssistant || items[1].Title != "Assistant" || items[1].Text != "pong" {
-		t.Fatalf("assistant item = %+v", items[1])
+	if items[1].Kind != KindReasoning || items[1].Title != "Reasoning" || items[1].Text != "private" || items[1].ID != "seq:2:r:0" {
+		t.Fatalf("reasoning item = %+v", items[1])
+	}
+	if items[2].Kind != KindAssistant || items[2].Title != "Assistant" || items[2].Text != "pong" || items[2].ID != "seq:2" {
+		t.Fatalf("assistant item = %+v", items[2])
+	}
+}
+
+func TestAssistantReasoningRunsKeepOrderAndStayOutOfText(t *testing.T) {
+	var transcript Transcript
+	transcript.Apply(event(1, "assistant/message", `{
+		"turn": 2, "step": 1,
+		"message": {"content": [
+			{"type": "reasoning", "text": "plan A"},
+			{"type": "text", "text": "answer A"},
+			{"type": "reasoning", "text": "plan B"},
+			{"type": "text", "text": "answer B"}
+		]}
+	}`))
+	items := transcript.Items()
+	if len(items) != 4 {
+		t.Fatalf("items = %+v", items)
+	}
+	wantKinds := []Kind{KindReasoning, KindAssistant, KindReasoning, KindAssistant}
+	wantIDs := []string{"seq:1:r:0", "seq:1", "seq:1:r:1", "seq:1:t:1"}
+	wantText := []string{"plan A", "answer A", "plan B", "answer B"}
+	for index, item := range items {
+		if item.Kind != wantKinds[index] || item.ID != wantIDs[index] || item.Text != wantText[index] {
+			t.Fatalf("item %d = %+v", index, item)
+		}
+		if item.Turn != 2 || item.Step != 1 {
+			t.Fatalf("item %d position = %d/%d", index, item.Turn, item.Step)
+		}
+	}
+	if items[0].ActivityKey != "activity:2:1:r:0" || items[2].ActivityKey != "activity:2:1:r:1" {
+		t.Fatalf("activity keys = %q, %q", items[0].ActivityKey, items[2].ActivityKey)
+	}
+}
+
+func TestMalformedPositionsDoNotDropReasoning(t *testing.T) {
+	var transcript Transcript
+	transcript.Apply(event(1, "assistant/message", `{
+		"turn": "two", "step": -1,
+		"message": {"content": [
+			{"type": "reasoning", "text": "still here"},
+			{"type": "text", "text": "visible"}
+		]}
+	}`))
+	items := transcript.Items()
+	if len(items) != 2 || items[0].Text != "still here" || items[1].Text != "visible" {
+		t.Fatalf("items = %+v", items)
+	}
+	if items[0].Turn != 0 || items[0].Step != 0 {
+		t.Fatalf("malformed position accepted: %+v", items[0])
+	}
+}
+
+func TestToolRowsCarryTurnAndStep(t *testing.T) {
+	var transcript Transcript
+	transcript.Apply(event(1, "turn/start", `{"turn":3}`))
+	transcript.Apply(event(2, "tool/call", `{"callId":"c1","name":"read","arguments":"{}"}`))
+	transcript.Apply(Event{Seq: 3, Time: 2000, Type: "tool/result", Data: json.RawMessage(`{
+		"turn": 3, "step": 2,
+		"message": {"toolCallId":"c1","content":[{"type":"text","text":"done"}]}
+	}`)})
+	items := transcript.Items()
+	if len(items) != 1 {
+		t.Fatalf("items = %+v", items)
+	}
+	if items[0].Turn != 3 || items[0].Step != 2 || items[0].EndTime != 2000 {
+		t.Fatalf("tool position = %+v", items[0])
 	}
 }
 

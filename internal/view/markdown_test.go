@@ -158,6 +158,7 @@ func TestToolMarkdownIsOnlyLiteralRecordedOutput(t *testing.T) {
 	model := NewModel()
 	model.Phase = PhaseIdle
 	model.Items = []projection.Item{{ID: "tool:1", Kind: projection.KindTool, Title: "Tool · read", Detail: source, State: "done", Tool: &projection.ToolDetails{Result: source}}}
+	model.Activity = map[string]*ActivityState{"activity:tool:1": {Expanded: true}}
 	tester := tester(model)
 	if err := tester.Click("Tool · read"); err != nil {
 		t.Fatal(err)

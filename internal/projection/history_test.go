@@ -22,6 +22,19 @@ func TestPrependHistoryPairsBoundaryTools(t *testing.T) {
 	}
 }
 
+func TestTrimStartKeepsWholeEvents(t *testing.T) {
+	items := []Item{{Seq: 1}, {Seq: 2}, {Seq: 2}, {Seq: 3}, {Seq: 3}, {Seq: 3}}
+	if start := trimStart(items, 2, 1<<20); start != 3 {
+		t.Fatalf("trim split an event: start = %d", start)
+	}
+	if start := trimStart(items, 1, 1<<20); start != 3 {
+		t.Fatalf("single-row budget split an event: start = %d", start)
+	}
+	if start := trimStart(items, 6, 1<<20); start != 0 {
+		t.Fatalf("untrimmed window moved: start = %d", start)
+	}
+}
+
 func TestHistoryCacheSlidesAndDedupRangesStaySmall(t *testing.T) {
 	var recent, earlier Transcript
 	for seq := uint64(0); seq < 25000; seq++ {
