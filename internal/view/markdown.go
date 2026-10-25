@@ -55,6 +55,21 @@ func messageCopyButton(c *mgo.Context, model *Model, item projection.Item, fromU
 	})
 }
 
+// Keep the native highlighter and copy lifecycle, while giving localized copy
+// labels enough room beside the language instead of wrapping in a narrow header.
+func nativeCodeBlock(c *mgo.Context, block *markdown.CodeBlockView) {
+	tokens := tokensFor(c.Theme())
+	mgo.Column(c).FillWidth().Direction(mgo.LeftToRight).Radius(radiusMd).Background(tokens.CodeBackground).
+		Border(1, tokens.Border).Role(mgo.RoleGroup).Label("Code, " + block.Language).Clip().Children(func() {
+		mgo.Row(c).FillWidth().Padding(space6, space8, 0, space14).AlignItems(mgo.Center).Children(func() {
+			mgo.Text(c, block.Language).FontSize(textCaption).TextColor(tokens.TextMuted)
+			mgo.Spacer(c)
+			block.CopyButton(c).MinWidth(76).Shrink(0)
+		})
+		block.Body(c)
+	})
+}
+
 func (model *Model) interruptedCodeBlock(c *mgo.Context, block *markdown.CodeBlockView) {
 	mgo.Column(c).Gap(6).FillWidth().Children(func() {
 		mgo.Row(c).Gap(8).Children(func() {

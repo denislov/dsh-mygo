@@ -94,6 +94,7 @@ func (a *App) openSettings(connection bool) {
 		return
 	}
 	a.model.SettingsOpen = true
+	a.model.QuickSelector = ""
 	a.model.SettingsConnection = connection
 	if connection {
 		a.model.SettingsSection = view.SettingsSectionConnection
@@ -121,6 +122,7 @@ func (a *App) CloseSettings() {
 	}
 	a.cancelSettingsOperation()
 	a.model.SettingsOpen = false
+	a.model.QuickSelector = ""
 	a.model.SettingsConnection = false
 	a.model.SettingsSection = view.SettingsSectionConversation
 	a.model.ClearCredentialDraft()
@@ -275,6 +277,7 @@ func (a *App) ApplySettings() {
 			a.model.SetActiveRoute(route)
 			a.model.ModelUncertain = false
 			a.model.SettingsOpen = false
+			a.model.QuickSelector = ""
 		})
 	}()
 }

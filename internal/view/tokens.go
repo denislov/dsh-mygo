@@ -7,9 +7,9 @@ import (
 // Layout metrics shared by the whole shell.
 const (
 	WindowTitleBarHeight float32 = 44
-	sidebarWidth         float32 = 260
+	sidebarWidth         float32 = 280
 	detailsWidth         float32 = 300
-	readingWidth         float32 = 780
+	readingWidth         float32 = 860
 	sidebarBreakpoint    float32 = 820
 	detailsBreakpoint    float32 = 1180
 
@@ -32,14 +32,14 @@ const (
 	radiusLg       float32 = 12
 	radiusXl       float32 = 16
 	radiusBubble   float32 = 18
-	radiusComposer float32 = 24
+	radiusComposer float32 = 18
 	radiusPill     float32 = 999
 
-	textMicro   float32 = 11
-	textCaption float32 = 12
-	textLabel   float32 = 13
-	textBody    float32 = 15
-	textReading float32 = 15.5
+	textMicro   float32 = 12
+	textCaption float32 = 13
+	textLabel   float32 = 14
+	textBody    float32 = 16
+	textReading float32 = 16
 	textTitle   float32 = 18
 	textDisplay float32 = 28
 )
@@ -97,27 +97,27 @@ var (
 func paletteFor(dark bool) appTokens {
 	if dark {
 		return appTokens{
-			Background:      mgo.Hex("#232320"),
-			Sidebar:         mgo.Hex("#1D1D1A"),
-			Surface:         mgo.Hex("#2C2C28"),
-			SurfaceRaised:   mgo.Hex("#31312D"),
-			SurfaceHover:    mgo.Hex("#373732"),
-			SurfacePressed:  mgo.Hex("#41403A"),
-			Border:          mgo.Hex("#403F37"),
-			BorderStrong:    mgo.Hex("#4D4B42"),
+			Background:      mgo.Hex("#161616"),
+			Sidebar:         mgo.Hex("#111111"),
+			Surface:         mgo.Hex("#202020"),
+			SurfaceRaised:   mgo.Hex("#222222"),
+			SurfaceHover:    mgo.Hex("#2B2B2B"),
+			SurfacePressed:  mgo.Hex("#333333"),
+			Border:          mgo.Hex("#343434"),
+			BorderStrong:    mgo.Hex("#484848"),
 			Text:            mgo.Hex("#F3F0E8"),
 			TextMuted:       mgo.Hex("#ABA69A"),
 			TextFaint:       mgo.Hex("#7E7A70"),
 			Accent:          mgo.Hex("#D97757"),
 			AccentHover:     mgo.Hex("#E18A6C"),
 			AccentPressed:   mgo.Hex("#C96546"),
-			AccentSoft:      mgo.Hex("#3B2C25"),
+			AccentSoft:      mgo.Hex("#2C2C2C"),
 			AccentText:      mgo.Hex("#FFFFFF"),
-			UserBubble:      mgo.Hex("#34332E"),
+			UserBubble:      mgo.Hex("#262626"),
 			UserBubbleText:  mgo.Hex("#F3F0E8"),
-			CodeBackground:  mgo.Hex("#1B1B19"),
-			ActivitySurface: mgo.Hex("#2A2A26"),
-			ActivityHover:   mgo.Hex("#31312C"),
+			CodeBackground:  mgo.Hex("#1B1B1B"),
+			ActivitySurface: mgo.Hex("#1C1C1C"),
+			ActivityHover:   mgo.Hex("#252525"),
 			ReasoningText:   mgo.Hex("#BDB7AB"),
 			ReasoningRail:   mgo.Hex("#4A483F"),
 			Danger:          mgo.Hex("#E27C68"),

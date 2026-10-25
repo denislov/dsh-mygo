@@ -25,6 +25,7 @@
 ## 会话模型设置
 
 - `model.selection` capability 覆盖 `model/list`、`model/select` 与原生 Settings 面板；只在双方支持时显示入口，旧 Host/SDK 不显示，未协商调用返回 capability-unavailable。
+- 输入区模型按钮打开原生快捷列表，支持 provider、标题/ID 搜索、当前项勾选与 effort；点击模型直接提交，Host 确认后才关闭并更新标签。快捷列表复用同一设置操作生命周期和失败刷新屏障，More settings 转入完整面板。权限入口独立显示，保留实际策略与危险确认，不跳转模型设置。
 - 面板提供 provider 目录、模型目录快捷选择、实际使用的 Model ID 和 adapter 声明的 effort；允许手填模型 ID，目录成员身份不充当路由校验。空 effort 表示 provider 默认，切回默认会清除上一请求继承的显式 effort，不硬编码 low/high。
 - 目录使用公开 llm.listProviders/listModels/resolveModelInfo；仅返回 id/name、可用性与 effort 白名单，不返回完整 adapter 配置、endpoint、authorization、凭据引用或原始异常。目录可读不代表 API key 可用，也不承诺模型调用成功。不做付费生成来探测配置。
 - 会话必须由此 Host 拥有且 idle；校验路由期间禁止 prompt、重复模型写入、history/resume。Host 用公开 resolveCallConfig 校验，再向真实 session log 提交 model/selection，通过 Agent setup 中安装的公开 installModelSelection 生效；不直接改 DSH core 或仅改 UI 标签。
@@ -36,7 +37,7 @@
 
 ## 持久默认模型与 DeepSeek 凭据
 
-首次使用的 Connect DeepSeek 是同一设置系统的精简视图，沿用 settings 操作编号、异步读取、Password 草稿清理与写后确认，只调用配置状态读取，不依赖模型目录服务；读取连接状态不能清除未经确认的模型状态。窗口启动时可在短时限内读取 configuration/get 的白名单状态，读取失败不阻止 Host 启动，用户可在连接设置中刷新。官方 provider 的可用绑定被确认缺少凭据时禁止发送；configured 仅表示存在配置，不表示认证或余额验证。获取 API key 通过系统浏览器打开固定 DeepSeek 官方平台 URL，不内嵌网页登录，也不读取浏览器凭据。
+凭据入口位于设置中心 Connection 分区；新建会话、输入区和标题栏不重复显示 Connect DeepSeek 动作。连接读取沿用 settings 操作编号、异步读取、Password 草稿清理与写后确认；独立的连接读取只调用配置状态，不依赖模型目录服务，也不能清除未经确认的模型状态。窗口启动时可在短时限内读取 configuration/get 的白名单状态，读取失败不阻止 Host 启动，用户可在连接设置中刷新。官方 provider 的可用绑定被确认缺少凭据时禁止发送；configured 仅表示存在配置，不表示认证或余额验证。获取 API key 通过系统浏览器打开固定 DeepSeek 官方平台 URL，不内嵌网页登录，也不读取浏览器凭据。
 
 - `settings.configuration` capability 只公开 `configuration/get`、`configuration/default-model`、`configuration/credential` 三个白名单方法。服务缺失不协商，旧 Host/SDK 保持原行为。UI 不读取或解析 `.env`、profile patch 或凭据文件。
 - 默认模型通过公开 `agentDefaultModel.currentSelection()` 读取，并核对 `settings.describe({redactSecrets:true})` 中固定 `agent-default-model` 行；用公开 `settings.replace` 携带预期 revision 写回完整路由。只写 provider/model/可选 reasoningEffort，空 effort 省略该字段以移除旧用户 override，不把空字符串伪装成 effort ID；恢复 base 继承值后再检查实际路由，不匹配则报告未确认并要求刷新。标准 base 未设置 effort，清除后为 provider 默认。目录校验不调用生成 API，也不承诺认证有效。

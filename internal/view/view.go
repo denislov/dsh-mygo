@@ -154,12 +154,15 @@ type Model struct {
 	RefreshSessions      func()
 	CloseSessions        func()
 	NewSession           func()
+	NewProjectSession    func(string)
 	SwitchSession        func(string)
 	CanModels            bool
 	ActiveRoute          ModelRoute
 	Catalog              ModelCatalog
 	Runtime              RuntimeState
 	SettingsOpen         bool
+	QuickSelector        string
+	QuickSearch          string
 	SettingsSection      SettingsSection
 	SettingsConnection   bool
 	SettingsBusy         bool
@@ -199,10 +202,12 @@ func NewModel() *Model {
 		ReasoningMarkdown:   markdown.Options{Theme: &markdown.Theme{FontSize: 13.5, LineHeight: 1.55}, Reveal: &markdown.Reveal{Unit: markdown.AtOnce, Fade: -1}},
 	}
 	model.List.FollowEnd = true
+	model.Markdown.CodeBlock = nativeCodeBlock
+	model.ReasoningMarkdown.CodeBlock = nativeCodeBlock
 	model.InterruptedMarkdown.CodeBlock = model.interruptedCodeBlock
 	model.Prefs = PreferencesState{Value: preferences.DefaultUI(), Ready: true}
 	model.Shell.SidebarOpen = true
-	model.Shell.DetailsOpen = true
+	model.Shell.DetailsOpen = false
 	model.Shell.ProgressOpen = true
 	model.Shell.FolderOpen = true
 	model.Shell.ContextOpen = true
@@ -251,29 +256,31 @@ func View(c *mgo.Context, model *Model) {
 	}
 	model.InterruptedMarkdown.OnLink = model.Markdown.OnLink
 	model.ReasoningMarkdown.OnLink = model.Markdown.OnLink
-	mgo.Column(c.Key("shell")).Fill().Background(theme.Background).Children(func() {
-		titleBar(c, model)
-		mgo.Row(c.Key("shell-body")).Grow(1).MinHeight(0).FillWidth().Children(func() {
-			if sidebarVisible(c, model) {
-				sessionSidebar(c, model)
-			}
-			mgo.Column(c.Key("conversation")).Grow(1).MinWidth(0).FillHeight().Children(func() {
-				if !model.RecoveryOpen {
-					localStateStatus(c, model)
+	mgo.Row(c.Key("shell")).Fill().Background(theme.Background).Children(func() {
+		if sidebarVisible(c, model) {
+			sessionSidebar(c, model)
+		}
+		mgo.Column(c.Key("conversation")).Grow(1).MinWidth(0).FillHeight().Children(func() {
+			titleBar(c, model)
+			mgo.Row(c.Key("conversation-body")).Grow(1).MinHeight(0).FillWidth().Children(func() {
+				mgo.Column(c.Key("chat")).Grow(1).MinWidth(0).FillHeight().Children(func() {
+					if !model.RecoveryOpen {
+						localStateStatus(c, model)
+					}
+					if model.Error != "" && !model.RecoveryOpen {
+						errorBanner(c, model)
+					}
+					historyControls(c, model)
+					transcript(c, model)
+					if !detailsPaneVisible(c, model) {
+						taskPanel(c, model)
+					}
+					composer(c, model)
+				})
+				if detailsPaneVisible(c, model) {
+					detailsPane(c, model)
 				}
-				if model.Error != "" && !model.RecoveryOpen {
-					errorBanner(c, model)
-				}
-				historyControls(c, model)
-				transcript(c, model)
-				if !detailsPaneVisible(c, model) {
-					taskPanel(c, model)
-				}
-				composer(c, model)
 			})
-			if detailsPaneVisible(c, model) {
-				detailsPane(c, model)
-			}
 		})
 	})
 	approvalModal(c, model)
@@ -315,11 +322,11 @@ func transcript(c *mgo.Context, model *Model) {
 	model.List.Key = func(row int) any { return rows[row].key }
 	mgo.List(c.Key("transcript-"+model.SessionID), &model.List, len(rows), func(row int) {
 		if group := rows[row].activity; group != nil {
-			activityCard(c, model, group)
+			mgo.Row(c.Key("activity-row-" + group.key)).FillWidth().Justify(mgo.Center).Children(func() { activityCard(c, model, group) })
 			return
 		}
 		message(c, model, *rows[row].item)
-	}).Grow(1).Gap(space28).Padding(space20, space28).Children(func() {
+	}).Grow(1).Gap(space24).Padding(space20, space24).Children(func() {
 		if len(rows) == 0 {
 			if model.History.Start > 0 {
 				mgo.Text(c, model.T("No visible messages in this history window.")).FontSize(13)
@@ -407,67 +414,76 @@ func transcriptItem(c *mgo.Context, model *Model, item projection.Item) {
 func card(c *mgo.Context, model *Model, item projection.Item, fromUser bool) {
 	theme := c.Theme()
 	tokens := tokensFor(theme)
-	container := mgo.Column(c).MaxWidth(readingWidth).Gap(space10)
+	container := mgo.Column(c).FillWidth().MaxWidth(readingWidth).Gap(space4)
 	if fromUser {
-		container = container.MaxWidth(620).Padding(space12, space16).Radius(radiusBubble).
-			Background(tokens.UserBubble).Selectable()
-	} else {
-		container = container.FillWidth()
+		container.AlignItems(mgo.End)
 	}
 	container.Label(model.T(item.Title))
 	var action mgo.Element
 	hasAction := false
 	container.Children(func() {
-		if item.Detail != "" {
-			mgo.Row(c).Gap(space6).AlignItems(mgo.Center).Children(func() {
-				if item.State == "streaming" {
-					mgo.Spinner(c.Key("streaming-spinner-"+item.ID)).Size(10, 10)
-				}
-				color := tokens.TextMuted
-				if item.State == "interrupted" {
-					color = tokens.Warning
-				}
-				mgo.Text(c, model.T(item.Detail)).FontSize(textMicro).TextColor(color).
-					ContentTransition(mgo.ContentTransition{})
-			})
-		}
-		if len(item.Attachments) > 0 {
-			mgo.Row(c).Wrap().Gap(space4).Children(func() {
-				for _, attachment := range item.Attachments {
-					mgo.Badge(c, attachmentLabel(model, attachment)).FontSize(textMicro).
-						Padding(space2, space8).Radius(radiusSm).
-						Background(tokens.Surface).Border(1, tokens.Border).TextColor(tokens.TextMuted)
-				}
-			})
-		}
-		if item.Truncated {
-			mgo.Text(c, model.T("Truncated message: only the visible prefix is available.")).
-				FontSize(textMicro).TextColor(tokens.Warning)
-		}
-		if fromUser || item.Truncated {
-			if item.Text != "" {
-				color := theme.Text
-				if fromUser {
-					color = tokens.UserBubbleText
-				}
-				mgo.Text(c, item.Text).FontSize(textBody).LineHeight(1.55).TextColor(color).Selectable()
-			}
-		} else if item.State == "streaming" {
-			markdown.Stream(c.Key("assistant-markdown-"+item.ID), item.Text, &model.Markdown).FillWidth()
-		} else if item.State == "interrupted" {
-			markdown.View(c.Key("assistant-markdown-"+item.ID), item.Text, &model.InterruptedMarkdown).FillWidth()
+		body := mgo.Column(c.Key("message-body")).Gap(space8)
+		if fromUser {
+			body.MaxWidth(620).Padding(space10, space16).Radius(radiusBubble).Background(tokens.UserBubble).Selectable()
 		} else {
-			markdown.View(c.Key("assistant-markdown-"+item.ID), item.Text, &model.Markdown).FillWidth()
+			body.FillWidth()
 		}
+		body.Children(func() {
+			if item.Detail != "" {
+				mgo.Row(c).Gap(space6).AlignItems(mgo.Center).Children(func() {
+					if item.State == "streaming" {
+						mgo.Spinner(c.Key("streaming-spinner-"+item.ID)).Size(10, 10)
+					}
+					color := tokens.TextMuted
+					if item.State == "interrupted" {
+						color = tokens.Warning
+					}
+					mgo.Text(c, model.T(item.Detail)).FontSize(textMicro).TextColor(color).
+						ContentTransition(mgo.ContentTransition{})
+				})
+			}
+			if len(item.Attachments) > 0 {
+				mgo.Row(c).Wrap().Gap(space4).Children(func() {
+					for _, attachment := range item.Attachments {
+						mgo.Badge(c, attachmentLabel(model, attachment)).FontSize(textMicro).
+							Padding(space2, space8).Radius(radiusSm).
+							Background(tokens.Surface).Border(1, tokens.Border).TextColor(tokens.TextMuted)
+					}
+				})
+			}
+			if item.Truncated {
+				mgo.Text(c, model.T("Truncated message: only the visible prefix is available.")).
+					FontSize(textMicro).TextColor(tokens.Warning)
+			}
+			if fromUser || item.Truncated {
+				if item.Text != "" {
+					color := theme.Text
+					if fromUser {
+						color = tokens.UserBubbleText
+					}
+					mgo.Text(c, item.Text).FontSize(textBody).LineHeight(1.55).TextColor(color).Selectable()
+				}
+			} else if item.State == "streaming" {
+				markdown.Stream(c.Key("assistant-markdown-"+item.ID), item.Text, &model.Markdown).FillWidth()
+			} else if item.State == "interrupted" {
+				markdown.View(c.Key("assistant-markdown-"+item.ID), item.Text, &model.InterruptedMarkdown).FillWidth()
+			} else {
+				markdown.View(c.Key("assistant-markdown-"+item.ID), item.Text, &model.Markdown).FillWidth()
+			}
+		})
 		if item.Text != "" {
-			mgo.Row(c).FillWidth().Justify(mgo.End).Children(func() {
+			align := mgo.Start
+			if fromUser {
+				align = mgo.End
+			}
+			mgo.Row(c.Key("message-actions")).FillWidth().Justify(align).Children(func() {
 				action = messageCopyButton(c, model, item, fromUser)
 				hasAction = true
 			})
 		}
 	})
 	if hasAction && !container.Hovered() && !container.FocusWithin() {
-		action.Opacity(0.4)
+		action.Opacity(0)
 	}
 }
 

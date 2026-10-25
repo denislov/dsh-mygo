@@ -25,7 +25,11 @@ func TestSettingsOpensAppliesAndDoesNotChangeDraft(t *testing.T) {
 	applied := 0
 	model.ApplySettings = func() { applied++; model.SettingsBusy = true; model.SettingsApplying = true }
 	tester := tester(model)
-	if err := tester.Click("Settings"); err != nil {
+	if err := tester.Click("Choose model"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Advance(300 * time.Millisecond)
+	if err := tester.Click("More settings…"); err != nil {
 		t.Fatal(err)
 	}
 	tester.Advance(300 * time.Millisecond)

@@ -7,7 +7,7 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-func TestFirstUseGuidesFolderAndConnectionWithoutSending(t *testing.T) {
+func TestComposerGuidesFolderWithoutRedundantConnectionEntry(t *testing.T) {
 	m := sessionModel()
 	m.SessionCWD, m.Draft = "C:/Projects", "keep draft"
 	m.Setup.WorkspaceRequired = true
@@ -23,11 +23,11 @@ func TestFirstUseGuidesFolderAndConnectionWithoutSending(t *testing.T) {
 	if err := tt.Click("Choose project folder"); err != nil {
 		t.Fatal(err)
 	}
-	if err := tt.Click("Connect DeepSeek"); err != nil {
-		t.Fatal(err)
+	if tt.HasText("Connect DeepSeek") {
+		t.Fatal("redundant connection entry returned")
 	}
 	_ = tt.Click("Send")
-	if sent != 0 || chosen != 1 || connected != 1 || m.Draft != "keep draft" {
+	if sent != 0 || chosen != 1 || connected != 0 || m.Draft != "keep draft" {
 		t.Fatal("setup lost draft or allowed premature send")
 	}
 	_ = tt.Click("Use this folder")
@@ -92,8 +92,8 @@ func TestFirstUseMinimumWindowKeepsFolderChoicesReachable(t *testing.T) {
 	message, _ := tt.Find("Message")
 	for _, label := range []string{"Choose project folder", "Use this folder"} {
 		r, _ := tt.Find(label)
-		if r.Y+r.H >= message.Y-8 {
-			t.Fatalf("%s overlaps composer: %+v / %+v", label, r, message)
+		if r.Y < message.Y+message.H {
+			t.Fatalf("%s should be below input: %+v / %+v", label, r, message)
 		}
 	}
 	if err := tt.Click("Choose project folder"); err != nil {

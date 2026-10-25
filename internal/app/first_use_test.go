@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"dsh-mygo/internal/view"
 )
 
 func TestProjectFolderCreatesSessionAndKeepsOldDraft(t *testing.T) {
@@ -30,6 +32,33 @@ func TestProjectFolderCreatesSessionAndKeepsOldDraft(t *testing.T) {
 	}
 	a.NewSession()
 	completeSessionJob(t, a, updates)
+}
+
+func TestProjectHeaderCreatesOnlyInCatalogDirectory(t *testing.T) {
+	folder := t.TempDir()
+	created := 0
+	client := &sessionClient{request: func(_ context.Context, method string, params any) (json.RawMessage, error) {
+		if method == "session/create" {
+			created++
+			if params.(map[string]any)["cwd"] != folder {
+				t.Error("wrong project directory")
+			}
+			return json.Marshal(map[string]any{"session": map[string]any{"id": "project", "title": "", "cwd": folder, "provider": "test", "model": "echo", "effort": "", "createdAt": 1, "updatedAt": 1, "archived": false, "status": "idle", "nextSeq": 0}})
+		}
+		return json.RawMessage(`{"events":[],"nextSeq":0,"hasMore":false}`), nil
+	}}
+	a, updates := sessionTestApp(client)
+	a.model.Sessions = []view.SessionSummary{{ID: "known", CWD: folder}}
+	a.model.Draft = "old project draft"
+	a.NewProjectSession(filepath.Join(folder, "unknown"))
+	if a.model.SessionBusy {
+		t.Fatal("arbitrary directory started navigation")
+	}
+	a.NewProjectSession(folder)
+	completeSessionJob(t, a, updates)
+	if created != 1 || a.model.SessionCWD != folder || a.drafts["original"] != "old project draft" {
+		t.Fatal("project creation lost directory or old draft")
+	}
 }
 
 func TestProjectFolderCancellationFailureAndLateReplyKeepSession(t *testing.T) {

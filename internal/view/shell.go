@@ -20,7 +20,7 @@ type ShellState struct {
 func emptyConversation(c *mgo.Context, model *Model) {
 	tokens := tokensFor(c.Theme())
 	_, height := c.Size()
-	compact := height-titleBarHeight(c) < 560 && model.Setup.ChooseFolder != nil
+	compact := height-titleBarHeight(c) < 560
 	padding := space12
 	if compact {
 		padding = 0
@@ -35,12 +35,7 @@ func emptyConversation(c *mgo.Context, model *Model) {
 			mgo.Text(c, model.T("A little context. A clear next step.")).FontSize(textBody).
 				TextColor(tokens.TextMuted).TextAlign(mgo.Center)
 		}
-		if model.Setup.ChooseFolder != nil {
-			firstUseControls(c, model)
-			if !compact && model.Draft == "" && model.Send != nil && !model.SetupBlocked() {
-				emptySuggestions(c, model)
-			}
-		} else if !compact && model.Draft == "" && model.Send != nil {
+		if !compact && model.Draft == "" && model.Send != nil && !model.SetupBlocked() {
 			emptySuggestions(c, model)
 		}
 	})

@@ -95,6 +95,10 @@ var (
 )
 
 func iconButton(c *mgo.Context, label string, icon *mgo.SVG) mgo.Element {
-	return mgo.Button(c, "").Label(label).Tooltip(label).Padding(7).Radius(8).
+	button := mgo.Button(c, "").Label(label).Tooltip(label).Padding(7).Radius(8).Background(mgo.Transparent).Border(0, mgo.Transparent).
 		Transition(quietTransition).Children(func() { mgo.Icon(c, icon).Size(17, 17) })
+	if button.Hovered() {
+		button.Background(tokensFor(c.Theme()).SurfaceHover)
+	}
+	return button
 }

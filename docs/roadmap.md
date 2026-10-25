@@ -54,7 +54,7 @@ node scripts/smoke-installer.mjs                # 未运行：本机已安装 ds
 | 流式 | `session/assistant-stream`、reasoning 临时行、提交替换、缺口/abandoned/截断；baseline 可按 capability 恢复 reasoning | `internal/projection/stream.go`、`stream-baseline.mjs`、`TestAgainstMygoRealStreaming` |
 | 人机交互 | approval 与 question 的 answerer、FIFO 队列、超时/撤销/过期身份、多问题表单 | `internal/interaction`、`TestAgainstMygoRealApprovals`、`TestAgainstMygoQuestions` |
 | 投影与渲染 | user/assistant/reasoning/tool/diff/notice、原生 Markdown 流式与代码复制、工具折叠与只读 hunk、默认折叠的活动组 | `internal/projection`、`internal/view/activity.go`、`markdown.go`、`tools.go` |
-| 会话 UI | 自绘标题栏与应用菜单、可收起日期分组侧栏、宽窗口详情面板、窄窗口 Sessions 弹窗与详情 Popover、标题搜索、归档筛选、重命名/归档/恢复；新建/刷新/恢复、草稿隔离与写入失败确认屏障 | `internal/view/chrome.go`、`sessions.go`、`session_groups.go`、`details.go`、`internal/app/session_management.go`、`TestAgainstMygoSessionManagement`、`TestAgainstMygoSessionSwitching` |
+| 会话 UI | 原生双栏框架、自绘标题栏与应用菜单、可收起项目分组侧栏、按需展开的宽窗口详情面板、窄窗口 Sessions 弹窗与详情 Popover、标题搜索、归档筛选、重命名/归档/恢复；新建/刷新/恢复、草稿隔离与写入失败确认屏障 | `internal/view/chrome.go`、`sessions.go`、`session_groups.go`、`details.go`、`internal/app/session_management.go`、`TestAgainstMygoSessionManagement`、`TestAgainstMygoSessionSwitching` |
 | 模型与设置 | `model.selection` 目录与 effort、`settings.configuration` 默认模型（revision）、DeepSeek 凭据只写 | `internal/app/settings.go`、`configuration.go`、`TestAgainstMygoConfiguration` |
 | 会话权限 | 独立能力、当前预设和实际 sandbox/approval、危险 bundle 确认、Host 公共服务切换/持久化、失败刷新门禁 | `resources/host/permissions.mjs`、`internal/app/permissions.go`、`internal/view/permissions.go`、`TestAgainstMygoPermissions` |
 | 本机编辑状态 | 按 DSH_HOME/profile 隔离的有界草稿与最近会话、原子保存/冲突检测/损坏备份、确认发送后清除、启动恢复/失败复制与异步退出保存 | `internal/preferences`、`internal/app/local_state.go`、`TestAgainstMygoLocalEditingState` |
@@ -74,6 +74,8 @@ node scripts/smoke-installer.mjs                # 未运行：本机已安装 ds
 | 崩溃恢复 | 恢复对话框、手工 Restart、`session/resume` + history 回放、`PathLogs` 日志与崩溃报告 | `internal/app/app.go`、`internal/app/crash.go`、`internal/view/recovery.go`、`TestAgainstMygoRestart` |
 | 实时缺口恢复 | `session.resync`、固定历史前缀、statusRevision 与流式 revision/activeAttempt 基线、有界缓冲/最多 3 次重读；持久/流式缺口在原 Host/会话续接，失败降级恢复 | `resources/host/history.mjs`、`stream-baseline.mjs`、`internal/app/resync.go`、`TestAgainstMygoResync` |
 | 发布签名 | 自签名证书生成与复用、MyGo `signCommand`、exe/安装器/卸载器签名、签名验证与 smoke 接入；runtime 使用 catalog SHA256 | `scripts/self-sign.mjs`、`scripts/sign-windows.mjs`、`scripts/verify-signatures.mjs`、`scripts/prepare-runtime-release.mjs` |
+
+2026-10-25 界面调整：左侧导航贯穿窗口，右侧独立标题/工具栏；消息与输入区统一阅读边界，用户气泡靠右、复制动作放到气泡外侧，助手复制靠左；会话按项目目录分组，行操作仅 hover/focus 显示；输入区提供目录切换、权限快捷列表、可搜索的模型/effort 列表与上下文用量；连接配置统一到 Settings → Connection。快捷操作沿用 Host 确认和失败刷新屏障，不新增协议。 本轮验证：`go test ./...` 和 `CGO_ENABLED=0 go test ./...` 各 514 项通过（真实集成默认跳过）；`go test -race ./internal/app ./internal/view` 317 项通过；MyGo vet、Go vet 通过；显式设置 `DSH_MYGO_DSH_DIR` 后，真实 DSH 的模型/权限/首次使用回归通过。Windows 原生窗口复核中文消息、两组项目、输入区和工具栏排版；原生点击自动化未能确认状态变更，快捷交互由 Tester + fake/真实 Host 集成验证。未重建安装器，macOS 未验证。
 
 ## 4. 缺口
 

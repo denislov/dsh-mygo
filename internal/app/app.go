@@ -213,6 +213,7 @@ func New(options Options) *App {
 	app.model.CloseSessions = app.CloseSessions
 	app.model.RefreshSessions = app.RefreshSessions
 	app.model.NewSession = app.NewSession
+	app.model.NewProjectSession = app.NewProjectSession
 	app.model.SwitchSession = app.SwitchSession
 	app.model.History.LoadEarlier = app.LoadEarlierHistory
 	app.model.History.Latest = app.ReturnToLatest

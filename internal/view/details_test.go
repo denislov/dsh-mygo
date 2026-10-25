@@ -12,12 +12,19 @@ func wideTester(model *Model) *ui.Tester {
 	return ui.NewTester(func(c *ui.Context) { View(c, model) }, 1280, 800)
 }
 
-func TestDetailsPaneOpensByDefaultOnWideWindows(t *testing.T) {
+func TestDetailsPaneOpensOnDemandOnWideWindows(t *testing.T) {
 	model := sessionModel()
 	model.SessionCWD = "C:/work/project"
 	model.Detail = "host-build-fixture"
 	model.Context = projection.ContextView{Window: 128000}
 	tt := wideTester(model)
+	tt.Frame()
+	if tt.HasText("host-build-fixture") {
+		t.Fatal("details should start collapsed")
+	}
+	if err := tt.Click("Conversation details"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Frame()
 	for _, text := range []string{"Progress", "Working folder", "Context", "C:/work/project", "host-build-fixture", "Context 128k"} {
 		if !tt.HasText(text) {
@@ -60,6 +67,10 @@ func TestWideDetailsPaneSurvivesModalWithoutReflow(t *testing.T) {
 	model := sessionModel()
 	model.SessionCWD = "C:/work/project"
 	tt := wideTester(model)
+	tt.Frame()
+	if err := tt.Click("Conversation details"); err != nil {
+		t.Fatal(err)
+	}
 	tt.Frame()
 	if err := tt.Click("Preferences"); err != nil {
 		t.Fatal(err)

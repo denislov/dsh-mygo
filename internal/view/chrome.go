@@ -41,43 +41,30 @@ func titleBar(c *mgo.Context, model *Model) {
 	bar := c.TitleBar()
 
 	row := mgo.Row(c.Key("title-bar")).FillWidth().Height(titleBarHeight(c)).Shrink(0).
-		Background(tokens.Sidebar).Padding(0, bar.Right+space8, 0, bar.Left+space8).
-		BorderWidth(0, 0, 1, 0).BorderColor(tokens.Border).
+		Background(tokens.Background).Padding(0, bar.Right+space8, 0, bar.Left+space8).
 		Gap(space2).AlignItems(mgo.Center).DragWindow()
 	row.Children(func() {
-		iconButton(c.Key("app-menu"), model.T("Menu"), iconMenu).Menu(func(menu *mgo.Menu) { titleBarMenu(menu, model, width) })
-		if width >= sidebarBreakpoint && model.CanHistory {
-			label := "Hide sidebar"
-			if !model.Shell.SidebarOpen {
-				label = "Show sidebar"
+		if !sidebarVisible(c, model) {
+			iconButton(c.Key("app-menu"), model.T("Menu"), iconMenu).Menu(func(menu *mgo.Menu) { titleBarMenu(menu, model, width) })
+			if width >= sidebarBreakpoint && model.CanHistory {
+				label := "Hide sidebar"
+				if !model.Shell.SidebarOpen {
+					label = "Show sidebar"
+				}
+				iconButton(c.Key("sidebar-toggle"), model.T(label), iconPanelLeft).OnClick(func() {
+					model.Shell.SidebarOpen = !model.Shell.SidebarOpen
+				})
 			}
-			iconButton(c.Key("sidebar-toggle"), model.T(label), iconPanelLeft).OnClick(func() {
-				model.Shell.SidebarOpen = !model.Shell.SidebarOpen
-			})
-		}
-		if width >= 760 && model.NewSession != nil {
-			iconButton(c.Key("new-chat"), model.T("New chat"), iconPlus).
-				Disabled(!model.CanChooseSession()).OnClick(model.NewSession)
 		}
 
 		mgo.Column(c.Key("title-bar-title")).Grow(1).MinWidth(0).Padding(space4, space8).Gap(space2).
 			DragWindow().Children(func() {
-			mgo.Text(c.Key("title-bar-session"), activeSessionTitle(model)).FontSize(textLabel).Bold().SingleLine()
-			mgo.Row(c).Gap(space6).AlignItems(mgo.Center).Children(func() {
-				if model.Phase == PhaseRunning || model.Phase == PhaseStarting || model.Phase == PhaseResyncing {
-					mgo.Spinner(c.Key("activity-spinner")).Size(10, 10)
-				} else {
-					mgo.Box(c.Key("activity-dot")).Size(5, 5).Radius(3).Background(phaseColor(model.Phase, theme)).Transition(quietTransition)
-				}
-				mgo.Text(c.Key("phase"), model.T(phaseLabel(model.Phase))).FontSize(textMicro).
-					TextColor(tokens.TextMuted).ContentTransition(mgo.ContentTransition{})
-			})
+			mgo.Text(c.Key("title-bar-session"), activeSessionTitle(model)).Label(model.T("Conversation title") + " · " + activeSessionTitle(model)).FontSize(textLabel).SingleLine()
 		})
-
-		if model.CanConfigure && model.Setup.Connect != nil {
-			iconButton(c.Key("connection"), model.T("Connect DeepSeek"), iconKey).
-				Disabled(!model.CanEditSettings()).OnClick(model.Setup.Connect)
+		if !sidebarVisible(c, model) {
+			mgo.Text(c.Key("phase"), model.T(phaseLabel(model.Phase))).FontSize(textMicro).TextColor(tokens.TextMuted)
 		}
+
 		if model.Inspection.Available && width >= 720 {
 			iconButton(c.Key("subagents"), model.T("Subagents"), iconAgents).
 				Disabled(!model.CanInspectSubagents()).OnClick(model.Inspection.Show)
@@ -132,11 +119,6 @@ func titleBarMenu(menu *mgo.Menu, model *Model, width float32) {
 	if model.Inspection.Available && model.Inspection.Show != nil {
 		if item := menu.Item(model.T("Subagents")).Disabled(!model.CanInspectSubagents()); item.Chosen() {
 			model.Inspection.Show()
-		}
-	}
-	if model.CanConfigure && model.Setup.Connect != nil {
-		if item := menu.Item(model.T("Connect DeepSeek")).Disabled(!model.CanEditSettings()); item.Chosen() {
-			model.Setup.Connect()
 		}
 	}
 	if model.CanOpenPreferences() {

@@ -2,63 +2,60 @@ package view
 
 import (
 	"fmt"
+	"path"
+	"runtime"
+	"strings"
 	"time"
 )
 
-type sessionGroup int
-
-const (
-	groupToday sessionGroup = iota
-	groupYesterday
-	groupPrevious7
-	groupOlder
-)
-
-func (group sessionGroup) labelKey() string {
-	switch group {
-	case groupYesterday:
-		return "Yesterday"
-	case groupPrevious7:
-		return "Previous 7 days"
-	case groupOlder:
-		return "Older"
-	default:
-		return "Today"
-	}
-}
-
-func (group sessionGroup) headerKey() string {
-	return fmt.Sprintf("header:%d", int(group))
-}
-
 // sessionListEntry is one row of the grouped session list: either a sticky
-// date header or a Host-ordered session summary.
+// project header or a Host-ordered session summary.
 type sessionListEntry struct {
 	Header  bool
-	Group   sessionGroup
 	Session SessionSummary
 	Key     string
+	Project string
 }
 
-func sessionGroupFor(now, then time.Time) sessionGroup {
-	if then.IsZero() {
-		return groupOlder
+func projectKey(cwd string) string {
+	if cwd == "" {
+		return ""
 	}
-	year, month, day := now.Date()
-	today := time.Date(year, month, day, 0, 0, 0, 0, now.Location())
-	year, month, day = then.Date()
-	that := time.Date(year, month, day, 0, 0, 0, 0, then.Location())
-	days := int(today.Sub(that).Hours() / 24)
-	switch {
-	case days <= 0:
-		return groupToday
-	case days == 1:
-		return groupYesterday
-	case days <= 7:
-		return groupPrevious7
-	default:
-		return groupOlder
+	key := path.Clean(strings.ReplaceAll(cwd, `\`, "/"))
+	if runtime.GOOS == "windows" || len(key) > 1 && key[1] == ':' || strings.HasPrefix(key, "//") {
+		key = strings.ToLower(key)
 	}
+	return key
+}
+
+func projectName(cwd string) string {
+	clean := strings.TrimRight(strings.ReplaceAll(cwd, `\`, "/"), "/")
+	if clean == "" {
+		return cwd
+	}
+	return path.Base(clean)
+}
+
+// Project order follows first occurrence, and each project's sessions retain
+// their Host order. Full paths are the identity even when names are equal.
+func (model *Model) projectSessionEntries() []sessionListEntry {
+	groups := make(map[string][]SessionSummary)
+	var order []string
+	for _, session := range model.FilteredSessions() {
+		key := projectKey(session.CWD)
+		if _, found := groups[key]; !found {
+			order = append(order, key)
+		}
+		groups[key] = append(groups[key], session)
+	}
+	var entries []sessionListEntry
+	for _, key := range order {
+		entries = append(entries, sessionListEntry{Header: true, Key: "project:" + key, Project: groups[key][0].CWD})
+		for _, session := range groups[key] {
+			entries = append(entries, sessionListEntry{Key: "session:" + session.ID, Session: session})
+		}
+	}
+	return entries
 }
 
 func relativeTimeLabel(model *Model, now time.Time, millis int64) string {
@@ -79,28 +76,4 @@ func relativeTimeLabel(model *Model, now time.Time, millis int64) string {
 	default:
 		return then.Format("01-02")
 	}
-}
-
-// sessionListEntries groups the filtered sessions by local calendar day while
-// preserving the Host's ordering inside each group.
-func (model *Model) sessionListEntries(now time.Time) []sessionListEntry {
-	sessions := model.FilteredSessions()
-	entries := make([]sessionListEntry, 0, len(sessions)+4)
-	previous := sessionGroup(-1)
-	for _, session := range sessions {
-		updated := session.UpdatedAt
-		if updated == 0 {
-			updated = session.CreatedAt
-		}
-		group := groupOlder
-		if updated > 0 {
-			group = sessionGroupFor(now, time.UnixMilli(updated))
-		}
-		if group != previous {
-			entries = append(entries, sessionListEntry{Header: true, Group: group, Key: group.headerKey()})
-			previous = group
-		}
-		entries = append(entries, sessionListEntry{Group: group, Session: session, Key: "session:" + session.ID})
-	}
-	return entries
 }

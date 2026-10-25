@@ -16,11 +16,11 @@ UI 壳层是 MyGo 进程里的原生界面：
 | 文件 | 责任 |
 | --- | --- |
 | `internal/view/view.go`、`chrome.go`、`shell.go`、`style.go`、`tokens.go` | `Model`、页面布局、原生标题栏与菜单、会话详情、transcript 行、语义主题/尺寸 token 与 SVG 图标 |
-| `internal/view/composer.go`、`attachments.go` | 一体化输入区、发送/停止、附件暂存与原生图片预览 |
+| `internal/view/composer.go`、`composer_toolbar.go`、`quick_select.go`、`attachments.go` | 一体化输入区、发送/停止、附件暂存与原生图片预览 |
 | `internal/view/preferences.go`、`internal/i18n/` | 设备级偏好、受门禁约束的命令、集中双语文案 |
 | `internal/app/app.go` | Host 启动/停止、版本握手、`session/create` / `session/prompt`、有界通知分发、`Window.Update` |
 | `internal/app/sessions.go` / `session_reader.go` | 会话操作、草稿隔离、列表/历史分页校验与后台回放 |
-| `internal/view/sessions.go`、`session_groups.go` | 原生固定侧栏、日期分组、窄窗口弹窗、标题搜索、会话管理表单与 transcript 控件重置 |
+| `internal/view/sessions.go`、`session_groups.go` | 原生固定侧栏、项目目录分组、窄窗口弹窗、标题搜索、会话管理表单与 transcript 控件重置 |
 | `internal/app/session_management.go` | 重命名、归档/取消归档、Host 确认与失败刷新屏障 |
 | `internal/app/settings.go` / `internal/view/settings.go`、`settings_center.go` | 白名单模型目录、会话级应用状态机与统一设置中心 |
 | `internal/app/configuration.go` / `internal/view/configuration.go` | 持久默认模型、只写密码凭据、配置快照校验与超时后刷新屏障 |
@@ -29,10 +29,10 @@ UI 壳层是 MyGo 进程里的原生界面：
 
 会话主界面由自绘标题栏、transcript 列表与 composer 组成：
 
-- 窗口使用 MyGo `TitleBarHidden`，保留 Windows 自绘的最小化/最大化/关闭按钮；视图通过 `c.TitleBar()` 取得系统按钮占位，标题栏整行 `DragWindow()`，操作按钮始终避开 `bar.Right`。标题栏左侧为应用菜单、侧栏开关与 New chat，中间为会话标题与连接/工作状态，右侧为连接、子代理、会话列表、界面偏好与会话详情入口；窄窗口把次要入口收进菜单。无标题时使用本地化的未命名提示，不把会话 ID 当作页面标题。模型入口放在 composer 工具条，点击沿用 Settings 的能力与写入门禁。
-- 应用菜单使用 MyGo 原生系统菜单：New conversation、Sessions、Show/Hide sidebar、Subagents、Connect DeepSeek、Settings、About dsh-mygo、Quit；不可用的能力隐藏或禁用，不提供无后端动作的菜单项。
-- 会话详情在宽度至少 1180 DIP 时显示为右侧 300 DIP 常驻面板，包含 Progress / Working folder / Context 三张可折叠卡片，展示模型完整路由、工作目录、session id、Host/DSH 版本、实际权限、usage/context、计划/目标与子代理摘要；窄窗口回退为 MyGo Popover。面板默认打开、仅由标题栏入口切换，内容有界滚动，工作期间仍可查看；打开任意 Modal 时面板保留在遮罩下且不重排，Popover 则关闭且不自动重开。两种布局共用同一只读内容，不与审批/提问/检视器叠加。
-- 聊天与输入区共享最大 780 DIP 的居中阅读宽度。助手消息直接在页面上排版，不再显示可见的角色行；用户消息使用 `UserBubble` 暖色背景、圆角与右对齐，正文使用 15.5 DIP 字号、1.62 行高，用户原文与助手 Markdown 维持各自解释规则。角色名保留为消息容器的可访问名称。复制动作位于消息下方并右对齐，默认降低不透明度、在消息 hover 或键盘焦点进入时恢复；使用带名称、Tooltip 和反馈图标的原生按钮，不以长文字按钮占据正文。
+- 窗口使用 MyGo `TitleBarHidden`，保留 Windows 自绘的最小化/最大化/关闭按钮；视图通过 `c.TitleBar()` 取得系统按钮占位，标题栏可拖动，操作按钮始终避开 `bar.Right`。根布局先垂直切分为左侧导航与右侧会话；侧栏贯穿窗口高度，顶部放应用菜单与收起按钮。右侧独立标题栏左侧显示会话标题，右侧放子代理、会话列表、界面偏好与详情工具。侧栏隐藏时导航按钮回到会话标题栏；窄窗口把次要入口收进菜单。无标题时使用本地化的未命名提示，不把会话 ID 当作页面标题。
+- 应用菜单使用 MyGo 原生系统菜单：New conversation、Sessions、Show/Hide sidebar、Subagents、Settings、About dsh-mygo、Quit；不可用的能力隐藏或禁用，不提供无后端动作的菜单项。凭据入口统一位于设置中心 Connection，不在新建会话和标题栏重复显示。
+- 会话详情在宽度至少 1180 DIP 时显示为右侧 300 DIP 面板，包含 Progress / Working folder / Context 三张可折叠卡片，展示模型完整路由、工作目录、session id、Host/DSH 版本、实际权限、usage/context、计划/目标与子代理摘要；窄窗口回退为 MyGo Popover。面板默认收起，由标题栏入口切换，内容有界滚动，工作期间仍可查看；打开任意 Modal 时面板保留在遮罩下且不重排，Popover 则关闭且不自动重开。两种布局共用同一只读内容，不与审批/提问/检视器叠加。
+- 聊天与输入区共享最大 860 DIP 的居中阅读宽度与水平留白。助手消息直接在页面上靠左排版，用户消息以自然内容宽度、最大 620 DIP 的圆角气泡靠右排版；正文使用 16 DIP 字号，助手 Markdown 使用 1.62 行高，用户原文保持字面语义。角色名保留为消息容器的可访问名称。复制动作位于正文/气泡外侧下方，用户消息靠右、助手消息靠左；平时透明，在消息 hover 或键盘焦点进入时显示。按钮保留名称、Tooltip 和复制反馈，透明时仍可通过键盘聚焦。
 
 - transcript 显示提交后的 user 消息、assistant 文本、reasoning、tool call/result 与 turn 结束通知；不显示 synthetic user context、system/developer 消息。
 - 同一回合内连续的 reasoning 与 tool 行显示为默认折叠的活动组：折叠头给出思考时长、工具数量或工具名，展开后显示思考原文与工具卡片。活动组是视图派生的展示行，工具行身份与详情入口保持不变。
@@ -52,9 +52,9 @@ UI 壳层是 MyGo 进程里的原生界面：
 - 协商 `session.history` 后，标题栏提供 Sessions，当前会话 ID 与 cwd 在会话详情中查看。侧栏或选择弹窗显示当前 profile 的有界完整摘要列表、时间、状态与目录，支持 Refresh / New conversation / 选择恢复；窄窗口用弹窗降级。旧 Host/SDK 不显示入口。
 - 会话详情显示最新一步 token 用量与路由容量（`Context 已用 / 容量 · 百分比 · In / Out · cache`），只在 Host 提供对应事件时出现；容量或用量未知时省略对应片段，不阻塞 Sessions/Settings 入口，也不参与发送或历史回放。
 - 仅 idle 且无审批/提问时允许导航。刷新可 Close/Escape 取消；历史加载期间显示 Loading、禁用发送与编辑，不能重复新建/切换或关闭弹窗。失败保留当前 transcript/草稿，弹窗中显示可重试的安全错误；审批/提问优先，不叠加会话弹窗与工具检视器。
-- 切换成功后才整体替换 transcript，清除工具展开/检视器、复制反馈、旧 ListState 和临时流式状态；transcript 与 composer 的控件身份包含 session id。草稿按会话隔离并通过设备级编辑文件恢复。新建使用启动 cwd；新建/冷恢复按 Host 默认或显式 flags 选择模型，冷恢复保持持久 cwd，仍由 Host 持有的会话保持原路由。
+- 切换成功后才整体替换 transcript，清除工具展开/检视器、复制反馈、旧 ListState 和临时流式状态；transcript 与 composer 的控件身份包含 session id。草稿按会话隔离并通过设备级编辑文件恢复。新建沿用当前会话 cwd，项目分组的加号明确指定该组 Host 摘要的 cwd；新建/冷恢复按 Host 默认或显式 flags 选择模型，冷恢复保持持久 cwd，仍由 Host 持有的会话保持原路由。
 - 设置中心的 Runtime 分区管理本机 DSH 后端：当前/已安装/可下载条目、Use/Remove、检测已安装 DSH、从文件安装与检查更新；不依赖 Host，下载/安装/切换期间锁定关闭，详见下文“设置中心 Runtime 分区”。
-- 设置中心的 Conversation model 分区提供当前会话模型面板：provider、模型目录建议、实际 Model ID、effort 与 Refresh/Apply model/Close。只在 idle 无交互、无会话操作时启用，Host 确认后显示新模型；读取可取消，提交期间防重复/禁止关闭，失败保留表单和草稿。分区正文可滚动，底部操作始终可达；composer 的模型入口直接打开该分区，标题栏的 Preferences 入口打开 General，避免窄窗口挤掉常用操作。
+- 设置中心的 Conversation model 分区提供当前会话模型面板：provider、模型目录建议、实际 Model ID、effort 与 Refresh/Apply model/Close。只在 idle 无交互、无会话操作时启用，Host 确认后显示新模型；读取可取消，提交期间防重复/禁止关闭，失败保留表单和草稿。分区正文可滚动，底部操作始终可达；composer 的模型入口打开快捷列表，More settings 转入该分区，标题栏的 Preferences 入口打开 General，避免窄窗口挤掉常用操作。
 - 协商 settings.configuration 后，Settings 可滚动区域增加 Save selection as default、DeepSeek 凭据状态、Password 输入与确认清除；操作范围、存储与默认 flags 优先级以 [设置与凭据](settings-credentials.md) 为准。密码提交/刷新/关闭后清空并更换稳定 key；写入期间不能关闭或重复操作，超时/失败后禁止发送/导航，必须 Refresh 确认。底部 Close/Refresh/Apply 始终可达。
 
 ## 视图模型
@@ -97,18 +97,18 @@ App
 ### 会话主界面
 
 ```text
-┌──────────────────────────────────────────────────────────────┐
-│ Title bar: ☰ / sidebar / new chat │ title + status │ actions │
-├───────────────┬──────────────────────────────────┬───────────┤
-│ Sidebar       │ Transcript (ui.List)             │ Details   │
-│ 新建          │  turn / assistant / tool / diff  │ Progress  │
-│ 搜索/筛选     ├──────────────────────────────────┤ Folder    │
-│ 日期分组会话  │ Composer: 输入 / 附件 / @引用     │ Context   │
-│ 状态/设置     │                                  │ (≥1180)   │
+┌───────────────┬──────────────────────────────────────────────┐
+│ ☰ / Sidebar   │ 会话标题                         工具/系统按钮 │
+│ 新建          ├──────────────────────────────────┬───────────┤
+│ 搜索/筛选     │ Transcript (ui.List)             │ Details   │
+│ 项目分组会话  │  user / assistant / activity     │ (按需展开)│
+│               ├──────────────────────────────────┤           │
+│               │ Composer: 附件 / 输入 / 发送      │           │
+│ 状态/设置     │ 项目 / 权限     模型 / 上下文     │           │
 └───────────────┴──────────────────────────────────┴───────────┘
 ```
 
-宽窗口右侧显示常驻详情栏；窄窗口以 Popover 提供同一内容。plan/todo/子代理/文件都进入该详情栏，不再另开并列面板。
+宽窗口可按需展开右侧详情栏；窄窗口以 Popover 提供同一内容。plan/todo/子代理/文件进入该详情栏，不再另开并列面板。
 
 ## 聊天渲染
 
@@ -146,11 +146,11 @@ App
 
 ### 首次使用与工作文件夹
 
-- 空会话显示工作文件夹、Choose project folder 与直接连接设置入口。文件夹选择使用 MyGo 原生 Directory 对话框，主线程只发布状态；打开期间禁止发送、切换会话和冲突设置操作。取消保持原会话，非法/不可访问路径显示固定错误；迟到结果用 Host generation、会话身份与 picking 状态隔离。
-- 选择不同文件夹通过现有 session/create 新建会话，不修改旧会话 header、草稿或历史。此后 New conversation 使用当前会话文件夹；历史会话通过 Host 的持久 header 恢复自己的目录。创建失败保留原正文/草稿，并在空会话引导中展示可重试错误。
+- 输入区下方持续显示工作文件夹与 Choose project folder 入口，空会话和有历史会话共用；新建会话不提供单独的连接入口。文件夹选择使用 MyGo 原生 Directory 对话框，主线程只发布状态；打开期间禁止发送、切换会话和冲突设置操作。取消保持原会话，非法/不可访问路径显示固定错误；迟到结果用 Host generation、会话身份与 picking 状态隔离。
+- 选择不同文件夹通过现有 session/create 新建会话，不修改旧会话 header、草稿或历史。此后 New conversation 使用当前会话文件夹；历史会话通过 Host 的持久 header 恢复自己的目录。创建失败保留原正文/草稿，并在输入区下方展示可重试错误。
 - 安装版未显式指定 cwd 的空会话需选择或确认显示的文件夹后才发送。新建同目录空会话不绕过确认；恢复含消息的会话直接沿用持久目录。空会话没有新增本机完成标记，重开空会话可以再次要求确认。
-- Connect DeepSeek 复用设置生命周期、Password 输入和 configuration/credential，只显示连接必需的状态、保存、获取 API key 链接与本机存储说明；模型/权限仍在完整会话设置中。输入区域不展示凭据引用或内部 source 标识。已知官方 provider 缺少可配置凭据时禁发；旧 Host、其他 provider 与未知状态不据此推断认证有效性。
-- 文件夹选择保留原会话草稿，密钥配置不清空当前草稿。空会话引导使用 MyGo Scroll，占据输入区上方的剩余空间；小窗口收起装饰标题，长错误可滚动查看，不被输入框遮住。最小窗口保持文件夹动作、密码输入、保存和关闭可达；原生菜单、翻译、焦点和禁用行为由 MyGo 组件提供。
+- DeepSeek 凭据在 Settings → Connection 中配置，沿用 Password 输入和 configuration/credential 生命周期，只显示必需的状态、保存、获取 API key 链接与本机存储说明；输入区不展示凭据引用或内部 source 标识。已知官方 provider 缺少可配置凭据时禁发，并显示前往设置连接分区的文字提示；旧 Host、其他 provider 与未知状态不据此推断认证有效性。
+- 文件夹选择保留原会话草稿，密钥配置不清空当前草稿。文件夹确认、选择进度与错误位于输入区下方；小窗口收起空会话装饰标题，保持目录、输入和发送动作可达。原生菜单、翻译、焦点和禁用行为由 MyGo 组件提供。
 
 ### 子代理详情
 
@@ -186,7 +186,10 @@ App
 ## 输入区
 
 - 多行文本：`ui.TextArea` / `ui.TextAreaBuffer`；大草稿用 `ui.TextBuffer`；支持输入法、选区、撤销。
-- composer 将 TextArea、图片暂存、附件/模型工具条和发送/停止整合在一个 `SurfaceRaised` 浮动卡片中（圆角 22、1 DIP 边框、floating 阴影）；外层响应 FocusWithin 显示赤陶橙焦点边框。TextArea 清除组件的默认最小高度，使用 Lines 约束并在小窗口收紧最大行数；附件以圆角 chip 展示并独立限高滚动，快捷键提示位于表面下方。发送为圆形主按钮，附件与模型 chip 使用低强调悬停态。
+- composer 使用圆角 18、1 DIP 边框的输入表面，TextArea 与左侧附件按钮、右侧发送/停止按钮处于同一行。TextArea 清除组件的默认最小高度，按窗口收紧最大行数；暂存图片独立限高滚动。下方工具区左侧是项目目录与权限，右侧是模型/effort 与上下文容量和使用百分比；窄窗口自动换行，不把控件推出窗口。
+- 模型按钮使用锚定输入区的原生 Popover，提供 provider 切换、搜索、可滚动模型列表、当前项勾选和当前模型支持的 effort。选择直接调用现有 model/select 并等待 Host 确认，读取与写入复用设置操作编号、门禁和错误刷新屏障。More settings 转入完整 Conversation model 设置；读取时可关闭，写入时禁止关闭，迟到读取不能重新打开列表。
+- 权限按钮独立显示当前模式，Popover 列出 Host 声明的选项和实际 sandbox/approval；危险选项要求默认不勾选的确认，再显式 Apply。确认后等待 Host 快照再关闭，失败保留选择并要求刷新；不根据预设名称推断危险程度。两种快捷列表在审批/提问/恢复界面出现时让位，不叠加显示。
+
 - Enter 发送，Shift+Enter 换行；可在设置中交换。
 - 附件：粘贴/拖放/选择文件；图片走 `session/prompt` 的 image 块；路径引用走 `@path`。粘贴用 `OnPaste` + `mygo.Clipboard.ReadImage`/`ReadFiles`，拖放用 `DroppedFiles`/`FileDragOver`（窗口级 `OnFileDrop` 兜底），选择用 `mygo.Dialog.Open`（在 goroutine 打开，结果经 `Window.Update` 发布）。待发图片进入当前草稿的暂存列表，发送前按协商上限校验类型、单图、总量与数量；超限或失败保留草稿与暂存图片并显示可读原因。暂存图片不写入本地草稿文件，切换会话或重启后清空。
 - `@` 引用：用 `TextSelection` 定位光标处的 `@token`，`ui.Popover` 锚定输入区列出匹配路径（MyGo 不提供 TextArea 光标矩形）；Up/Down/Tab/Escape 在 `OnTextKey` 中消费；选中后替换 token 为 `@path`。引用只是文本，发送时不复制文件内容，Host 与 UI 同机。
@@ -205,13 +208,14 @@ App
 
 ## 会话列表
 
-- 会话列表读取 `session/list` 的固定快照并加载全部有界摘要，遵守 Host 的排序，不自行按 UI 活动时间重排；没有标题时显示短 session id。冷检查点显示 Cached metadata；缺失或损坏显示 Open to rebuild metadata，不能将回退创建时间称为精确最近活动。目录只用于显示，不通过 UI 读取文件或改写持久 cwd。
+- 会话列表读取 `session/list` 的固定快照并加载全部有界摘要，按项目目录分组，组内遵守 Host 的排序，不自行按 UI 活动时间重排；没有标题时显示短 session id。冷检查点显示 Cached metadata；缺失或损坏显示 Open to rebuild metadata，不能将回退创建时间称为精确最近活动。目录只用于显示，不通过 UI 读取文件或改写持久 cwd。
 - 启动从设备级编辑状态选择最近会话，握手后尝试恢复并回放历史；没有最近会话或恢复失败时新建，失败保留旧草稿并提示重试或显式复制到当前编辑框。正文来自 Host，分页完成后才允许发送。后台加载摘要不阻塞发送，新导航或发送取消过期列表操作。
 - 列表包含 profile persistence 可见的根/分叉会话，不按工作目录筛选，不展示 subagent；不同目录明确显示。冷会话 stored 不代表未被其他进程占用，恢复失败可重试，不能绕过单写者约束。
 - 支持新建、刷新、恢复与空/错误/加载状态；最多加载 1000 条摘要。Host 数量与资源限制见 [通道协议](channel-protocol.md#host-历史能力)。
 - 侧栏固定展示会话列表，支持搜索、标题编辑、归档/删除、fork 与更大目录检索；不提供无后端能力的假按钮。
-- 窗口宽度至少 820 时显示宽 260 的固定侧栏，可由标题栏开关收起；窄窗口通过 Sessions 打开弹窗，操作区保持可达。两种布局共用搜索、筛选、表单草稿与按 session id 绑定的列表身份，切换布局不提交表单或丢失输入。标题搜索使用 MyGo SearchField，在有界摘要上做大小写不敏感匹配，不搜索正文；列表按 Host 顺序展示标题、相对更新时间与状态，按本地日历日插入 Today / Yesterday / Previous 7 days / Older 粘性分组头，只分组不重排；目录和缓存提示在 Tooltip 中提供，选择弹窗另显示目录。当前行以 `AccentSoft` 背景与左侧强调条区分；归档筛选使用原生菜单，重命名、归档/恢复放入各行带名称的原生系统菜单，菜单选择时再次校验能力和 busy 门禁。
-- 侧栏顶部为品牌行、New conversation、标题搜索、归档筛选与 Refresh，底部显示当前连接状态与设置入口；入口不可用时禁用，不隐藏能力门控。
+- 窗口宽度至少 820 时显示宽 280 的固定侧栏，可由侧栏顶部开关收起；窄窗口通过 Sessions 打开弹窗。两种布局共用搜索、筛选、表单草稿与按 session id 绑定的列表身份。标题搜索使用 MyGo SearchField，只搜索有界摘要。列表按规范化完整 cwd 分组，目录分隔符统一，Windows 路径不区分大小写；项目按首次出现顺序、组内按 Host 顺序排列，不混淆同名的不同目录。项目头显示末级目录名，Tooltip 提供完整路径，加号在该项目中新建会话；无 cwd 的项归入 Other conversations。
+- 侧栏列表只显示紧凑标题，时间/状态/缓存提示保留在 Tooltip 与选择弹窗，当前行使用中性背景。各行菜单按钮保留布局和键盘焦点，平时透明，整行 hover 或 focus 时显示；重命名、归档/恢复使用原生菜单，选择动作时再次校验能力与 busy 门禁。侧栏顶部为 New conversation、标题搜索、归档筛选与 Refresh，底部显示当前连接状态与设置入口。
+
 - UI 分别协商 `session.rename` 与 `session.archive`，入口随能力显示。取消归档通过同一归档方法的 `archived:false`；目录请求在支持归档时携带 `includeArchived:true`，由 Show archived 本地筛选。归档会话的打开按钮禁用，先恢复再打开；重命名表单按目标会话 id 绑定，冷目标在后台 resume 取得 Host 单写者句柄后再 rename，不切换当前正文、模型或草稿。
 - 归档前提供目标操作确认，写入中不能关闭、切换、新建或重复提交。当前会话归档后保留可读正文及草稿，显示归档提示并禁用发送，允许新建、切换或恢复。Host 重启遇到已知归档的当前会话时新建会话，旧草稿留在原 id 下，不自动取消归档；恢复旧会话后取回该草稿。
 - 协商 session.release 时，下一次导航/管理操作前释放非当前和非目标的退休句柄，不把所有访问过的会话长期保活。目标验证失败保留当前 Agent，目标句柄待后续回收；后台重命名同样纳入回收。已释放会话重新打开采用冷恢复路由；紧邻返回、仍被拥有的会话保持原路由。释放不删除日志/草稿，也不改变归档状态。
@@ -230,7 +234,7 @@ App
 | Shortcuts | 发送键与三个可配置命令 | 本地偏好 |
 | About | App 版本、Host/DSH、session id | 本地 + `initialize.server` |
 
-General、Shortcuts、About 不依赖 Host 能力；Conversation、Permissions、Connection 分别按模型目录、权限能力与配置能力显示。标题栏 Preferences、Ctrl+, 与菜单 Settings 打开 General；composer 模型 chip 打开 Conversation；首次使用 Connect DeepSeek 打开仅含 Connection 的精简模式。切换宿主机分区时在点击回调里触发 RefreshSettings，不在渲染期读取。
+General、Shortcuts、About 不依赖 Host 能力；Conversation、Permissions、Connection 分别按模型目录、权限能力与配置能力显示。标题栏 Preferences、Ctrl+, 与菜单 Settings 打开 General；composer 模型 chip 打开快捷列表，More settings 打开 Conversation；凭据通过 Connection 分区配置。切换宿主机分区时在点击回调里触发 RefreshSettings，不在渲染期读取。
 
 其余 DSH 设置通过 `settings/get` / `settings/set` 接入；不要一次性复刻 Web 设置页。所有权与凭据规则见 [设置与凭据](settings-credentials.md)。
 

@@ -114,6 +114,16 @@ func (a *App) refreshSessions(background bool) {
 
 func (a *App) NewSession() { a.loadSession("") }
 
+// NewProjectSession only accepts a directory from the Host's visible catalog.
+func (a *App) NewProjectSession(cwd string) {
+	for _, session := range a.model.Sessions {
+		if session.CWD == cwd && cwd != "" {
+			a.loadSessionInDirectory("", cwd)
+			return
+		}
+	}
+}
+
 func (a *App) SwitchSession(id string) {
 	if !validSessionID(id) || !a.canChooseSession() {
 		return

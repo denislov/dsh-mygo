@@ -12,6 +12,12 @@ func Text(locale, key string) string {
 }
 
 var chinese = map[string]string{
+	"Conversation title":  "会话标题",
+	"Other conversations": "其他会话", "New conversation in project": "在项目中新建会话",
+	"Choose model": "选择模型", "Choose permissions": "切换权限", "Search models": "搜索模型", "No matching models.": "没有匹配的模型。",
+	"Close selector": "关闭选择器", "More settings…": "更多设置…", "Loading settings…": "正在加载设置…",
+	"Use model · ": "使用模型 · ", "Permission option · ": "权限选项 · ",
+	"Describe a task or ask a question": "描述任务或提出问题", "Add an API key in Settings → Connection": "请在设置 → 连接中添加 API key",
 	"Loading connection settings…": "正在加载连接设置…",
 	"Get API key":                  "获取 API key",
 	"Working folder":               "工作文件夹", "Choose project folder": "选择项目文件夹", "Use this folder": "使用此文件夹", "Choosing a project folder…": "正在选择项目文件夹…",
@@ -33,7 +39,7 @@ var chinese = map[string]string{
 	"Thought for %s":                             "思考了 %s",
 	"Worked for %s":                              "工作了 %s",
 	"%d tools":                                   "%d 个工具", "%d tool": "%d 个工具",
-	"Conversation details":                       "会话详情", "Conversation actions": "会话操作", "Conversation actions · ": "会话操作 · ",
+	"Conversation details": "会话详情", "Conversation actions": "会话操作", "Conversation actions · ": "会话操作 · ",
 	"Working directory": "工作目录", "Session ID": "会话 ID", "Runtime": "运行环境", "Model": "模型",
 	"A little context. A clear next step.": "从一个想法开始，一起推进下一步。",
 	"Summarize this project":               "总结这个项目", "Suggest the next step": "建议下一步", "Explain the codebase": "解释代码库结构",
@@ -84,7 +90,7 @@ var chinese = map[string]string{
 	"Cached metadata": "缓存的会话信息", "Cancel archive": "取消归档操作", "Cancel question": "取消回答", "Cancel rename": "取消重命名",
 	"Catalog model": "目录中的模型", "Catalog suggestion (optional)": "目录建议（可选）", "Clear managed key": "清除已保存的密钥",
 	"Close": "关闭", "Close details": "关闭详情", "Confirm removing the managed key": "确认移除已保存的密钥",
-	"Conversation title": "会话标题", "Conversations": "会话", "Copy code": "复制代码", "Copy previous draft here": "将之前的草稿复制到这里",
+	"Conversations": "会话", "Copy code": "复制代码", "Copy previous draft here": "将之前的草稿复制到这里",
 	"Current conversation only · saved in session history": "仅当前会话 · 保存于会话历史",
 	"DeepSeek API credential":                              "DeepSeek API 凭据", "Deny": "拒绝", "Dismiss": "关闭提示", "Effort": "推理强度",
 	"Enter sends, Shift+Enter adds a line.":                              "Enter 发送，Shift+Enter 换行。",

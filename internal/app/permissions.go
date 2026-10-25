@@ -99,6 +99,10 @@ func (a *App) ApplyPermission() {
 			}
 			a.model.Permission.Accept(snapshot)
 			a.model.SettingsNotice = "Permissions saved for this conversation."
+			if a.model.QuickSelector == "permission" {
+				a.model.SettingsOpen = false
+				a.model.QuickSelector = ""
+			}
 		})
 	}()
 }

@@ -86,6 +86,7 @@ func (model *Model) OpenSettingsAt(section SettingsSection) {
 	}
 	model.SettingsSection = section
 	model.SettingsConnection = false
+	model.QuickSelector = ""
 	model.SettingsOpen = true
 }
 
@@ -127,6 +128,7 @@ func (model *Model) closeSettingsCenter() {
 		model.SettingsConnection = false
 	}
 	model.SettingsSection = SettingsSectionConversation
+	model.QuickSelector = ""
 }
 
 func settingsSectionLabel(model *Model, section SettingsSection) string {
@@ -197,7 +199,7 @@ func settingsSectionTitle(model *Model, section SettingsSection) string {
 }
 
 func settingsCenterModal(c *mgo.Context, model *Model) {
-	if !model.SettingsOpen || model.RecoveryOpen || len(model.Approvals) > 0 || len(model.Questions) > 0 {
+	if !model.SettingsOpen || model.QuickSelector != "" || model.RecoveryOpen || len(model.Approvals) > 0 || len(model.Questions) > 0 {
 		return
 	}
 	width, height := c.Size()
