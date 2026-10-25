@@ -194,9 +194,9 @@ type Model struct {
 // row state by item ID.
 func NewModel() *Model {
 	model := &Model{Phase: PhaseStarting,
-		Markdown:            markdown.Options{Theme: &markdown.Theme{FontSize: 15, LineHeight: 1.55}, Reveal: &markdown.Reveal{Unit: markdown.AtOnce, Fade: -1}},
-		InterruptedMarkdown: markdown.Options{Theme: &markdown.Theme{FontSize: 15, LineHeight: 1.55}},
-		ReasoningMarkdown:   markdown.Options{Theme: &markdown.Theme{FontSize: 13, LineHeight: 1.5}, Reveal: &markdown.Reveal{Unit: markdown.AtOnce, Fade: -1}},
+		Markdown:            markdown.Options{Theme: &markdown.Theme{FontSize: textReading, LineHeight: 1.62}, Reveal: &markdown.Reveal{Unit: markdown.AtOnce, Fade: -1}},
+		InterruptedMarkdown: markdown.Options{Theme: &markdown.Theme{FontSize: textReading, LineHeight: 1.62}},
+		ReasoningMarkdown:   markdown.Options{Theme: &markdown.Theme{FontSize: 13.5, LineHeight: 1.55}, Reveal: &markdown.Reveal{Unit: markdown.AtOnce, Fade: -1}},
 	}
 	model.List.FollowEnd = true
 	model.InterruptedMarkdown.CodeBlock = model.interruptedCodeBlock
@@ -319,7 +319,7 @@ func transcript(c *mgo.Context, model *Model) {
 			return
 		}
 		message(c, model, *rows[row].item)
-	}).Grow(1).Gap(space24).Padding(space20, space24).Children(func() {
+	}).Grow(1).Gap(space28).Padding(space20, space28).Children(func() {
 		if len(rows) == 0 {
 			if model.History.Start > 0 {
 				mgo.Text(c, model.T("No visible messages in this history window.")).FontSize(13)
@@ -340,12 +340,15 @@ func markdownTheme(c *mgo.Context) *markdown.Theme {
 	theme := c.Theme()
 	tokens := tokensFor(theme)
 	options := markdown.DefaultTheme(theme)
-	options.FontSize = textBody
-	options.LineHeight = 1.55
+	options.FontSize = textReading
+	options.LineHeight = 1.62
+	options.BlockSpacing = 0.9
 	options.CodeBackground = tokens.CodeBackground
 	options.CodeBlockBackground = tokens.CodeBackground
 	options.CodeBlockBorder = tokens.Border
+	options.CodeBlockRadius = radiusMd
 	options.QuoteBar = tokens.Border
+	options.QuoteBarWidth = 3
 	options.Rule = tokens.Border
 	options.Mark = tokens.AccentSoft
 	return options
@@ -357,14 +360,16 @@ func reasoningMarkdownTheme(c *mgo.Context) *markdown.Theme {
 	theme := c.Theme()
 	tokens := tokensFor(theme)
 	options := markdown.DefaultTheme(theme)
-	options.FontSize = 13
-	options.LineHeight = 1.5
-	options.Text = tokens.TextMuted
+	options.FontSize = 13.5
+	options.LineHeight = 1.55
+	options.BlockSpacing = 0.75
+	options.Text = tokens.ReasoningText
 	options.Muted = tokens.TextFaint
 	options.CodeBackground = tokens.CodeBackground
 	options.CodeBlockBackground = tokens.CodeBackground
 	options.CodeBlockBorder = tokens.Border
-	options.QuoteBar = tokens.Border
+	options.CodeBlockRadius = radiusSm
+	options.QuoteBar = tokens.ReasoningRail
 	options.Rule = tokens.Border
 	options.Mark = tokens.AccentSoft
 	return options
@@ -382,7 +387,7 @@ func transcriptItem(c *mgo.Context, model *Model, item projection.Item) {
 		})
 	case projection.KindTool:
 		mgo.Row(c).Key(item.ID).FillWidth().Children(func() {
-			toolCard(c, model, item)
+			toolCard(c, model, item, false)
 		})
 	case projection.KindReasoning:
 		mgo.Row(c).Key(item.ID).FillWidth().Children(func() {
@@ -402,9 +407,9 @@ func transcriptItem(c *mgo.Context, model *Model, item projection.Item) {
 func card(c *mgo.Context, model *Model, item projection.Item, fromUser bool) {
 	theme := c.Theme()
 	tokens := tokensFor(theme)
-	container := mgo.Column(c).MaxWidth(readingWidth).Gap(space8)
+	container := mgo.Column(c).MaxWidth(readingWidth).Gap(space10)
 	if fromUser {
-		container = container.MaxWidth(600).Padding(space12, space16).Radius(radiusXl).
+		container = container.MaxWidth(620).Padding(space12, space16).Radius(radiusBubble).
 			Background(tokens.UserBubble).Selectable()
 	} else {
 		container = container.FillWidth()
@@ -466,11 +471,20 @@ func card(c *mgo.Context, model *Model, item projection.Item, fromUser bool) {
 	}
 }
 
-func toolCard(c *mgo.Context, model *Model, item projection.Item) {
+func toolCard(c *mgo.Context, model *Model, item projection.Item, nested bool) {
 	tokens := tokensFor(c.Theme())
 	state := model.toolCardState(item.ID)
-	card := surfaceCard(c, "tool-card-"+item.ID).FillWidth().MaxWidth(readingWidth).
-		Padding(space8, space12).Gap(space4).Selectable()
+	var card mgo.Element
+	if nested {
+		card = mgo.Column(c.Key("tool-card-"+item.ID)).FillWidth().Padding(space4, space8).Gap(space4).
+			Radius(radiusSm).Transition(quietTransition).Selectable()
+		if card.Hovered() {
+			card.Background(tokens.ActivityHover)
+		}
+	} else {
+		card = surfaceCard(c, "tool-card-"+item.ID).FillWidth().MaxWidth(readingWidth).
+			Padding(space8, space12).Gap(space4).Selectable()
+	}
 	card.Children(func() {
 		disclosure := mgo.CollapsibleBase(c, &state.Expanded)
 		disclosure.Trigger.FillWidth().Gap(space8).AlignItems(mgo.Center).Padding(space2, 0).
@@ -492,7 +506,12 @@ func toolCard(c *mgo.Context, model *Model, item projection.Item) {
 				if item.Detail != "" {
 					mgo.Text(c, item.Detail).FontSize(textCaption).TextColor(tokens.Text)
 				}
-				if mgo.Button(c.Key("tool-details-"+item.ID), model.T("View details")).Clicked() {
+				details := mgo.Button(c.Key("tool-details-"+item.ID), model.T("View details")).Padding(space2, space6).
+					Radius(radiusXs).Background(mgo.Transparent).TextColor(tokens.TextMuted).Transition(quietTransition)
+				if details.Hovered() {
+					details.Background(tokens.SurfaceHover)
+				}
+				if details.Clicked() {
 					model.OpenToolDetails(item.ID)
 				}
 			})

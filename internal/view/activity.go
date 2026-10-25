@@ -90,8 +90,12 @@ func activityCard(c *mgo.Context, model *Model, group *activityGroup) {
 	tokens := tokensFor(c.Theme())
 	state := model.activityState(group.key)
 	summary, running, failed := model.activitySummary(group)
-	card := surfaceCard(c, "activity-card-"+group.key).FillWidth().MaxWidth(readingWidth).
-		Padding(space6, space12).Gap(space2).Selectable()
+	card := mgo.Column(c.Key("activity-card-"+group.key)).FillWidth().MaxWidth(readingWidth).
+		Padding(space8, space12).Gap(space2).Radius(radiusLg).
+		Background(tokens.ActivitySurface).Transition(quietTransition).Selectable()
+	if card.Hovered() {
+		card.Background(tokens.ActivityHover)
+	}
 	card.Children(func() {
 		disclosure := mgo.CollapsibleBase(c, &state.Expanded)
 		disclosure.Trigger.FillWidth().Gap(space8).AlignItems(mgo.Center).Padding(space2, 0).Label(summary)
@@ -109,12 +113,13 @@ func activityCard(c *mgo.Context, model *Model, group *activityGroup) {
 		})
 		disclosure.Panel(func() {
 			mgo.Column(c.Key("activity-body-"+group.key)).Gap(space8).Padding(space8, 0, space2, 0).Children(func() {
+				mgo.Divider(c)
 				for _, item := range group.items {
 					switch item.Kind {
 					case projection.KindReasoning:
 						reasoningBlock(c, model, item)
 					case projection.KindTool:
-						toolCard(c, model, item)
+						toolCard(c, model, item, true)
 					}
 				}
 			})
@@ -124,7 +129,7 @@ func activityCard(c *mgo.Context, model *Model, group *activityGroup) {
 
 func reasoningBlock(c *mgo.Context, model *Model, item projection.Item) {
 	tokens := tokensFor(c.Theme())
-	mgo.Column(c.Key("reasoning-"+item.ID)).FillWidth().Gap(space4).Children(func() {
+	mgo.Column(c.Key("reasoning-"+item.ID)).FillWidth().Gap(space4).Padding(space2, space8).Children(func() {
 		if item.State == "streaming" {
 			markdown.Stream(c.Key("reasoning-markdown-"+item.ID), item.Text, &model.ReasoningMarkdown).FillWidth()
 		} else {

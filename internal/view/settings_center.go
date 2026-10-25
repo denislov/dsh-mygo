@@ -201,6 +201,7 @@ func settingsCenterModal(c *mgo.Context, model *Model) {
 		return
 	}
 	width, height := c.Size()
+	tokens := tokensFor(c.Theme())
 	contentWidth := min(float32(760), width-80)
 	contentHeight := min(float32(560), height-80)
 	section := model.activeSettingsSection()
@@ -220,22 +221,25 @@ func settingsCenterModal(c *mgo.Context, model *Model) {
 				mgo.Column(c.Key("settings-content")).Grow(1).MinWidth(0).FillHeight().Gap(space6).Children(func() {
 					settingsStatus(c, model)
 					mgo.Scroll(c.Key("settings-body-scroll")).Grow(1).MinHeight(0).FillWidth().Children(func() {
-						switch section {
-						case SettingsSectionGeneral:
-							generalSettingsPage(c, model)
-						case SettingsSectionShortcuts:
-							shortcutSettingsPage(c, model)
-						case SettingsSectionPermissions:
-							permissionSettingsPage(c, model, disabled)
-						case SettingsSectionConnection:
-							connectionSettingsPage(c, model, disabled)
-						case SettingsSectionRuntime:
-							runtimeSettingsPage(c, model)
-						case SettingsSectionAbout:
-							aboutSettingsPage(c, model)
-						default:
-							conversationSettingsPage(c, model, disabled)
-						}
+						mgo.Column(c.Key("settings-body-card")).FillWidth().Padding(space16).Gap(space10).
+							Radius(radiusLg).Background(tokens.SurfaceRaised).Border(1, tokens.Border).Children(func() {
+							switch section {
+							case SettingsSectionGeneral:
+								generalSettingsPage(c, model)
+							case SettingsSectionShortcuts:
+								shortcutSettingsPage(c, model)
+							case SettingsSectionPermissions:
+								permissionSettingsPage(c, model, disabled)
+							case SettingsSectionConnection:
+								connectionSettingsPage(c, model, disabled)
+							case SettingsSectionRuntime:
+								runtimeSettingsPage(c, model)
+							case SettingsSectionAbout:
+								aboutSettingsPage(c, model)
+							default:
+								conversationSettingsPage(c, model, disabled)
+							}
+						})
 					})
 				})
 			})
@@ -268,6 +272,9 @@ func settingsNav(c *mgo.Context, model *Model, active SettingsSection) {
 				Disabled(model.SettingsApplying || model.SettingsWritingConfiguration || model.Permission.Writing ||
 					model.Runtime.Busy || model.Runtime.Switching).
 				OnClick(func() { model.selectSettingsSection(section) })
+			if section != active && button.Hovered() {
+				button.Background(tokens.SurfaceHover)
+			}
 			button.Children(func() {
 				mgo.Row(c).FillWidth().Justify(mgo.Start).Children(func() {
 					mgo.Text(c, settingsSectionLabel(model, section)).FontSize(textCaption).SingleLine()

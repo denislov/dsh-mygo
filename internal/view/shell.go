@@ -25,9 +25,12 @@ func emptyConversation(c *mgo.Context, model *Model) {
 	if compact {
 		padding = 0
 	}
-	mgo.Column(c.Key("empty-conversation")).FillWidth().AlignItems(mgo.Center).Gap(space8).Padding(padding).Children(func() {
+	mgo.Column(c.Key("empty-conversation")).FillWidth().AlignItems(mgo.Center).Gap(space12).Padding(padding).Children(func() {
 		if !compact {
-			mgo.Icon(c, iconSpark).Size(22, 22).TextColor(tokens.Accent)
+			mgo.Column(c.Key("empty-spark")).Size(44, 44).Radius(radiusPill).
+				Background(tokens.AccentSoft).Justify(mgo.Center).AlignItems(mgo.Center).Children(func() {
+				mgo.Icon(c, iconSpark).Size(21, 21).TextColor(tokens.Accent)
+			})
 			mgo.Text(c, model.T("Start a conversation")).FontSize(textDisplay).Bold().TextAlign(mgo.Center)
 			mgo.Text(c, model.T("A little context. A clear next step.")).FontSize(textBody).
 				TextColor(tokens.TextMuted).TextAlign(mgo.Center)

@@ -47,20 +47,20 @@ type streamBlock struct {
 }
 
 type AssistantStream struct {
-	attemptID         string
-	revision          uint64
-	index             uint64
-	turn              uint64
-	step              uint64
-	blocks            map[uint64]*streamBlock
-	order             []uint64
-	textRunes         int
-	reasoningRunes    int
-	textTruncated     bool
+	attemptID          string
+	revision           uint64
+	index              uint64
+	turn               uint64
+	step               uint64
+	blocks             map[uint64]*streamBlock
+	order              []uint64
+	textRunes          int
+	reasoningRunes     int
+	textTruncated      bool
 	reasoningTruncated bool
-	terminal          bool
-	commitSeq         *uint64
-	desynced          bool
+	terminal           bool
+	commitSeq          *uint64
+	desynced           bool
 }
 
 func validStreamInteger(value *uint64) bool { return value != nil && *value <= maxStreamInteger }

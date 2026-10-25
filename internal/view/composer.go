@@ -26,7 +26,7 @@ func composer(c *mgo.Context, model *Model) {
 	}
 	zone.Children(func() {
 		surface := mgo.Column(c.Key("composer-surface")).FillWidth().MaxWidth(readingWidth).
-			Padding(space8, space12).Gap(space4).Radius(radiusComposer).
+			Padding(space10, space14).Gap(space4).Radius(radiusComposer).
 			Background(tokens.SurfaceRaised).Border(1, tokens.Border).Transition(quietTransition)
 		surface = shadowFloating.apply(surface)
 		if surface.FocusWithin() {
@@ -59,7 +59,7 @@ func composer(c *mgo.Context, model *Model) {
 				})
 			}
 			area := mgo.TextArea(c.Key("composer-"+model.SessionID), &model.Draft).Lines(2, composerLines(c)).MinHeight(0).
-				FontSize(textBody).Padding(space6, space8).Border(0, mgo.Transparent).FocusRing(false).Background(mgo.Transparent).
+				FontSize(textReading).Padding(space6, space8).Border(0, mgo.Transparent).FocusRing(false).Background(mgo.Transparent).
 				Label(model.T("Message")).Placeholder(model.T("Message DeepSeek…")).AutoFocus().Disabled(stopped).
 				OnChange(func() {
 					if model.DraftChanged != nil {
@@ -150,8 +150,8 @@ func composer(c *mgo.Context, model *Model) {
 				}
 			})
 		})
-		mgo.Text(c.Key("composer-hint"), model.T(composerHint(model))).FontSize(textMicro).
-			TextColor(tokens.TextMuted).SingleLine()
+		mgo.Text(c.Key("composer-hint"), model.T(composerHint(model))).FontSize(textCaption).
+			TextColor(tokens.TextFaint).SingleLine()
 	})
 }
 
@@ -159,7 +159,7 @@ func composerLines(c *mgo.Context) int {
 	_, height := c.Size()
 	available := height - titleBarHeight(c)
 	if available < 560 {
-		return 3
+		return 2
 	}
-	return 6
+	return 4
 }

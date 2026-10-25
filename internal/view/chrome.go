@@ -42,6 +42,7 @@ func titleBar(c *mgo.Context, model *Model) {
 
 	row := mgo.Row(c.Key("title-bar")).FillWidth().Height(titleBarHeight(c)).Shrink(0).
 		Background(tokens.Sidebar).Padding(0, bar.Right+space8, 0, bar.Left+space8).
+		BorderWidth(0, 0, 1, 0).BorderColor(tokens.Border).
 		Gap(space2).AlignItems(mgo.Center).DragWindow()
 	row.Children(func() {
 		iconButton(c.Key("app-menu"), model.T("Menu"), iconMenu).Menu(func(menu *mgo.Menu) { titleBarMenu(menu, model, width) })

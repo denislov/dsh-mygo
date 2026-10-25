@@ -1,6 +1,7 @@
 package view
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,6 +54,43 @@ func TestPalettesSeparateSurfaces(t *testing.T) {
 			t.Fatal("accent must stand apart from surfaces")
 		}
 	}
+}
+
+func TestTextTokensKeepReadableContrast(t *testing.T) {
+	for _, dark := range []bool{false, true} {
+		palette := paletteFor(dark)
+		for name, pair := range map[string][2]mgo.Color{
+			"text/background":       {palette.Text, palette.Background},
+			"muted/background":      {palette.TextMuted, palette.Background},
+			"muted/sidebar":         {palette.TextMuted, palette.Sidebar},
+			"text/raised":           {palette.Text, palette.SurfaceRaised},
+			"reasoning/activity":    {palette.ReasoningText, palette.ActivitySurface},
+			"user text/user bubble": {palette.UserBubbleText, palette.UserBubble},
+		} {
+			if ratio := contrastRatio(pair[0], pair[1]); ratio < 4.5 {
+				t.Errorf("dark=%v %s contrast = %.2f", dark, name, ratio)
+			}
+		}
+	}
+}
+
+func contrastRatio(a, b mgo.Color) float64 {
+	first, second := relativeLuminance(a), relativeLuminance(b)
+	if first < second {
+		first, second = second, first
+	}
+	return (first + 0.05) / (second + 0.05)
+}
+
+func relativeLuminance(color mgo.Color) float64 {
+	channel := func(value uint8) float64 {
+		scaled := float64(value) / 255
+		if scaled <= 0.03928 {
+			return scaled / 12.92
+		}
+		return math.Pow((scaled+0.055)/1.055, 2.4)
+	}
+	return 0.2126*channel(color.R) + 0.7152*channel(color.G) + 0.0722*channel(color.B)
 }
 
 func TestProductionViewCodeKeepsColorsInTokens(t *testing.T) {
