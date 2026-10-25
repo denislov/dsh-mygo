@@ -8,13 +8,12 @@ import (
 
 // ShellState contains device-only disclosure state, never session facts.
 type ShellState struct {
-	SidebarOpen        bool
-	DetailsOpen        bool
-	DetailsPopoverOpen bool
-	ProgressOpen       bool
-	FolderOpen         bool
-	ContextOpen        bool
-	TasksExpanded      bool
+	pendingAction func()
+	SidebarOpen   bool
+	ProgressOpen  bool
+	FolderOpen    bool
+	ContextOpen   bool
+	TasksExpanded bool
 }
 
 func emptyConversation(c *mgo.Context, model *Model) {

@@ -65,7 +65,7 @@ func TestPermissionOnlySettingsFitsMinimumWindowAndUncertaintyBlocksSend(t *test
 	if !tester.HasText("Session permissions") || tester.HasText("Apply model") {
 		t.Fatal("permissions depend on model capability")
 	}
-	if err := tester.Click("Close"); err != nil {
+	if err := tester.Click("Close settings"); err != nil {
 		t.Fatal(err)
 	}
 	model.Permission.Uncertain = true

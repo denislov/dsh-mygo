@@ -28,7 +28,5 @@ func (a *App) ApplyUIPreferences() {
 	}
 	a.model.Prefs.Dirty = true
 	a.acceptUIPreferences(a.model.Prefs.Draft)
-	a.model.SettingsOpen = false
-	a.model.SettingsConnection = false
 	a.SaveLocalState()
 }

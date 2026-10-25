@@ -25,7 +25,7 @@ func TestSessionSidebarSearchResizeAndArchivedFilter(t *testing.T) {
 	if tt.HasText("Conversations") {
 		t.Fatal("narrow window kept the sidebar")
 	}
-	if err := tt.Click("Sessions"); err != nil {
+	if err := clickToolbarMenu(tt, "Sessions"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Advance(300 * time.Millisecond)

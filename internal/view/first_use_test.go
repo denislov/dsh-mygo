@@ -50,6 +50,7 @@ func TestConnectionSetupReusesCredentialControlsAtMinimumSize(t *testing.T) {
 	m.SettingsOpen = true
 	m.CanConfigure, m.ConfigurationReady, m.SettingsConnection = true, true, true
 	m.Configuration.Credential = CredentialStatus{Available: true, Writable: true, Reference: "DEEPSEEK_API_KEY", Source: "none"}
+	m.RefreshSettings = func() {}
 	tt := ui.NewTester(func(c *ui.Context) { View(c, m) }, 560, 420)
 	tt.Frame()
 	tt.Advance(300 * time.Millisecond)
@@ -60,7 +61,7 @@ func TestConnectionSetupReusesCredentialControlsAtMinimumSize(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Type("test-key")
-	for _, label := range []string{"Save key", "Close", "Refresh"} {
+	for _, label := range []string{"Save key", "Close settings", "Refresh"} {
 		bounds, ok := tt.Find(label)
 		if !ok || bounds.Y < 0 || bounds.Y+bounds.H > 420 {
 			t.Fatalf("%s out of reach: %+v", label, bounds)

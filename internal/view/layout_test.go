@@ -36,7 +36,7 @@ func TestCompactShellUsesSessionsModal(t *testing.T) {
 	if tt.HasText("Conversations") || tt.HasText("Hide sidebar") {
 		t.Fatalf("compact shell kept the sidebar: %v", tt.Texts())
 	}
-	if err := tt.Click("Sessions"); err != nil {
+	if err := clickToolbarMenu(tt, "Sessions"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Advance(300 * time.Millisecond)
@@ -55,7 +55,7 @@ func TestTitleBarKeepsClearOfWindowControls(t *testing.T) {
 	tt := tester(model)
 	const systemButtons = float32(138)
 	tt.SetTitleBar(ui.TitleBar{Height: 44, Right: systemButtons})
-	for _, label := range []string{"Menu", "Preferences", "Conversation details"} {
+	for _, label := range []string{"Menu", "Toggle Session rail", "Toggle Terminal", "Toggle Changes", "Toggle Preview", "Toggle Files", "More"} {
 		bounds, ok := tt.Find(label)
 		if !ok {
 			t.Fatalf("title bar missing %q", label)
@@ -76,7 +76,7 @@ func TestHiddenSidebarStillReachesSessions(t *testing.T) {
 	if tt.HasText("Conversations") {
 		t.Fatal("hidden sidebar still rendered")
 	}
-	if err := tt.Click("Sessions"); err != nil {
+	if err := clickToolbarMenu(tt, "Sessions"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Advance(300 * time.Millisecond)

@@ -97,6 +97,8 @@ func (a *App) openSettings(connection bool) {
 		a.cancelSessionOperation()
 	}
 	a.model.SettingsOpen = true
+	a.model.SettingsSearch = ""
+	a.model.SettingsProviderEditing = false
 	a.model.QuickSelector = ""
 	a.model.SettingsConnection = connection
 	if connection {

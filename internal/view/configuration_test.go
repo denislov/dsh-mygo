@@ -34,7 +34,7 @@ func TestConfigurationControlsGateWritesAndKeepFooterVisible(t *testing.T) {
 	if tester.HasText("fake-only-test-secret") {
 		t.Fatal("credential was rendered as plain text")
 	}
-	if err := tester.Click("Close"); err != nil {
+	if err := tester.Click("Close settings"); err != nil {
 		t.Fatal(err)
 	}
 	model.SettingsOpen = true

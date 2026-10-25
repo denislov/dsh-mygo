@@ -44,10 +44,12 @@ func defaultModelControls(c *mgo.Context, model *Model, disabled bool) {
 	mgo.Text(c, model.T("Persistent profile default")).Bold().FontSize(12)
 	if model.ConfigurationReady {
 		selection := model.Configuration.Defaults
-		mgo.Text(c, selection.Provider+" / "+selection.Model+" / "+effortChoice(selection.Effort)).FontSize(11)
+		mgo.Text(c, selection.Provider+" / "+selection.Model+" / "+model.preferenceChoiceLabel(effortChoice(selection.Effort))).FontSize(11)
 	}
 	mgo.Text(c, model.T("New conversations and cold restores use this default unless route flags override it. Current sessions stay unchanged.")).FontSize(11).TextColor(c.Theme().TextMuted)
-	mgo.Button(c.Key("settings-save-default"), model.T("Save selection as default")).Disabled(disabled || model.SaveDefaultModel == nil || model.ModelUncertain).OnClick(func() { model.SaveDefaultModel() })
+	mgo.Row(c).FillWidth().Justify(mgo.End).Children(func() {
+		mgo.Button(c.Key("settings-save-default"), model.T("Save selection as default")).Disabled(disabled || model.SaveDefaultModel == nil || model.ModelUncertain).OnClick(func() { model.SaveDefaultModel() })
+	})
 }
 
 func credentialControls(c *mgo.Context, model *Model, disabled bool) {

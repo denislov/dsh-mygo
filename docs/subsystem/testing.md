@@ -30,6 +30,7 @@
 - 历史：分页、边界、游标、部分页失败不发布、历史与实时合并。
 - 协议：合法/非法帧、版本、未知方法、超时、取消、重复回答、背压。
 - 交互：审批/提问的载荷校验、FIFO、上限、过期身份、表单草稿。
+- 工作区：目录/路径/符号链接越界、文件与输出预算、Git 只读变更、项目切换丢弃迟到文件结果、虚拟文件列表、面板开关/窄窗口标签/最大化、关闭图标避让系统按钮；设置即时保存与持久化。原生 PTY smoke 使用 `DSH_MYGO_NATIVE_TERMINAL=1 go test ./internal/workspace -run TestNativeTerminalShellRoundTrip`，需要 libghostty-vt，普通测试不触发下载。
 - 会话/设置：摘要校验、切换门禁、草稿隔离、模型确认事件、配置 revision 与写入屏障。
 - 恢复/日志：seq 缺口进入 resyncing、恢复对话框状态、崩溃报告命名/脱敏、应用日志落盘。
 - 会话管理：rename/archive/delete/fork 的参数、事件、列表更新与冲突。

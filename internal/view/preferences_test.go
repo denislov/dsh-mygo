@@ -19,7 +19,7 @@ func TestPreferencesEntryWithoutHostAndShortcutGates(t *testing.T) {
 	model.CanHistory = true
 	tester := ui.NewTester(func(c *ui.Context) { View(c, model) }, 560, 420)
 	tester.Frame()
-	if err := tester.Click("Preferences"); err != nil {
+	if err := clickToolbarMenu(tester, "Settings"); err != nil {
 		t.Fatal(err)
 	}
 	if !model.SettingsOpen || model.SettingsSection != SettingsSectionGeneral || !tester.HasText("Theme") {
@@ -84,7 +84,7 @@ func TestChinesePreferencesKeepConversationAndInteractionPayloads(t *testing.T) 
 	model.Items = []projection.Item{{ID: "u", Kind: projection.KindUser, Title: "You", Text: "Send"}, {ID: "a", Kind: projection.KindAssistant, Title: "Assistant", Text: "Allow once"}}
 	model.Sessions[0].Title = "Preferences"
 	tt := tester(model)
-	for _, text := range []string{"界面偏好", "会话列表", "就绪", "Send", "Allow once", "Current · Preferences"} {
+	for _, text := range []string{"更多", "切换会话栏", "就绪", "Send", "Allow once", "Current · Preferences"} {
 		if text == "Current · Preferences" {
 			text = "当前 · Preferences"
 		}
@@ -121,30 +121,27 @@ func TestPreferenceSelectorsBindStableValuesAndThemeFrames(t *testing.T) {
 	model.Phase = PhaseIdle
 	var dark bool
 	tt := ui.NewTester(func(c *ui.Context) { View(c, model); dark = c.Theme().Dark }, 560, 420)
-	tt.Frame()
-	_ = tt.Click("Preferences")
-	if err := tt.Click("Theme selection"); err != nil {
+	if err := clickToolbarMenu(tt, "Settings"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("Light theme"); err != nil {
+		t.Fatal(err)
+	}
+	if model.Prefs.Value.Theme != "light" || !model.SettingsOpen {
+		t.Fatal("theme was not saved immediately")
+	}
+	if err := tt.Click("Language selection"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Key(0, ui.KeyDown)
 	tt.Key(0, ui.KeyEnter)
 	tt.Frame()
-	if model.Prefs.Draft.Theme != "light" {
-		t.Fatalf("theme binding: %s", model.Prefs.Draft.Theme)
+	if model.Prefs.Value.Locale != "zh-CN" || dark {
+		t.Fatal("locale binding or theme did not survive notice frame")
 	}
-	_ = tt.Click("Language selection")
-	tt.Key(0, ui.KeyDown)
-	tt.Key(0, ui.KeyEnter)
-	tt.Frame()
-	if model.Prefs.Draft.Locale != "zh-CN" {
-		t.Fatal("locale binding did not survive notice frame")
+	if err := tt.Click("深色主题"); err != nil {
+		t.Fatal(err)
 	}
-	_ = tt.Click("Apply preferences")
-	tt.Frame()
-	if dark || !tt.HasText("界面偏好") {
-		t.Fatal("light theme or language not applied")
-	}
-	model.Prefs.Value.Theme = "dark"
 	tt.Frame()
 	if !dark {
 		t.Fatal("dark theme not applied")
@@ -152,38 +149,38 @@ func TestPreferenceSelectorsBindStableValuesAndThemeFrames(t *testing.T) {
 	model.Prefs.Value.Theme = "system"
 	tt.Frame()
 	if dark {
-		t.Fatal("system theme retained an override from a previous frame")
+		t.Fatal("system theme retained previous override")
 	}
 }
 
-func TestPreferenceFormCancelValidationAndThemes(t *testing.T) {
+func TestPreferenceFormValidationAndClosePreserveSavedValues(t *testing.T) {
 	model := NewModel()
 	model.Phase = PhaseIdle
+	model.OpenPreferences()
 	tt := tester(model)
-	if err := tt.Click("Preferences"); err != nil {
-		t.Fatal(err)
-	}
-	model.Prefs.Draft.Theme = "dark"
-	if err := tt.Click("Cancel"); err != nil {
-		t.Fatal(err)
-	}
-	if model.Prefs.Value.Theme != "system" {
-		t.Fatal("cancel applied form")
-	}
-	_ = tt.Click("Preferences")
 	model.Prefs.Draft.Stop = model.Prefs.Draft.NewSession
-	_ = tt.Click("Apply preferences")
-	if !model.SettingsOpen || model.Prefs.Error == "" {
+	model.ApplyPreferences()
+	tt.Frame()
+	if model.Prefs.Error == "" || model.Prefs.Value.Stop == model.Prefs.Value.NewSession {
 		t.Fatal("conflicting shortcuts accepted")
 	}
-	_ = tt.Click("Reset preferences")
-	model.Prefs.Draft.Theme = "dark"
-	model.Prefs.Draft.Locale = "zh-CN"
-	_ = tt.Click("Apply preferences")
-	tt.Frame()
-	tt.Frame()
-	if !tt.HasText("界面偏好") || model.Prefs.Value.Theme != "dark" {
-		t.Fatal("apply did not switch locale/theme")
+	if err := tt.Click("Close settings"); err != nil {
+		t.Fatal(err)
+	}
+	if err := clickToolbarMenu(tt, "Settings"); err != nil {
+		t.Fatal(err)
+	}
+	if model.Prefs.Draft != model.Prefs.Value {
+		t.Fatal("invalid edit survived reopening")
+	}
+	if err := tt.Click("Dark theme"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Click("Close settings"); err != nil {
+		t.Fatal(err)
+	}
+	if model.Prefs.Value.Theme != "dark" {
+		t.Fatal("close rolled back an already saved setting")
 	}
 }
 

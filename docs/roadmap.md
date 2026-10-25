@@ -81,6 +81,11 @@ node scripts/smoke-installer.mjs                # 未运行：本机已安装 ds
 
 2026-10-25 历史加载闪烁修正：后台历史读取解除 `SessionBusy` 全局门禁，只使用 `History.Busy` 防重复；发送/会话设置取消旧读取并拒绝迟到结果，取消后同一边界可再次自动加载。全量/纯 Go 各 525 项、app/view race 327 项、MyGo vet 与 Go vet 通过；显式设置 `DSH_MYGO_DSH_DIR` 后，真实完整回合、大历史、会话切换与模型设置回归通过。Windows 原生预览对照确认旧状态使全局控件变暗，独立读取状态保持原有外观与启用状态；未重打安装器。
 
+2026-10-25 原生工作区与设置重排：顶部改为 Session rail / Terminal / Changes / Preview / Files / More；面板可组合、调整分隔线、最大化，窄窗口用标签切换与返回对话。终端使用真实原生 PTY，隐藏保留，项目切换/退出回收；文件与变更采用根目录约束、有界读取和原生只读预览，网页 URL 由系统浏览器打开。设置使用搜索/分组导航、宽幅内容与右上角关闭，设备偏好逐项保存，现有提供商用卡片和内嵌模型表单展示；按用户范围不增加自定义提供商 CRUD。
+
+本批验证：`go test ./...`、`CGO_ENABLED=0 go test ./...` 各 535 项；`go test -race ./internal/app ./internal/view ./internal/workspace` 337 项；显式设置 `DSH_MYGO_NATIVE_TERMINAL=1` 后，两项原生终端/PTY 生命周期竞态 smoke 通过；显式设置 `DSH_MYGO_DSH_DIR` 后，模型、配置、权限、本机编辑状态、会话切换和完整历史回合共 14 项真实 Host 回归通过。MyGo vet、Go vet、修改文档链接与差异检查通过。Windows 1280×760 / 560×420 原生复核设置、提供商卡片、模型编辑与终端/文件/预览组合；桌面点击注入未确认状态变化，交互由 Tester 与真实 Host/PTY 验证。安装器、macOS 未重验。末轮并行复验曾出现一次 fake 审批 Host 初始化超时；单独定向和纯 Go 全量重跑均通过。
+
+
 ## 4. 缺口
 
 ### 4.1 发布阻塞（没有它不能称为产品）

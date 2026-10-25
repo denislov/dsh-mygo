@@ -13,6 +13,13 @@ func tester(model *Model) *ui.Tester {
 	return ui.NewTester(func(c *ui.Context) { View(c, model) }, 900, 700)
 }
 
+func clickToolbarMenu(tt *ui.Tester, label string) error {
+	if err := tt.Click("More"); err != nil {
+		return err
+	}
+	return tt.ChooseMenuItem(label)
+}
+
 func TestViewShowsTranscriptAndStatus(t *testing.T) {
 	model := NewModel()
 	model.Phase = PhaseIdle

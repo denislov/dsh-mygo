@@ -26,7 +26,7 @@
 
 - `model.selection` capability 覆盖 `model/list`、`model/select` 与原生 Settings 面板；只在双方支持时显示入口，旧 Host/SDK 不显示，未协商调用返回 capability-unavailable。
 - 输入区模型按钮打开原生快捷列表，支持 provider、标题/ID 搜索、当前项勾选与 effort；点击模型直接提交，Host 确认后才关闭并更新标签。快捷列表复用同一设置操作生命周期和失败刷新屏障，More settings 转入完整面板。权限入口独立显示，保留实际策略与危险确认，不跳转模型设置。
-- 面板提供 provider 目录、模型目录快捷选择、实际使用的 Model ID 和 adapter 声明的 effort；允许手填模型 ID，目录成员身份不充当路由校验。空 effort 表示 provider 默认，切回默认会清除上一请求继承的显式 effort，不硬编码 low/high。
+- Models 分区使用提供商卡片展示 provider 目录；编辑选中卡片时提供模型目录快捷选择、实际使用的 Model ID 和 adapter 声明的 effort。卡片状态区分当前会话与配置中可用，不把目录可读解释为认证成功；允许手填模型 ID，目录成员身份不充当路由校验。空 effort 表示 provider 默认，切回默认会清除上一请求继承的显式 effort，不硬编码 low/high。
 - 目录使用公开 llm.listProviders/listModels/resolveModelInfo；仅返回 id/name、可用性与 effort 白名单，不返回完整 adapter 配置、endpoint、authorization、凭据引用或原始异常。目录可读不代表 API key 可用，也不承诺模型调用成功。不做付费生成来探测配置。
 - 会话必须由此 Host 拥有且 idle；校验路由期间禁止 prompt、重复模型写入、history/resume。Host 用公开 resolveCallConfig 校验，再向真实 session log 提交 model/selection，通过 Agent setup 中安装的公开 installModelSelection 生效；不直接改 DSH core 或仅改 UI 标签。
 - Apply model 仅影响此已拥有会话的下个回合；切回仍被 Host 拥有的会话保留已选模型。句柄释放后的重新打开与 Host 重启均属于冷恢复，启动路由由默认模型与显式 flags 决定，不自动从旧 model/selection 改写默认配置。
@@ -147,7 +147,7 @@ UI 偏好属于 Go 进程，持久化在 `PathUserData`，写入使用原子替�
 
 ### 设置中心的设备分区
 
-- 设置中心的 General、Runtime 与 Shortcuts 是设备级分区，不依赖 Host 的模型/权限 capability；General/Shortcuts 共用设备偏好草稿，Runtime 使用独立的运行时 store。加载编辑文件后可打开；Cancel/Escape 丢弃表单变更并关闭中心，Reset 只重置表单，Apply 校验后才切换运行状态并立即请求后台保存。不操作 DSH 设置、会话模型、权限或凭据。
+- 设置中心的 General、Runtime 与 Shortcuts 是设备级分区，不依赖 Host 的模型/权限 capability；General/Shortcuts 逐项编辑设备偏好，Runtime 使用独立的运行时 store。加载编辑文件后可打开；主题、语言和快捷键的变更回调校验后即切换运行状态并请求后台保存，错误在当前内容区可见。右上角关闭/Escape 保留已经保存的值，仅丢弃未通过校验的编辑；不提供统一 Reset/Cancel/Apply 页脚。不操作 DSH 设置、会话模型、权限或凭据。
 - 设置中心其余分区（Conversation model、Permissions、Connection、About）按模型目录、权限与配置能力显示；能力缺失时隐藏而不是展示死入口。General/Shortcuts/About 在旧 Host 或未协商能力时仍可打开。
 - theme 只接受 system/light/dark，locale 只接受 en-US/zh-CN；默认保留英文和 Enter 发送。主题通过 MyGo Theme.SetSource 与原生语义调色板生效；语言通过集中词表与 App.SetLocale 同步内建控件，MyGo 自身文案的简体中文由主程序链接 `github.com/egoist/mygo/locales/zh-Hans` 词表包提供，不随应用词表重写。编辑文件是权威来源，MyGo 自动保存的 locale 仅为运行时镜像，启动时以编辑文件覆盖；窗口尺寸/位置仍由 StateKey 管理。
 - 语言即时作用于应用标签、状态和提示，技术诊断允许保留原文；用户消息、代码、会话标题、提问内容/选项、工具参数/结果与 provider/model id 不经过翻译。下拉绑定稳定值，仅展示标签随语言变化；切换不重写日志、发送内容或权限判断依据。

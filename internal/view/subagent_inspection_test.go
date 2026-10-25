@@ -38,7 +38,7 @@ func TestSubagentPanelOpensDuringWorkCopiesOutputAndKeepsParentDraft(t *testing.
 	m := inspectionModel()
 	m.Phase, m.Draft = PhaseRunning, "parent draft"
 	tt := tester(m)
-	if err := tt.Click("Subagents"); err != nil {
+	if err := clickToolbarMenu(tt, "Subagents"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Advance(300 * time.Millisecond)
@@ -78,7 +78,7 @@ func TestSubagentPanelOpensDuringWorkCopiesOutputAndKeepsParentDraft(t *testing.
 	if m.Inspection.Open || m.Draft != "parent draft" {
 		t.Fatal("closing inspection damaged the parent")
 	}
-	_ = tt.Click("Subagents")
+	_ = clickToolbarMenu(tt, "Subagents")
 	tt.Advance(300 * time.Millisecond)
 	_ = tt.Click("Inspect · Inspect files")
 	tt.Frame()

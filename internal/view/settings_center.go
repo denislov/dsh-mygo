@@ -87,6 +87,8 @@ func (model *Model) OpenSettingsAt(section SettingsSection) {
 	model.SettingsSection = section
 	model.SettingsConnection = false
 	model.QuickSelector = ""
+	model.SettingsSearch = ""
+	model.SettingsProviderEditing = false
 	model.SettingsOpen = true
 }
 
@@ -129,12 +131,13 @@ func (model *Model) closeSettingsCenter() {
 	}
 	model.SettingsSection = SettingsSectionConversation
 	model.QuickSelector = ""
+	model.SettingsProviderEditing = false
 }
 
 func settingsSectionLabel(model *Model, section SettingsSection) string {
 	switch section {
 	case SettingsSectionConversation:
-		return model.T("Conversation model")
+		return model.T("Models")
 	case SettingsSectionPermissions:
 		return model.T("Permissions")
 	case SettingsSectionConnection:
@@ -187,7 +190,7 @@ func settingsSectionTitle(model *Model, section SettingsSection) string {
 		return model.T("Keyboard shortcuts")
 	}
 	if section == SettingsSectionConversation {
-		return model.T("Model settings")
+		return model.T("Model providers")
 	}
 	if section == SettingsSectionPermissions {
 		return model.T("Permissions")
@@ -204,54 +207,58 @@ func settingsCenterModal(c *mgo.Context, model *Model) {
 	}
 	width, height := c.Size()
 	tokens := tokensFor(c.Theme())
-	contentWidth := min(float32(760), width-80)
-	contentHeight := min(float32(560), height-80)
 	section := model.activeSettingsSection()
-	disabled := !model.CanEditSettings()
-
+	contentWidth := min(float32(1240), width-32)
+	contentHeight := min(float32(840), height-titleBarHeight(c)-32)
+	writing := settingsWriting(model)
 	modal := mgo.Modal(c.Key("settings-center"), &model.SettingsOpen, func() {
-		mgo.Column(c.Key("settings-panel")).Width(contentWidth).Height(contentHeight).Gap(space12).Children(func() {
-			mgo.Row(c.Key("settings-header")).FillWidth().AlignItems(mgo.Center).Children(func() {
-				mgo.Text(c.Key("settings-title"), settingsSectionTitle(model, section)).
-					FontSize(textTitle).Bold().SingleLine()
-			})
-			mgo.Row(c.Key("settings-layout")).Grow(1).MinHeight(0).FillWidth().Gap(space16).
-				AlignItems(mgo.Start).Children(func() {
-				if !model.SettingsConnection {
-					settingsNav(c, model, section)
+		mgo.Row(c.Key("settings-layout")).Width(contentWidth).Height(contentHeight).MinHeight(0).Children(func() {
+			settingsNav(c, model, section)
+			mgo.Column(c.Key("settings-content")).Grow(1).MinWidth(0).FillHeight().Children(func() {
+				mgo.Row(c.Key("settings-header")).Height(48).FillWidth().Padding(space6, space12).AlignItems(mgo.Center).Children(func() {
+					mgo.Spacer(c)
+					iconButton(c.Key("settings-close"), model.T("Close settings"), iconClose).Disabled(writing).OnClick(model.closeSettingsCenter)
+				})
+				padding := space28
+				if width < 760 {
+					padding = space16
 				}
-				mgo.Column(c.Key("settings-content")).Grow(1).MinWidth(0).FillHeight().Gap(space6).Children(func() {
-					settingsStatus(c, model)
-					mgo.Scroll(c.Key("settings-body-scroll")).Grow(1).MinHeight(0).FillWidth().Children(func() {
-						mgo.Column(c.Key("settings-body-card")).FillWidth().Padding(space16).Gap(space10).
-							Radius(radiusLg).Background(tokens.SurfaceRaised).Border(1, tokens.Border).Children(func() {
-							switch section {
-							case SettingsSectionGeneral:
-								generalSettingsPage(c, model)
-							case SettingsSectionShortcuts:
-								shortcutSettingsPage(c, model)
-							case SettingsSectionPermissions:
-								permissionSettingsPage(c, model, disabled)
-							case SettingsSectionConnection:
-								connectionSettingsPage(c, model, disabled)
-							case SettingsSectionRuntime:
-								runtimeSettingsPage(c, model)
-							case SettingsSectionAbout:
-								aboutSettingsPage(c, model)
-							default:
-								conversationSettingsPage(c, model, disabled)
+				mgo.Scroll(c.Key("settings-body-scroll-"+settingsSectionKey(section))).Grow(1).MinHeight(0).FillWidth().Padding(space8, padding, space28, padding).Children(func() {
+					mgo.Column(c.Key("settings-page")).FillWidth().Gap(space24).Children(func() {
+						mgo.Row(c).FillWidth().AlignItems(mgo.Center).Gap(space8).Children(func() {
+							mgo.Text(c.Key("settings-title"), settingsSectionTitle(model, section)).FontSize(textTitle).Bold().Grow(1)
+							if (section == SettingsSectionConversation || section == SettingsSectionPermissions || section == SettingsSectionConnection) && model.RefreshSettings != nil {
+								iconButton(c.Key("settings-refresh"), model.T("Refresh"), iconRefresh).Disabled(!model.CanEditSettings() || writing).OnClick(model.RefreshSettings)
 							}
 						})
+						settingsStatus(c, model)
+						settingsMessages(c, model, section)
+						switch section {
+						case SettingsSectionGeneral:
+							generalSettingsPage(c, model)
+						case SettingsSectionShortcuts:
+							shortcutSettingsPage(c, model)
+						case SettingsSectionPermissions:
+							permissionSettingsPage(c, model, !model.CanEditSettings())
+						case SettingsSectionConnection:
+							connectionSettingsPage(c, model, !model.CanEditSettings())
+						case SettingsSectionRuntime:
+							if model.Runtime.Busy && !model.Runtime.Switching && model.Runtime.Cancel != nil {
+								mgo.Button(c.Key("runtime-operation-cancel"), model.T("Cancel")).OnClick(model.Runtime.Cancel)
+							}
+							runtimeSettingsPage(c, model)
+						case SettingsSectionAbout:
+							aboutSettingsPage(c, model)
+						default:
+							conversationSettingsPage(c, model, !model.CanEditSettings())
+						}
 					})
 				})
 			})
-			settingsMessages(c, model, section)
-			settingsFooter(c, model, section, disabled)
 		})
-	})
+	}).Padding(0).Gap(0).Margin(titleBarHeight(c), 0, 0, 0).MaxWidth(width-24).MaxHeight(height-titleBarHeight(c)-24).Radius(radiusLg).Border(1, tokens.Border)
 	if modal.Dismissed() {
-		if model.SettingsApplying || model.SettingsWritingConfiguration || model.Permission.Writing ||
-			model.Runtime.Busy || model.Runtime.Switching {
+		if writing {
 			model.SettingsOpen = true
 		} else {
 			model.closeSettingsCenter()
@@ -259,31 +266,79 @@ func settingsCenterModal(c *mgo.Context, model *Model) {
 	}
 }
 
+func settingsWriting(model *Model) bool {
+	return model.SettingsApplying || model.SettingsWritingConfiguration || model.Permission.Writing || model.Runtime.Busy || model.Runtime.Switching
+}
+
 func settingsNav(c *mgo.Context, model *Model, active SettingsSection) {
 	tokens := tokensFor(c.Theme())
-	mgo.Column(c.Key("settings-nav")).Width(150).Shrink(0).Gap(space2).AlignItems(mgo.Stretch).Children(func() {
-		for _, section := range model.settingsSections() {
-			background, foreground, border := mgo.Transparent, tokens.TextMuted, float32(0)
-			if section == active {
-				background, foreground, border = tokens.AccentSoft, tokens.Accent, 2
-			}
-			button := mgo.Button(c.Key("settings-nav-"+settingsSectionKey(section)), "").
-				Label(settingsSectionLabel(model, section)).FillWidth().Padding(space6, space8).
-				Radius(radiusSm).Background(background).TextColor(foreground).
-				BorderWidth(0, 0, 0, border).BorderColor(tokens.Accent).
-				Disabled(model.SettingsApplying || model.SettingsWritingConfiguration || model.Permission.Writing ||
-					model.Runtime.Busy || model.Runtime.Switching).
-				OnClick(func() { model.selectSettingsSection(section) })
-			if section != active && button.Hovered() {
-				button.Background(tokens.SurfaceHover)
-			}
-			button.Children(func() {
-				mgo.Row(c).FillWidth().Justify(mgo.Start).Children(func() {
-					mgo.Text(c, settingsSectionLabel(model, section)).FontSize(textCaption).SingleLine()
-				})
+	width, _ := c.Size()
+	navWidth := float32(220)
+	if width < 760 {
+		navWidth = 144
+	}
+	mgo.Column(c.Key("settings-nav")).Width(navWidth).FillHeight().Shrink(0).Background(tokens.Sidebar).BorderWidth(0, 1, 0, 0).BorderColor(tokens.Border).Padding(space12).Gap(space16).Children(func() {
+		mgo.SearchField(c.Key("settings-search"), &model.SettingsSearch).Label(model.T("Search settings")).Placeholder(model.T("Search settings")).FillWidth()
+		mgo.Scroll(c.Key("settings-nav-scroll")).Grow(1).MinHeight(0).FillWidth().Children(func() {
+			mgo.Column(c).FillWidth().Gap(space4).Children(func() {
+				group := ""
+				for _, section := range []SettingsSection{SettingsSectionGeneral, SettingsSectionConversation, SettingsSectionPermissions, SettingsSectionConnection, SettingsSectionRuntime, SettingsSectionShortcuts, SettingsSectionAbout} {
+					if !model.settingsSectionAvailable(section) {
+						continue
+					}
+					label := settingsSectionLabel(model, section)
+					if model.SettingsSearch != "" && !strings.Contains(strings.ToLower(label+" "+settingsSectionTitle(model, section)), strings.ToLower(model.SettingsSearch)) {
+						continue
+					}
+					next := "Settings"
+					if section == SettingsSectionRuntime || section == SettingsSectionShortcuts || section == SettingsSectionAbout {
+						next = "This computer"
+					}
+					if next != group {
+						group = next
+						mgo.Text(c, model.T(group)).FontSize(textMicro).TextColor(tokens.TextFaint).Margin(space12, space4, space6, space4)
+					}
+					background := mgo.Transparent
+					foreground := tokens.TextMuted
+					if section == active {
+						background = tokens.SurfaceHover
+						foreground = tokens.Text
+					}
+					button := mgo.Button(c.Key("settings-nav-"+settingsSectionKey(section)), "").Label(label).FillWidth().Padding(space8).Radius(radiusSm).Background(background).TextColor(foreground).Border(0, mgo.Transparent).Disabled(settingsWriting(model)).OnClick(func() { model.selectSettingsSection(section) })
+					if section != active && button.Hovered() {
+						button.Background(tokens.SurfaceHover)
+					}
+					button.Children(func() {
+						mgo.Row(c).FillWidth().Gap(space8).AlignItems(mgo.Center).Children(func() {
+							if width >= 760 {
+								mgo.Icon(c, settingsSectionIcon(section)).Size(17, 17)
+							}
+							mgo.Text(c, label).FontSize(textLabel).SingleLine().Grow(1).MinWidth(0)
+						})
+					})
+				}
 			})
-		}
+		})
 	})
+}
+
+func settingsSectionIcon(section SettingsSection) *mgo.SVG {
+	switch section {
+	case SettingsSectionGeneral:
+		return iconSettings
+	case SettingsSectionConversation:
+		return iconSpark
+	case SettingsSectionPermissions:
+		return iconKey
+	case SettingsSectionConnection:
+		return iconExternal
+	case SettingsSectionRuntime:
+		return iconTerminal
+	case SettingsSectionShortcuts:
+		return iconTerminal
+	default:
+		return iconInfo
+	}
 }
 
 func settingsStatus(c *mgo.Context, model *Model) {
@@ -326,133 +381,78 @@ func settingsMessages(c *mgo.Context, model *Model, section SettingsSection) {
 	if (section == SettingsSectionGeneral || section == SettingsSectionShortcuts) && model.Prefs.Error != "" {
 		mgo.Text(c.Key("preferences-error"), model.T(model.Prefs.Error)).FontSize(textMicro).TextColor(tokens.Danger)
 	}
+	if model.Prefs.Dirty && model.LocalState.Error != "" {
+		mgo.Text(c.Key("preferences-save-error"), model.T(model.LocalState.Error)).FontSize(textCaption).TextColor(tokens.Danger)
+	}
 }
 
-func settingsFooter(c *mgo.Context, model *Model, section SettingsSection, disabled bool) {
-	writing := model.SettingsApplying || model.SettingsWritingConfiguration || model.Permission.Writing
-	closeButton := func() {
-		close := mgo.Button(c.Key("settings-close"), model.T("Close")).Disabled(writing)
-		if close.Clicked() {
-			model.closeSettingsCenter()
+func settingsRow(c *mgo.Context, title, description string, body func()) {
+	tokens := tokensFor(c.Theme())
+	mgo.Column(c).FillWidth().Padding(space12, 0).Gap(space8).BorderWidth(0, 0, 1, 0).BorderColor(tokens.Border).Children(func() {
+		label := func() {
+			mgo.Text(c, title).FontSize(textBody)
+			if description != "" {
+				mgo.Text(c, description).FontSize(textCaption).TextColor(tokens.TextMuted)
+			}
 		}
-	}
-	refreshButton := func() {
-		refresh := mgo.Button(c.Key("settings-refresh"), model.T("Refresh")).
-			Disabled(disabled || writing || model.RefreshSettings == nil)
-		if refresh.Clicked() && model.RefreshSettings != nil {
-			model.RefreshSettings()
-		}
-	}
-	mgo.Row(c.Key("settings-footer")).FillWidth().Gap(space8).AlignItems(mgo.Center).Children(func() {
-		switch section {
-		case SettingsSectionGeneral, SettingsSectionShortcuts:
-			if mgo.Button(c.Key("reset"), model.T("Reset preferences")).Clicked() {
-				model.Prefs.Draft = preferences.DefaultUI()
-				model.Prefs.Error = ""
-			}
-			mgo.Spacer(c)
-			if mgo.Button(c.Key("cancel"), model.T("Cancel")).Clicked() {
-				model.closeSettingsCenter()
-			}
-			if mgo.PrimaryButton(c.Key("apply"), model.T("Apply preferences")).Clicked() {
-				model.ApplyPreferences()
-			}
-		case SettingsSectionConversation:
-			closeButton()
-			mgo.Spacer(c)
-			refreshButton()
-			apply := mgo.PrimaryButton(c.Key("settings-apply"), model.T("Apply model")).
-				Disabled(disabled || writing || model.ModelUncertain || model.ConfigurationUncertain ||
-					model.Permission.Uncertain || model.ApplySettings == nil ||
-					strings.TrimSpace(model.SettingsProvider) == "" || strings.TrimSpace(model.SettingsModel) == "")
-			if apply.Clicked() && !writing && model.ApplySettings != nil {
-				model.ApplySettings()
-			}
-		case SettingsSectionPermissions:
-			refreshButton()
-			mgo.Spacer(c)
-			closeButton()
-		case SettingsSectionConnection:
-			refreshButton()
-			mgo.Spacer(c)
-			closeButton()
-		case SettingsSectionRuntime:
-			if model.Runtime.Switching {
-				mgo.Spinner(c.Key("runtime-switch-spinner")).Size(12, 12)
-				mgo.Text(c, model.T("Switching runtime…")).FontSize(textMicro).TextColor(c.Theme().TextMuted)
-				mgo.Spacer(c)
-			} else if model.Runtime.Busy {
-				if model.Runtime.Cancel != nil {
-					mgo.Button(c.Key("runtime-operation-cancel"), model.T("Cancel")).OnClick(model.Runtime.Cancel)
-				}
-				mgo.Spacer(c)
-			} else {
-				mgo.Spacer(c)
-				closeButton()
-			}
-		default:
-			mgo.Spacer(c)
-			closeButton()
+		width, _ := c.Size()
+		if width >= 760 {
+			mgo.Row(c).FillWidth().Gap(space24).AlignItems(mgo.Center).Children(func() {
+				mgo.Column(c).Grow(1).MinWidth(0).Gap(space6).Children(label)
+				mgo.Column(c).MaxWidth(280).Shrink(0).Children(body)
+			})
+		} else {
+			label()
+			body()
 		}
 	})
 }
 
 func generalSettingsPage(c *mgo.Context, model *Model) {
-	tokens := tokensFor(c.Theme())
 	p := &model.Prefs
-	mgo.Column(c).Gap(space6).Children(func() {
-		mgo.Text(c, model.T("Appearance")).FontSize(textCaption).Bold()
-		mgo.Text(c, model.T("Theme")).FontSize(textMicro).TextColor(tokens.TextMuted)
-		preferenceChoice(c.Key("theme"), model, &p.Draft.Theme, []string{"system", "light", "dark"}, "Theme")
-		mgo.Text(c, model.T("Language")).FontSize(textMicro).TextColor(tokens.TextMuted)
-		preferenceChoice(c.Key("locale"), model, &p.Draft.Locale, []string{"en-US", "zh-CN"}, "Language")
-		mgo.Text(c, model.T("Host language changes on its next start.")).FontSize(textMicro).TextColor(tokens.TextMuted)
-		if !p.Persisted {
-			mgo.Text(c, model.T("Preferences cannot be saved in this mode.")).FontSize(textMicro).TextColor(tokens.Warning)
-		}
+	tokens := tokensFor(c.Theme())
+	mgo.Text(c, model.T("Appearance")).FontSize(textBody).Bold()
+	settingsRow(c, model.T("Theme"), "", func() {
+		mgo.Row(c.Key("theme-control")).Gap(space4).Children(func() {
+			for _, theme := range []struct {
+				value, label string
+				icon         *mgo.SVG
+			}{{"system", "System theme", iconMonitor}, {"light", "Light theme", iconSun}, {"dark", "Dark theme", iconMoon}} {
+				button := iconButton(c.Key(theme.value), model.T(theme.label), theme.icon).Border(1, tokens.Border).OnClick(func() { p.Draft.Theme = theme.value; model.ApplyPreferences() })
+				if p.Value.Theme == theme.value {
+					button.Background(tokens.SurfaceHover)
+				}
+			}
+		})
 	})
+	settingsRow(c, model.T("Language"), model.T("Host language changes on its next start."), func() {
+		preferenceChoice(c.Key("locale"), model, &p.Draft.Locale, []string{"en-US", "zh-CN"}, "Language").OnChange(model.ApplyPreferences)
+	})
+	if !p.Persisted {
+		mgo.Text(c, model.T("Preferences cannot be saved in this mode.")).FontSize(textMicro).TextColor(tokens.Warning)
+	}
 }
 
 func shortcutSettingsPage(c *mgo.Context, model *Model) {
-	tokens := tokensFor(c.Theme())
 	p := &model.Prefs
-	mgo.Column(c).Gap(space6).Children(func() {
-		mgo.Text(c, model.T("Send shortcut")).FontSize(textMicro).TextColor(tokens.TextMuted)
-		mgo.Select(c.Key("send-key"), &p.Draft.Send, []string{"Enter", "Ctrl+Enter"}).Width(220).Label(model.T("Send shortcut"))
-		for _, row := range []struct {
-			key, label string
-			value      *string
-		}{
-			{"new", "New conversation shortcut", &p.Draft.NewSession},
-			{"prefs", "Preferences shortcut", &p.Draft.Preferences},
-			{"stop", "Stop shortcut", &p.Draft.Stop},
-		} {
-			mgo.Text(c, model.T(row.label)).FontSize(textMicro).TextColor(tokens.TextMuted)
-			preferenceChoice(c.Key(row.key), model, row.value, preferences.CommandChoices(), row.label)
-		}
-		mgo.Text(c, model.T("Shift+Enter always adds a line. Commands pause while a dialog is open.")).
-			FontSize(textMicro).TextColor(tokens.TextMuted)
+	settingsRow(c, model.T("Send shortcut"), model.T("Shift+Enter always adds a line. Commands pause while a dialog is open."), func() {
+		mgo.Select(c.Key("send-key"), &p.Draft.Send, []string{"Enter", "Ctrl+Enter"}).Width(220).Label(model.T("Send shortcut")).OnChange(model.ApplyPreferences)
 	})
+	for _, row := range []struct {
+		key, label string
+		value      *string
+	}{{"new", "New conversation shortcut", &p.Draft.NewSession}, {"prefs", "Preferences shortcut", &p.Draft.Preferences}, {"stop", "Stop shortcut", &p.Draft.Stop}} {
+		settingsRow(c, model.T(row.label), "", func() {
+			preferenceChoice(c.Key(row.key), model, row.value, preferences.CommandChoices(), row.label).OnChange(model.ApplyPreferences)
+		})
+	}
 }
 
-func conversationSettingsPage(c *mgo.Context, model *Model, disabled bool) {
+func modelRouteEditor(c *mgo.Context, model *Model, disabled bool) {
 	tokens := tokensFor(c.Theme())
 	if model.Catalog.Reason != "" {
 		mgo.Text(c, model.Catalog.Reason).FontSize(textMicro).TextColor(tokens.Warning)
 	}
-	providers := make([]string, 0, len(model.Catalog.Providers))
-	for _, provider := range model.Catalog.Providers {
-		providers = append(providers, provider.ID)
-	}
-	mgo.Text(c, model.T("Provider route")).FontSize(textMicro).TextColor(tokens.TextMuted)
-	mgo.Select(c.Key("settings-provider"), &model.SettingsProvider, providers).Label(model.T("Provider")).Disabled(disabled).OnChange(func() {
-		model.SettingsModel = ""
-		model.SettingsCatalogModel = ""
-		model.SettingsEffort = effortChoice("")
-		if model.RefreshSettings != nil {
-			model.RefreshSettings()
-		}
-	})
 	models := []string{}
 	efforts := []string{effortChoice("")}
 	for _, entry := range model.Catalog.Models {
@@ -478,9 +478,16 @@ func conversationSettingsPage(c *mgo.Context, model *Model, disabled bool) {
 	mgo.Text(c, model.T("Model ID (applied)")).FontSize(textMicro).TextColor(tokens.TextMuted)
 	mgo.TextInput(c.Key("settings-model-id"), &model.SettingsModel).Label(model.T("Model ID")).Disabled(disabled).OnChange(func() { model.SettingsEffort = effortChoice("") })
 	mgo.Text(c, model.T("Effort")).FontSize(textMicro).TextColor(tokens.TextMuted)
-	mgo.Select(c.Key("settings-effort"), &model.SettingsEffort, efforts).Label(model.T("Reasoning effort")).Disabled(disabled)
+	preferenceChoice(c.Key("settings-effort"), model, &model.SettingsEffort, efforts, "Reasoning effort").Disabled(disabled)
 	mgo.Text(c, model.T("Manual model IDs are validated by the Host. Apply model affects only this session.")).
 		FontSize(textMicro).TextColor(tokens.TextMuted)
+	mgo.Row(c).FillWidth().Justify(mgo.End).Children(func() {
+		mgo.PrimaryButton(c.Key("settings-apply"), model.T("Apply model")).Disabled(disabled || model.ApplySettings == nil || model.ModelUncertain || model.ConfigurationUncertain || model.Permission.Uncertain || strings.TrimSpace(model.SettingsProvider) == "" || strings.TrimSpace(model.SettingsModel) == "").OnClick(func() {
+			if model.ApplySettings != nil {
+				model.ApplySettings()
+			}
+		})
+	})
 	defaultModelControls(c, model, disabled)
 }
 

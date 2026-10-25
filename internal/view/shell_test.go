@@ -12,7 +12,7 @@ import (
 
 func showDetails(t *testing.T, tt *ui.Tester) {
 	t.Helper()
-	if err := tt.Click("Conversation details"); err != nil {
+	if err := tt.Click("Toggle Session rail"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Advance(300 * time.Millisecond)
@@ -28,7 +28,7 @@ func TestConversationDetailsDiscloseDiagnosticsAndKeepDraft(t *testing.T) {
 	if tt.HasText(model.Detail) || tt.HasText(model.SessionCWD) || tt.HasText("Context 128k") {
 		t.Fatal("diagnostics crowd the conversation before disclosure")
 	}
-	if err := tt.Click("Conversation details"); err != nil {
+	if err := tt.Click("Toggle Session rail"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Advance(300 * time.Millisecond)
@@ -37,14 +37,14 @@ func TestConversationDetailsDiscloseDiagnosticsAndKeepDraft(t *testing.T) {
 			t.Fatalf("details missing %q: %v", text, tt.Texts())
 		}
 	}
-	tt.Key(0, ui.KeyEscape)
+	tt.Click("Close Session rail")
 	tt.Advance(300 * time.Millisecond)
 	if tt.HasText(model.Detail) || model.Draft != "unfinished prompt" {
 		t.Fatal("closing details changed the draft or kept the panel")
 	}
 	model.Phase = PhaseRunning
 	tt.Frame()
-	if err := tt.Click("Conversation details"); err != nil {
+	if err := tt.Click("Toggle Session rail"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Advance(300 * time.Millisecond)
@@ -90,29 +90,27 @@ func TestSessionActionsUseNativeMenuAndTargetIdentity(t *testing.T) {
 	}
 }
 
-func TestConversationDetailsYieldToModalWithoutReopening(t *testing.T) {
+func TestSessionRailSurvivesSettingsAndNavigationOverlays(t *testing.T) {
 	model := sessionModel()
 	model.Detail = "runtime-details"
 	tt := tester(model)
 	showDetails(t, tt)
-	if err := tt.Click("Preferences"); err != nil {
+	if err := clickToolbarMenu(tt, "Settings"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Advance(300 * time.Millisecond)
-	if model.Shell.DetailsPopoverOpen || tt.HasText(model.Detail) {
-		t.Fatal("details compete with preferences")
+	if !model.Workspace.Open[PanelRail] || !model.SettingsOpen {
+		t.Fatal("opening settings reset the rail")
 	}
 	tt.Key(0, ui.KeyEscape)
 	tt.Advance(300 * time.Millisecond)
-	if tt.HasText(model.Detail) {
-		t.Fatal("details unexpectedly reopened after modal")
+	if !model.Workspace.Open[PanelRail] || !tt.HasText(model.Detail) {
+		t.Fatal("rail lost after closing settings")
 	}
-	showDetails(t, tt)
 	model.SessionsOpen = true
 	tt.Frame()
-	tt.Advance(300 * time.Millisecond)
-	if model.Shell.DetailsPopoverOpen {
-		t.Fatal("details survived session navigation")
+	if !model.Workspace.Open[PanelRail] {
+		t.Fatal("navigation reset panel arrangement")
 	}
 }
 

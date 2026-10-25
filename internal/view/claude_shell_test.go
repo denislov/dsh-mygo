@@ -41,7 +41,7 @@ func TestTwoColumnShellOwnsSeparateHeaders(t *testing.T) {
 	if !ok || menu.X >= sidebarWidth || title.X < sidebarWidth || title.Y > WindowTitleBarHeight {
 		t.Fatalf("headers cross columns: menu=%+v title=%+v", menu, title)
 	}
-	if m.Shell.DetailsOpen {
+	if m.Workspace.Open[PanelRail] {
 		t.Fatal("third column should require disclosure")
 	}
 }

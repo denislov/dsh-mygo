@@ -6,38 +6,36 @@ import (
 	mgo "github.com/egoist/mygo/ui"
 )
 
-func detailsPaneVisible(c *mgo.Context, model *Model) bool {
-	width, _ := c.Size()
-	return width >= detailsBreakpoint && model.Shell.DetailsOpen
-}
-
-// detailsPane is the wide-window counterpart of the details Popover. Both
-// render the same read-only body so diagnostics never diverge between layouts.
-func detailsPane(c *mgo.Context, model *Model) {
-	tokens := tokensFor(c.Theme())
-	mgo.Column(c.Key("details-pane")).Width(detailsWidth).FillHeight().Shrink(0).
-		Background(tokens.Sidebar).BorderWidth(0, 0, 0, 1).BorderColor(tokens.Border).Children(func() {
-		mgo.Row(c.Key("details-title")).Padding(space16, space16, space8, space16).AlignItems(mgo.Center).Children(func() {
-			mgo.Text(c, model.T("Details")).FontSize(textTitle).Bold()
-		})
-		mgo.Scroll(c.Key("details-scroll")).Grow(1).FillWidth().
-			Padding(space4, space12, space16, space12).Children(func() {
-			detailsBody(c, model)
-		})
-	})
-}
-
 func detailsBody(c *mgo.Context, model *Model) {
 	mgo.Column(c).FillWidth().Gap(space12).Children(func() {
-		detailSection(c, "progress", model.T("Progress"), iconActivity, &model.Shell.ProgressOpen, func() {
-			progressDetails(c, model)
-		})
-		detailSection(c, "folder", model.T("Working folder"), iconFolder, &model.Shell.FolderOpen, func() {
+		detailSection(c, "folder", model.T("Environment"), iconFolder, &model.Shell.FolderOpen, func() {
+			mgo.Row(c).Gap(space8).Children(func() {
+				mgo.Icon(c, iconMonitor).Size(16, 16)
+				mgo.Text(c, model.T("This computer")).FontSize(textCaption)
+			})
 			folderDetails(c, model)
+			if model.Workspace.Changes.Branch != "" {
+				mgo.Text(c, model.Workspace.Changes.Branch).FontSize(textCaption)
+			}
 		})
 		detailSection(c, "context", model.T("Context"), iconInfo, &model.Shell.ContextOpen, func() {
+			if model.Context.Window > 0 && model.Usage.HasUsage {
+				ratio := min(1, float64(model.Usage.InputTokens+model.Usage.OutputTokens)/float64(model.Context.Window))
+				mgo.Progress(c.Key("context-usage"), ratio).FillWidth()
+			}
+			if usage := usageContextLabel(model); usage != "" {
+				mgo.Text(c, usage).FontSize(textCaption)
+			}
 			contextDetails(c, model)
 		})
+		detailSection(c, "progress", model.T("Progress"), iconActivity, &model.Shell.ProgressOpen, func() { progressDetails(c, model) })
+		if len(model.Workspace.Changes.Files) > 0 {
+			mgo.Button(c.Key("rail-changes"), fmt.Sprintf(model.T("Changed files · %d"), len(model.Workspace.Changes.Files))).FillWidth().OnClick(func() {
+				if !model.Workspace.Open[PanelChanges] {
+					model.ToggleWorkspacePanel(PanelChanges)
+				}
+			})
+		}
 	})
 }
 
@@ -160,17 +158,5 @@ func detailValue(c *mgo.Context, model *Model, title, value, copyLabel string) {
 				c.WriteClipboard(value)
 				c.Toast(model.T("Copied"))
 			})
-	})
-}
-
-// conversationDetails keeps the narrow-window Popover on the same body as the
-// wide pane.
-func conversationDetails(c *mgo.Context, model *Model) {
-	_, height := c.Size()
-	mgo.Column(c).Width(340).MaxWidth(360).Padding(space8).Gap(space8).Children(func() {
-		mgo.Text(c, model.T("Conversation details")).FontSize(textBody).Bold()
-		mgo.Scroll(c.Key("details-scroll")).MaxHeight(max(120, min(420, height-titleBarHeight(c)-140))).FillWidth().Children(func() {
-			detailsBody(c, model)
-		})
 	})
 }

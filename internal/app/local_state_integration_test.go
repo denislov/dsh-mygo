@@ -30,6 +30,10 @@ func TestAgainstMygoLocalEditingState(t *testing.T) {
 	first.model.Prefs.Draft.Locale = "zh-CN"
 	first.model.Prefs.Draft.Send = "Ctrl+Enter"
 	first.ApplyUIPreferences()
+	if !first.model.SettingsOpen {
+		t.Fatal("saving preferences unexpectedly closed settings")
+	}
+	first.CloseSettings()
 	first.NewSession()
 	waitFor(t, first, updates, 30*time.Second, func() bool { return !first.model.SessionBusy && first.sessionID != firstID })
 	secondID := first.sessionID

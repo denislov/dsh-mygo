@@ -29,6 +29,8 @@ func (model *Model) OpenPreferences() {
 	}
 	model.Prefs.Draft = model.Prefs.Value
 	model.Prefs.Error = ""
+	model.SettingsSearch = ""
+	model.SettingsProviderEditing = false
 	model.SettingsSection = SettingsSectionGeneral
 	model.SettingsOpen = true
 }
@@ -42,7 +44,6 @@ func (model *Model) ApplyPreferences() {
 		return
 	}
 	model.Prefs.Value = model.Prefs.Draft
-	model.SettingsOpen = false
 }
 
 func commandKey(value string) (mgo.Modifiers, mgo.Key) {
@@ -107,6 +108,9 @@ func preferenceChoice(c *mgo.Context, model *Model, value *string, options []str
 }
 
 func (model *Model) preferenceChoiceLabel(value string) string {
+	if strings.HasPrefix(value, "Effort: ") {
+		return model.T("Effort") + ": " + strings.TrimPrefix(value, "Effort: ")
+	}
 	switch value {
 	case "system":
 		return model.T("Follow system")

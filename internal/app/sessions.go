@@ -247,6 +247,7 @@ func (a *App) loadSessionInDirectory(id, cwd string) {
 			a.model.SessionID = summary.ID
 			a.model.Subagents = nil
 			a.model.SessionCWD = summary.CWD
+			a.syncWorkspace()
 			a.model.Setup.WorkspaceRequired = workspaceRequired
 			a.model.Setup.Error = ""
 			if canPermissions {

@@ -21,6 +21,9 @@ func TestUIPreferencesSaveWithDraftAndHandshakeLocale(t *testing.T) {
 	a.model.Prefs.Draft.Locale = "zh-CN"
 	a.model.Prefs.Draft.Send = "Ctrl+Enter"
 	a.ApplyUIPreferences()
+	if !a.model.SettingsOpen {
+		t.Fatal("saving an individual preference closed settings")
+	}
 	flushEditing(t, a)
 	state, _, err := preferences.NewStore(path).Load()
 	if err != nil || state.UI.Theme != "dark" || state.UI.Locale != "zh-CN" || state.Drafts["original"] != "keep draft" || theme != "dark" || locale != "zh-CN" {

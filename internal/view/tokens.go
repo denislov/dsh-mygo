@@ -8,10 +8,8 @@ import (
 const (
 	WindowTitleBarHeight float32 = 44
 	sidebarWidth         float32 = 280
-	detailsWidth         float32 = 300
 	readingWidth         float32 = 860
 	sidebarBreakpoint    float32 = 820
-	detailsBreakpoint    float32 = 1180
 
 	space2  float32 = 2
 	space4  float32 = 4

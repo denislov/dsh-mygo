@@ -33,9 +33,13 @@ func TestSettingsOpensAppliesAndDoesNotChangeDraft(t *testing.T) {
 		t.Fatal(err)
 	}
 	tester.Advance(300 * time.Millisecond)
-	if !tester.HasText("Model settings") || !tester.HasText("Model ID") {
+	if err := tester.Click("Edit provider · Test"); err != nil {
+		t.Fatal(err)
+	}
+	if !tester.HasText("Model providers") || !tester.HasText("Model ID") {
 		t.Fatal("settings form missing")
 	}
+	tester.Scroll(650, 500, 0, 350)
 	if err := tester.Click("Apply model"); err != nil {
 		t.Fatal(err)
 	}
@@ -66,6 +70,7 @@ func TestSettingsOpensAppliesAndDoesNotChangeDraft(t *testing.T) {
 func TestSettingsEffortSelectionAndDefaultAreUnambiguous(t *testing.T) {
 	model := settingsModel()
 	model.SettingsOpen = true
+	model.SettingsProviderEditing = true
 	tester := tester(model)
 	if err := tester.Click("Provider default"); err != nil {
 		t.Fatal(err)
@@ -91,7 +96,7 @@ func TestSettingsFitsMinimumWindowAndLoadingCanClose(t *testing.T) {
 	model.OpenSessions = func() {}
 	model.Detail = "dsh-mygo-host 0.1.0 · DSH 0.2.1-rc.2"
 	tester := ui.NewTester(func(context *ui.Context) { View(context, model) }, 560, 420)
-	if err := tester.Click("Close"); err != nil {
+	if err := tester.Click("Close settings"); err != nil {
 		t.Fatal(err)
 	}
 	if model.SettingsOpen {

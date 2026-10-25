@@ -26,7 +26,7 @@ func TestSessionPickerOpensSelectsAndRestoresFocus(t *testing.T) {
 	selected := ""
 	model.SwitchSession = func(id string) { selected = id; model.SessionsOpen = false }
 	tester := tester(model)
-	if err := tester.Click("Sessions"); err != nil {
+	if err := clickToolbarMenu(tester, "Sessions"); err != nil {
 		t.Fatal(err)
 	}
 	tester.Advance(300 * time.Millisecond)
@@ -43,7 +43,7 @@ func TestSessionPickerOpensSelectsAndRestoresFocus(t *testing.T) {
 	}
 	tester.Frame()
 	tester.Frame()
-	if err := tester.Click("Sessions"); err != nil {
+	if err := clickToolbarMenu(tester, "Sessions"); err != nil {
 		t.Fatal(err)
 	}
 	tester.Advance(300 * time.Millisecond)
@@ -110,7 +110,7 @@ func TestSessionPickerYieldsToQuestionsAndDisablesNavigationWhileRunning(t *test
 	model.Questions = nil
 	model.Phase = PhaseRunning
 	tester.Frame()
-	_ = tester.Click("Sessions")
+	_ = clickToolbarMenu(tester, "Sessions")
 	if model.SessionsOpen {
 		t.Fatal("navigation was enabled during a turn")
 	}

@@ -65,31 +65,19 @@ func titleBar(c *mgo.Context, model *Model) {
 			mgo.Text(c.Key("phase"), model.T(phaseLabel(model.Phase))).FontSize(textMicro).TextColor(tokens.TextMuted)
 		}
 
-		if model.Inspection.Available && width >= 720 {
-			iconButton(c.Key("subagents"), model.T("Subagents"), iconAgents).
-				Disabled(!model.CanInspectSubagents()).OnClick(model.Inspection.Show)
-		}
-		if model.CanHistory && model.OpenSessions != nil {
-			iconButton(c.Key("sessions"), model.T("Sessions"), iconSessions).
-				Disabled(!model.CanRefreshSessions()).OnClick(model.OpenSessions)
-		}
-		iconButton(c.Key("ui-preferences"), model.T("Preferences"), iconSettings).
-			Disabled(!model.CanOpenPreferences()).OnClick(model.OpenPreferences)
-		anchor := iconButton(c.Key("details"), model.T("Conversation details"), iconInfo).Disabled(model.RecoveryOpen)
-		if anchor.Clicked() {
-			if width >= detailsBreakpoint {
-				model.Shell.DetailsOpen = !model.Shell.DetailsOpen
+		for _, panel := range []WorkspacePanel{PanelRail, PanelTerminal, PanelChanges, PanelPreview, PanelFiles} {
+			button := iconButton(c.Key("workspace-"+string(panel)), model.T("Toggle "+workspacePanelLabel(panel)), workspacePanelIcon(panel)).
+				Disabled(model.RecoveryOpen || model.LocalState.Closing).OnClick(func() { model.ToggleWorkspacePanel(panel) })
+			if model.Workspace.Open[panel] {
+				button.Background(tokens.AccentSoft).TextColor(tokens.Accent)
+				button.Tooltip(model.T("Hide " + workspacePanelLabel(panel)))
 			} else {
-				model.Shell.DetailsPopoverOpen = !model.Shell.DetailsPopoverOpen
+				button.Tooltip(model.T("Show " + workspacePanelLabel(panel)))
 			}
 		}
-		if width >= detailsBreakpoint {
-			model.Shell.DetailsPopoverOpen = false
-		} else if !overlayActive(model) {
-			mgo.Popover(c.Key("conversation-details"), anchor, &model.Shell.DetailsPopoverOpen, func() {
-				conversationDetails(c, model)
-			})
-		}
+		iconButton(c.Key("workspace-more"), model.T("More"), iconMoreVertical).
+			Menu(func(menu *mgo.Menu) { titleBarMenu(menu, model, width) })
+
 	})
 }
 
@@ -103,7 +91,7 @@ func titleBarMenu(menu *mgo.Menu, model *Model, width float32) {
 	}
 	if model.CanHistory && model.OpenSessions != nil {
 		if item := menu.Item(model.T("Sessions")).Disabled(!model.CanRefreshSessions()); item.Chosen() {
-			model.OpenSessions()
+			model.Shell.pendingAction = model.OpenSessions
 		}
 	}
 	if width >= sidebarBreakpoint && model.CanHistory {

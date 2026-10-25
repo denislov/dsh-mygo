@@ -11,7 +11,7 @@ func TestSettingsCenterGeneralWorksWithoutHostCapabilities(t *testing.T) {
 	model := NewModel()
 	model.Phase = PhaseIdle
 	tt := tester(model)
-	if err := tt.Click("Preferences"); err != nil {
+	if err := clickToolbarMenu(tt, "Settings"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Advance(300 * time.Millisecond)
@@ -23,7 +23,7 @@ func TestSettingsCenterGeneralWorksWithoutHostCapabilities(t *testing.T) {
 			t.Fatalf("general section missing %q in %v", text, tt.Texts())
 		}
 	}
-	for _, text := range []string{"Conversation model", "Permissions", "Connection", "Apply model"} {
+	for _, text := range []string{"Models", "Permissions", "Connection", "Apply model"} {
 		if tt.HasText(text) {
 			t.Fatalf("host-only %q appeared without capabilities in %v", text, tt.Texts())
 		}
@@ -41,7 +41,7 @@ func TestSettingsCenterSwitchesSectionsAndRefreshes(t *testing.T) {
 	model.RefreshSettings = func() { refreshes++ }
 	tt := tester(model)
 	tt.Advance(300 * time.Millisecond)
-	if !tt.HasText("Model settings") || !tt.HasText("Model ID") {
+	if !tt.HasText("Model providers") || !tt.HasText("Edit provider · Test") {
 		t.Fatalf("conversation section missing in %v", tt.Texts())
 	}
 	if err := tt.Click("General"); err != nil {
@@ -51,7 +51,7 @@ func TestSettingsCenterSwitchesSectionsAndRefreshes(t *testing.T) {
 	if model.SettingsSection != SettingsSectionGeneral || !tt.HasText("Appearance") {
 		t.Fatal("nav did not switch to General")
 	}
-	if err := tt.Click("Conversation model"); err != nil {
+	if err := tt.Click("Models"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Frame()
@@ -104,7 +104,7 @@ func TestSettingsCenterShowsOnlyAvailableSections(t *testing.T) {
 	model.SettingsOpen = true
 	tt := tester(model)
 	tt.Frame()
-	if !tt.HasText("Conversation model") || !tt.HasText("Permissions") || tt.HasText("Connection") {
+	if !tt.HasText("Models") || !tt.HasText("Permissions") || tt.HasText("Connection") {
 		t.Fatalf("section gating wrong in %v", tt.Texts())
 	}
 }

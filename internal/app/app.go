@@ -111,6 +111,7 @@ type rpcClient interface {
 // App owns one window's host process, protocol client, and projected
 // transcript.
 type App struct {
+	workspace  workspaceResources
 	hostLocale atomic.Value
 	options    Options
 	model      *view.Model
@@ -185,6 +186,7 @@ func New(options Options) *App {
 	}
 	app := &App{options: options, sessionID: options.SessionID, stopped: make(chan struct{}), pendingUI: make(chan struct{}, maxPendingUIUpdates)}
 	app.model = view.NewModel()
+	app.configureWorkspace()
 	app.model.AppVersion = channel.ReleaseVersion
 	app.model.Setup.ChooseFolder = app.ChooseProjectFolder
 	app.model.Setup.UseFolder = app.UseWorkingFolder
@@ -530,6 +532,7 @@ func (a *App) startHost(recover bool, resumeID string) {
 		a.CloseSubagents()
 		a.model.Inspection.Available = initialized.canInspectSubagents
 		a.model.SessionCWD = initialized.cwd
+		a.syncWorkspace()
 		a.model.CanHistory = initialized.canHistory
 		a.canHistoryWindow = initialized.canHistoryWindow
 		a.canRelease = initialized.canRelease
@@ -1252,6 +1255,8 @@ func (a *App) Shutdown(timeout time.Duration) {
 		return
 	}
 	a.logf("shutdown requested")
+	a.cancelWorkspaceReads()
+	a.closeWorkspaceTerminals(true)
 	close(a.stopped)
 	if a.runtimeCancel != nil {
 		a.runtimeCancel()

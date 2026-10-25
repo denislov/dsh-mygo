@@ -84,99 +84,102 @@ type RuntimeChoice struct {
 // Model is the window's state. The app mutates it on the main thread and
 // keeps the transcript and draft outside the view.
 type Model struct {
-	Shell                ShellState
-	Prefs                PreferencesState
-	Attachments          AttachmentState
-	Mention              MentionState
-	QueryMentions        func(prefix string)
-	Items                []projection.Item
-	Activity             map[string]*ActivityState
-	History              HistoryState
-	Draft                string
-	DraftChanged         func()
-	LocalState           LocalStateStatus
-	Phase                Phase
-	ModelLabel           string
-	AppVersion           string
-	Detail               string
-	Usage                projection.UsageView
-	Context              projection.ContextView
-	Tasks                []projection.Task
-	PlanActive           bool
-	Goal                 *projection.Goal
-	Subagents            []SubagentState
-	Inspection           SubagentPanelState
-	Error                string
-	ErrorDetail          string
-	RecoveryOpen         bool
-	Recoverable          bool
-	Restarting           bool
-	RecoveryError        string
-	Restart              func()
-	OpenLogs             func()
-	CanOpenLogs          bool
-	Quit                 func()
-	Send                 func(text string)
-	Dismiss              func()
-	Cancel               func()
-	CanCancel            bool
-	CanStream            bool
-	CancelPending        bool
-	CanApprove           bool
-	ApprovalOpen         bool
-	Approvals            []interaction.Approval
-	RespondApproval      func(requestID, decision string)
-	CanQuestion          bool
-	QuestionOpen         bool
-	Questions            []*interaction.QuestionRequest
-	RespondQuestion      func(requestID string, cancel bool)
-	List                 mgo.ListState
-	ToolCards            map[string]*ToolCardState
-	ToolInspector        *ToolInspectorState
-	Markdown             markdown.Options
-	InterruptedMarkdown  markdown.Options
-	ReasoningMarkdown    markdown.Options
-	CopiedMessageID      string
-	CopiedMessageText    string
-	CanHistory           bool
-	CanResync            bool
-	SessionPanel         SessionPanelState
-	SessionID            string
-	SessionCWD           string
-	Setup                FirstUseState
-	Sessions             []SessionSummary
-	SessionsOpen         bool
-	SessionBusy          bool
-	SessionSwitching     bool
-	SessionsError        string
-	SessionList          mgo.ListState
-	OpenSessions         func()
-	RefreshSessions      func()
-	CloseSessions        func()
-	NewSession           func()
-	NewProjectSession    func(string)
-	SwitchSession        func(string)
-	CanModels            bool
-	ActiveRoute          ModelRoute
-	Catalog              ModelCatalog
-	Runtime              RuntimeState
-	SettingsOpen         bool
-	QuickSelector        string
-	QuickSearch          string
-	SettingsSection      SettingsSection
-	SettingsConnection   bool
-	SettingsBusy         bool
-	SettingsApplying     bool
-	ModelUncertain       bool
-	SettingsError        string
-	SettingsProvider     string
-	SettingsModel        string
-	SettingsCatalogModel string
-	SettingsEffort       string
-	OpenSettings         func()
-	CloseSettings        func()
-	RefreshSettings      func()
-	ApplySettings        func()
+	Workspace               WorkspaceState
+	Shell                   ShellState
+	Prefs                   PreferencesState
+	Attachments             AttachmentState
+	Mention                 MentionState
+	QueryMentions           func(prefix string)
+	Items                   []projection.Item
+	Activity                map[string]*ActivityState
+	History                 HistoryState
+	Draft                   string
+	DraftChanged            func()
+	LocalState              LocalStateStatus
+	Phase                   Phase
+	ModelLabel              string
+	AppVersion              string
+	Detail                  string
+	Usage                   projection.UsageView
+	Context                 projection.ContextView
+	Tasks                   []projection.Task
+	PlanActive              bool
+	Goal                    *projection.Goal
+	Subagents               []SubagentState
+	Inspection              SubagentPanelState
+	Error                   string
+	ErrorDetail             string
+	RecoveryOpen            bool
+	Recoverable             bool
+	Restarting              bool
+	RecoveryError           string
+	Restart                 func()
+	OpenLogs                func()
+	CanOpenLogs             bool
+	Quit                    func()
+	Send                    func(text string)
+	Dismiss                 func()
+	Cancel                  func()
+	CanCancel               bool
+	CanStream               bool
+	CancelPending           bool
+	CanApprove              bool
+	ApprovalOpen            bool
+	Approvals               []interaction.Approval
+	RespondApproval         func(requestID, decision string)
+	CanQuestion             bool
+	QuestionOpen            bool
+	Questions               []*interaction.QuestionRequest
+	RespondQuestion         func(requestID string, cancel bool)
+	List                    mgo.ListState
+	ToolCards               map[string]*ToolCardState
+	ToolInspector           *ToolInspectorState
+	Markdown                markdown.Options
+	InterruptedMarkdown     markdown.Options
+	ReasoningMarkdown       markdown.Options
+	CopiedMessageID         string
+	CopiedMessageText       string
+	CanHistory              bool
+	CanResync               bool
+	SessionPanel            SessionPanelState
+	SessionID               string
+	SessionCWD              string
+	Setup                   FirstUseState
+	Sessions                []SessionSummary
+	SessionsOpen            bool
+	SessionBusy             bool
+	SessionSwitching        bool
+	SessionsError           string
+	SessionList             mgo.ListState
+	OpenSessions            func()
+	RefreshSessions         func()
+	CloseSessions           func()
+	NewSession              func()
+	NewProjectSession       func(string)
+	SwitchSession           func(string)
+	CanModels               bool
+	ActiveRoute             ModelRoute
+	Catalog                 ModelCatalog
+	Runtime                 RuntimeState
+	SettingsOpen            bool
+	SettingsSearch          string
+	SettingsProviderEditing bool
+	QuickSelector           string
+	QuickSearch             string
+	SettingsSection         SettingsSection
+	SettingsConnection      bool
+	SettingsBusy            bool
+	SettingsApplying        bool
+	ModelUncertain          bool
+	SettingsError           string
+	SettingsProvider        string
+	SettingsModel           string
+	SettingsCatalogModel    string
+	SettingsEffort          string
+	OpenSettings            func()
+	CloseSettings           func()
+	RefreshSettings         func()
+	ApplySettings           func()
 
 	CanConfigure                 bool
 	Permission                   PermissionState
@@ -207,10 +210,10 @@ func NewModel() *Model {
 	model.InterruptedMarkdown.CodeBlock = model.interruptedCodeBlock
 	model.Prefs = PreferencesState{Value: preferences.DefaultUI(), Ready: true}
 	model.Shell.SidebarOpen = true
-	model.Shell.DetailsOpen = false
 	model.Shell.ProgressOpen = true
 	model.Shell.FolderOpen = true
 	model.Shell.ContextOpen = true
+	model.Workspace.ChatPercent = 56
 	model.Mention.CaretTarget = -1
 	return model
 }
@@ -240,9 +243,6 @@ func View(c *mgo.Context, model *Model) {
 		runtimeSetupView(c, model)
 		return
 	}
-	if overlayActive(model) {
-		model.Shell.DetailsPopoverOpen = false
-	}
 	applicationShortcuts(c, model)
 	theme := c.Theme()
 	services := c.Services()
@@ -263,25 +263,33 @@ func View(c *mgo.Context, model *Model) {
 		mgo.Column(c.Key("conversation")).Grow(1).MinWidth(0).FillHeight().Children(func() {
 			titleBar(c, model)
 			mgo.Row(c.Key("conversation-body")).Grow(1).MinHeight(0).FillWidth().Children(func() {
-				mgo.Column(c.Key("chat")).Grow(1).MinWidth(0).FillHeight().Children(func() {
-					if !model.RecoveryOpen {
-						localStateStatus(c, model)
-					}
-					if model.Error != "" && !model.RecoveryOpen {
-						errorBanner(c, model)
-					}
-					if model.SessionSwitching {
-						sessionLoading(c, model)
-					} else {
-						transcript(c, model)
-					}
-					if !detailsPaneVisible(c, model) {
-						taskPanel(c, model)
-					}
-					composer(c, model)
-				})
-				if detailsPaneVisible(c, model) {
-					detailsPane(c, model)
+				panels := model.workspacePanels()
+				width, _ := c.Size()
+				chat := func() {
+					mgo.Column(c.Key("chat")).Grow(1).MinWidth(0).FillHeight().Children(func() {
+						if !model.RecoveryOpen {
+							localStateStatus(c, model)
+						}
+						if model.Error != "" && !model.RecoveryOpen {
+							errorBanner(c, model)
+						}
+						if model.SessionSwitching {
+							sessionLoading(c, model)
+						} else {
+							transcript(c, model)
+						}
+						if !model.Workspace.Open[PanelRail] {
+							taskPanel(c, model)
+						}
+						composer(c, model)
+					})
+				}
+				if len(panels) == 0 {
+					chat()
+				} else if width < 1000 {
+					workspaceDock(c, model, panels, true)
+				} else {
+					mgo.SplitPercent(c.Key("workspace-split"), &model.Workspace.ChatPercent, chat, func() { workspaceDock(c, model, panels, false) }).Fill()
 				}
 			})
 		})
@@ -293,6 +301,14 @@ func View(c *mgo.Context, model *Model) {
 	settingsCenterModal(c, model)
 	recoveryModal(c, model)
 	subagentModal(c, model)
+	// A menu in the right title bar is built after the sidebar list. Navigation
+	// takes effect after all construction so that list state is not used twice
+	// by the old sidebar and the new Sessions dialog in the same pass.
+	if action := model.Shell.pendingAction; action != nil {
+		model.Shell.pendingAction = nil
+		action()
+		c.After(0)
+	}
 }
 
 func errorBanner(c *mgo.Context, model *Model) {

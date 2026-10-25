@@ -71,7 +71,8 @@ func TestRuntimeSettingsBlocksCloseWhileBusy(t *testing.T) {
 	if !tt.HasText("Downloading runtime") {
 		t.Fatalf("busy status missing in %v", tt.Texts())
 	}
-	if tt.HasText("Close") {
+	_ = tt.Click("Close settings")
+	if !model.SettingsOpen {
 		t.Fatal("settings can be closed during a runtime operation")
 	}
 	if err := tt.Click("Cancel"); err != nil {
@@ -89,7 +90,8 @@ func TestRuntimeSettingsShowsSwitchingAndDisablesClose(t *testing.T) {
 	if !tt.HasText("Switching runtime…") {
 		t.Fatalf("switch status missing in %v", tt.Texts())
 	}
-	if tt.HasText("Close") {
+	_ = tt.Click("Close settings")
+	if !model.SettingsOpen {
 		t.Fatal("settings can be closed during a runtime switch")
 	}
 }
@@ -127,7 +129,7 @@ func TestRuntimeSettingsFitsMinimumWindow(t *testing.T) {
 	if !tt.HasText("Current runtime") {
 		t.Fatalf("runtime page missing at minimum size: %v", tt.Texts())
 	}
-	if err := tt.Click("Close"); err != nil {
+	if err := tt.Click("Close settings"); err != nil {
 		t.Fatal(err)
 	}
 }
