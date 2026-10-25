@@ -23,7 +23,9 @@
 
 ## Go 单元
 
-- 投影：`user/message`、`assistant/message`、`tool/call|result`、`turn/end`、重复 seq、未知事件、截断。
+- 投影：`user/message`、`assistant/message`（reasoning/text run 顺序、独立预算与截断）、`tool/call|result`、`turn/end`、重复 seq、未知事件、事件边界裁剪。
+- 活动组：默认折叠、展开思考原文与工具卡片、流式 `Thinking…`、工具-only 摘要、回合断组、唯一 key、状态清理与中英文摘要。
+- 视觉：token 对比度、明暗主题、宽/窄/最小窗口；无头 Tester 截图复核后删除临时脚本，不引入 golden 图片依赖。
 - 流式：start/chunk/end、缺口、abandoned、提交前后交错、reasoning 可见且受预算截断、工具参数不泄露。
 - 历史：分页、边界、游标、部分页失败不发布、历史与实时合并。
 - 协议：合法/非法帧、版本、未知方法、超时、取消、重复回答、背压。
@@ -112,7 +114,7 @@ node --test resources/host/tests/*.test.mjs
 - `TestAgainstMygoRealComposition`：真实 CLI/Loader、profile、stdout 纯净、连续 seq、退出码。
 - `TestMygoRealProtocolLifecycle`：错误版本、非法帧、initialize 前 shutdown、stdin EOF。
 - `TestAgainstMygoRealCancellation` / `TestAgainstMygoRealApprovals` / `TestAgainstMygoQuestions`：真实 agent loop 的取消、审批与提问。
-- `TestAgainstMygoRealStreaming`：mock adapter 暂停生成，验证流式先可见、提交替换、取消与同会话继续。
+- `TestAgainstMygoRealStreaming`：mock adapter 暂停生成，验证流式先可见、reasoning 与 text 分列、提交替换、取消与同会话继续。
 - `TestMygoRealHistoryAfterRestart`：两个进程共享同一 `DSH_HOME`，验证列表、恢复、分页回放与继续发送。
 - `TestMygoRealHistoryAfterRestart` 同时覆盖重命名提交、冷列表标题/更新时间、单写者冲突后重试、归档跨进程重启保留、取消归档及完整日志前缀不变；全程使用 mock provider，不调用付费模型。
 - `TestAgainstMygoSessionSwitching`、`TestAgainstMygoModelSettings`、`TestAgainstMygoConfiguration`、`TestAgainstMygoToolDiffs`：真实会话切换、模型请求、配置持久化与 write/edit diff。

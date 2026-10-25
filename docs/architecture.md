@@ -170,7 +170,7 @@ UI 输入
 Go 的 `SessionProjection` 从 `session/assistant-stream` 与 `session/event` 构建：
 
 - turn 边界与用户消息。
-- assistant 文本与 reasoning：流式帧先渲染，提交的 `assistant/message` / `assistant/attempt` 到达后校准并替换。
+- assistant 文本与 reasoning：流式帧先渲染，提交的 `assistant/message` / `assistant/attempt` 到达后校准并替换。同一回合内连续的 reasoning 与 tool 行聚合为默认折叠的活动组，展开后显示思考原文与工具卡片。
 - 工具调用：名称、参数、状态、结果、错误。
 - 文件编辑 → diff。
 - plan / todo / goal。

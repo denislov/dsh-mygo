@@ -17,18 +17,18 @@
 | 提交 | 拆分工作从 `9faa9b6` 起至 `06bf5dd`；2026-10-24 → 2026-10-25 |
 | 规模 | `docs/` 21 篇；Go 生产/测试与 Node Host/测试继续增长；runtime lock 约 400 KB |
 | 版本 | identifier `com.denislov.dshmygo`；app/host `0.1.1`、`protocolVersion 1`、DSH `0.2.1-rc.2`、`appCompatibility 0.1.1 <= app < 0.2.0`、MyGo `v0.6.2`、Node 24+、runtime Node `24.14.0` |
-| 测试 | Go 489 项通过（CGO_ENABLED=0 同）；race app/view/runtimes 343 项；Node Host 84/84、scripts 10/10；`node scripts/test-real-host.mjs --runtime` 真实组合通过 |
+| 测试 | Go 506 项通过（CGO_ENABLED=0 同）；race projection/app/view 359 项；Node Host 86/86、scripts 10/10；`node scripts/test-real-host.mjs --runtime` 真实组合通过 |
 | 构建产物 | 拆分后本机构建：应用 exe 14.5 MB、安装器 4.9 MB；runtime `.tgz` 212.2 MB（约 202 MiB）与 catalog；未发布新资产。线上仍为旧 v0.1.1 单体安装器 |
-| 工程基线 | 现有 private remote；tag `v0.1.1` 指向 `728a3ed`；发布提交的 Windows 全量与 Linux Go CI 全绿；仓库公开切换由项目所有者执行 |
+| 工程基线 | 公共 GitHub remote（2026-10-25 切换）；tag `v0.1.1` 指向 `728a3ed`；发布提交的 Windows 全量与 Linux Go CI 全绿 |
 
 2026-10-23 本机（Windows）实跑结果：
 
 ```sh
-go test ./...                                   # 489 项通过
-go test -race ./internal/app ./internal/view ./internal/runtimes   # 343 项通过
-CGO_ENABLED=0 go test ./...                     # 489 项通过
+go test ./...                                   # 506 项通过
+go test -race ./internal/projection ./internal/app ./internal/view  # 359 项通过
+CGO_ENABLED=0 go test ./...                     # 506 项通过
 go tool mygo vet . && go vet ./...              # 通过
-node --test resources/host/tests/*.test.mjs     # 84/84 通过
+node --test resources/host/tests/*.test.mjs     # 86/86 通过
 node --test scripts/*.test.mjs                  # 10/10 通过（bundle/发布/签名）
 node scripts/build-runtime.mjs                  # runtime tgz + catalog
 node scripts/test-real-host.mjs --runtime       # 真实 runtime 组合通过
@@ -42,7 +42,7 @@ node scripts/smoke-installer.mjs                # 未运行：本机已安装 ds
 
 真实链路覆盖：composition/lifecycle、approval、question、cancellation、streaming/Markdown、history 重启回放、session switching、model settings、configuration、host kill/restart、进程树回收、会话 resume 与运行时切换。
 
-未跑：`smoke-installer`（本机已有真实安装，未卸载用户应用）、公开 GitHub runtime 下载链路（仓库仍为 private，等待所有者切换）、真实付费模型 `TestAgainstMygoRealModel`、macOS 全部验证、干净机器验收、应用自动更新。
+未跑：`smoke-installer`（本机已有真实安装，未卸载用户应用）、公开 GitHub runtime 下载链路（仓库已公开，链路未验证）、真实付费模型 `TestAgainstMygoRealModel`、macOS 全部验证、干净机器验收、应用自动更新。
 
 ## 3. 已完成（按子系统）
 
@@ -51,9 +51,9 @@ node scripts/smoke-installer.mjs                # 未运行：本机已安装 ds
 | 进程与协议 | spawn/stdio/stderr 尾、版本+能力协商、15 个方法、有界帧、通知背压、非法帧关闭 | `internal/host`、`internal/channel`、`resources/host/transport.mjs`、`tests/fixtures/protocol/` |
 | 会话 | create/list/resume/history、`nextSeq` 起点、单写者、分页游标与预算、冷恢复 | `resources/host/server.mjs`、`internal/app/session_reader.go`、`TestMygoRealHistoryAfterRestart` |
 | 会话管理后端 | rename、归档/取消归档、持久标题、真实活动时间、最近活动排序与归档过滤；独立 capability 与写入预占 | `resources/host/sessions.mjs`、`history.mjs`、`tests/history.test.mjs`、`TestMygoRealHistoryAfterRestart` |
-| 流式 | `session/assistant-stream`、临时行、提交替换、缺口/abandoned/截断 | `internal/projection/stream.go`、`TestAgainstMygoRealStreaming` |
+| 流式 | `session/assistant-stream`、reasoning 临时行、提交替换、缺口/abandoned/截断；baseline 可按 capability 恢复 reasoning | `internal/projection/stream.go`、`stream-baseline.mjs`、`TestAgainstMygoRealStreaming` |
 | 人机交互 | approval 与 question 的 answerer、FIFO 队列、超时/撤销/过期身份、多问题表单 | `internal/interaction`、`TestAgainstMygoRealApprovals`、`TestAgainstMygoQuestions` |
-| 投影与渲染 | user/assistant/tool/diff/notice、原生 Markdown 流式与代码复制、工具折叠与只读 hunk | `internal/projection`、`internal/view/markdown.go`、`tools.go` |
+| 投影与渲染 | user/assistant/reasoning/tool/diff/notice、原生 Markdown 流式与代码复制、工具折叠与只读 hunk、默认折叠的活动组 | `internal/projection`、`internal/view/activity.go`、`markdown.go`、`tools.go` |
 | 会话 UI | 自绘标题栏与应用菜单、可收起日期分组侧栏、宽窗口详情面板、窄窗口 Sessions 弹窗与详情 Popover、标题搜索、归档筛选、重命名/归档/恢复；新建/刷新/恢复、草稿隔离与写入失败确认屏障 | `internal/view/chrome.go`、`sessions.go`、`session_groups.go`、`details.go`、`internal/app/session_management.go`、`TestAgainstMygoSessionManagement`、`TestAgainstMygoSessionSwitching` |
 | 模型与设置 | `model.selection` 目录与 effort、`settings.configuration` 默认模型（revision）、DeepSeek 凭据只写 | `internal/app/settings.go`、`configuration.go`、`TestAgainstMygoConfiguration` |
 | 会话权限 | 独立能力、当前预设和实际 sandbox/approval、危险 bundle 确认、Host 公共服务切换/持久化、失败刷新门禁 | `resources/host/permissions.mjs`、`internal/app/permissions.go`、`internal/view/permissions.go`、`TestAgainstMygoPermissions` |
@@ -203,6 +203,8 @@ M2-4a 草稿与最近会话持久化已完成：本机编辑文件按 DSH_HOME/p
 M3-2 大历史与句柄预算已完成：独立能力启用反向历史窗口与 session/release，打开/重启/resync 使用最近页；原生控制条可加载更早页和返回最新，跨页工具配对、阅读锚点与草稿保留。展示缓存有行数、预览与详情预算，旧窗口淘汰较新行后禁止发送，返回最新解锁；连续不可见事件使用区间去重。目录读取独立 mygoCatalog 持久检查点，缺失/损坏回退单会话提示并在打开时重建；冷缓存明确标记，不能声称总是最新。导航和后台重命名按退休集合回收句柄，忙碌/读取/交互/写入期间不能释放，失败保留可重试身份。真实测试通过 35001 条且物理大小超过 32 MiB 的日志、连续 12 次新建、释放后恢复/继续回合、第二 Host 的目录和历史恢复；Windows 原生检查通过 25001 条可见消息的宽窄窗口、加载/返回与草稿保留。本批不重建安装器，不跑安装 smoke；干净 VM 按决定继续跳过，不读取 `.env` 或调用付费模型。
 
 本批实际检查：`CGO_ENABLED=0 go test ./...`（297 项）、`go test -race ./internal/app ./internal/view ./internal/projection`（218 项）、MyGo vet、Go vet、Node Host/脚本（70/70）、bundled runtime 完整真实组合均通过。最终补跑大会话与立即重命名重启两项真实 Host 竞态测试，覆盖超过 32 MiB 的 fixture、冷恢复检查点预占和公开后台活动检查；Windows 原生窗口检查及截图复核通过。文档本地链接与 diff 检查通过。安装器仍为先前构建，macOS 未验证。
+
+思考显示与活动组已完成：投影层新增 `KindReasoning`，reasoning 在实时流、提交历史与历史回放中可见；同一回合内连续的 reasoning/tool 行聚合为默认折叠的活动组，摘要显示思考时长、工具数量或工具名，展开后显示思考原文与工具卡片。baseline 新增 `session.assistant-stream-baseline-reasoning` capability，未协商时保持旧快照形状；子代理历史继续剥离 reasoning。对话区与外壳统一视觉：活动组低对比面板、组内扁平工具行、阅读宽度 780 DIP/15.5 DIP 正文、空状态品牌圆标、设置内容卡片与 token 对比度测试。实际检查：`CGO_ENABLED=0 go test ./...`（506 项）、`go test -race ./internal/projection ./internal/app ./internal/view`（359 项）、MyGo vet、Go vet、Node Host（86/86）、脚本（10/10）、`node scripts/test-real-host.mjs --runtime` 完整真实组合通过。Windows 原生窗口复核暗色空状态与标题栏/详情布局；受窗口尺寸与自动化限制，未在真实窗口完成发送回合并展开活动组的复核，交互与展开态由 Tester 和无头明暗截图覆盖。本轮未重建安装器，macOS 未验证。
 
 M2-4b 界面偏好已完成：独立设备级面板支持 system/light/dark、en-US/zh-CN、Enter/Ctrl+Enter 与新建/偏好/停止命令的有限改绑/禁用，重复组合拒绝；默认保持英文和 Enter。表单取消不改值，应用与重置不触碰 Host 配置，模态和审批/提问期间不执行背后命令。应用文案集中翻译，数据载荷保留原文；内建控件同步 locale，Host 在下一启动采用。v1 编辑文件迁移到包含 ui 的 v2，草稿/冲突/原子保存与退出屏障保持；非法偏好只读保护原文件。MyGo locale 镜像和窗口状态通过 ui-state-dir 一起隔离，编辑文件为偏好权威来源。下一项为附件与引用。本批未重建安装器，干净 VM 按决定继续跳过。
 
