@@ -6,50 +6,39 @@ import (
 	"testing"
 )
 
-func TestHistoryControlsStayAccessibleAndGateSending(t *testing.T) {
+func TestDetachedHistoryUsesArrowAndRetryWithoutSending(t *testing.T) {
 	model := sessionModel()
 	model.Draft = "draft"
 	model.History = HistoryState{Available: true, Start: 30000, Detached: true}
 	earlier, latest, sent := 0, 0, 0
-	model.History.LoadEarlier = func() { earlier++ }
 	model.History.Latest = func() { latest++; model.History.Detached = false; model.History.Start = 0 }
 	model.Send = func(string) { sent++ }
-	tester := ui.NewTester(func(c *ui.Context) { View(c, model) }, 560, 420)
-	tester.Frame()
-	_ = tester.Click("Send")
+	tt := ui.NewTester(func(c *ui.Context) { View(c, model) }, 560, 420)
+	_ = tt.Click("Send")
 	if sent != 0 || model.Draft != "draft" {
 		t.Fatal("old cache allowed sending")
 	}
-	if err := tester.Click("Load earlier messages"); err != nil {
+	if err := tt.Click("Return to latest"); err != nil {
 		t.Fatal(err)
 	}
-	model.SessionBusy = true
-	model.History.Busy = true
-	tester.Frame()
-	_ = tester.Click("Load earlier messages")
-	if earlier != 1 {
-		t.Fatal("duplicate history read")
-	}
-	model.SessionBusy = false
-	model.History.Busy = false
-	model.History.Error = "Retry loading earlier messages"
-	tester.Frame()
-	if !tester.HasText(model.History.Error) {
-		t.Fatal("history failure hidden")
-	}
-	if err := tester.Click("Return to latest"); err != nil {
-		t.Fatal(err)
-	}
-	tester.Frame()
-	tester.Frame()
+	tt.Frame()
 	if latest != 1 || model.History.Detached {
 		t.Fatal("latest action lost")
 	}
-	model.History.Start = 1
-	tester.Frame()
-	tester.Frame()
-	if !tester.HasText("Load earlier messages") {
-		t.Fatal("history controls did not return")
+	model.History.Start = 64
+	model.History.Detached = true
+	model.History.Error = "Could not load history. Retry loading earlier messages"
+	model.History.LoadEarlier = func() { earlier++; model.History.Busy = true; model.SessionBusy = true }
+	tt.Frame()
+	if !tt.HasText(model.History.Error) {
+		t.Fatal("history failure hidden")
+	}
+	if err := tt.Click("Retry loading earlier messages"); err != nil {
+		t.Fatal(err)
+	}
+	_ = tt.Click("Retry loading earlier messages")
+	if earlier != 1 {
+		t.Fatal("retry duplicated history read")
 	}
 }
 

@@ -69,6 +69,7 @@ var (
 	iconSettings = lineIcon(`<path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3"/><circle cx="15" cy="17" r="3"/>`)
 	iconInfo     = lineIcon(`<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/>`)
 	iconAttach   = lineIcon(`<path d="m8 13 7-7a3 3 0 0 1 4 4l-9 9a5 5 0 0 1-7-7l9-9M6 15l9-9"/>`)
+	iconDown     = lineIcon(`<path d="M12 5v14m-6-6 6 6 6-6"/>`)
 	iconSend     = lineIcon(`<path d="M12 19V5m-6 6 6-6 6 6"/>`)
 	iconStop     = lineIcon(`<rect x="6" y="6" width="12" height="12" rx="2"/>`)
 	iconCopy     = lineIcon(`<rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/>`)

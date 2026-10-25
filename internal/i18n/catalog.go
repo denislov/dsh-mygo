@@ -12,8 +12,10 @@ func Text(locale, key string) string {
 }
 
 var chinese = map[string]string{
-	"Conversation title":  "会话标题",
-	"Other conversations": "其他会话", "New conversation in project": "在项目中新建会话",
+	"Retry loading earlier messages":                         "重试加载更早消息",
+	"Conversation turn exceeds the supported history budget": "单轮对话超过历史读取预算",
+	"Conversation title":                                     "会话标题",
+	"Other conversations":                                    "其他会话", "New conversation in project": "在项目中新建会话",
 	"Choose model": "选择模型", "Choose permissions": "切换权限", "Search models": "搜索模型", "No matching models.": "没有匹配的模型。",
 	"Close selector": "关闭选择器", "More settings…": "更多设置…", "Loading settings…": "正在加载设置…",
 	"Use model · ": "使用模型 · ", "Permission option · ": "权限选项 · ",

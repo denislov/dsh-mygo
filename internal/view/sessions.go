@@ -146,7 +146,7 @@ func sessionPanel(c *mgo.Context, model *Model, modal bool) {
 	panel := &model.SessionPanel
 	tokens := tokensFor(c.Theme())
 	disabled := !model.CanChooseSession()
-	if model.SessionBusy || panel.Refreshing {
+	if modal && (model.SessionBusy || panel.Refreshing) {
 		label := "Loading sessions…"
 		if model.SessionSwitching {
 			label = "Loading session history…"
@@ -338,6 +338,9 @@ func sessionTooltip(model *Model, session SessionSummary) string {
 func (model *Model) ResetTranscript(items []projection.Item) {
 	model.Items = items
 	model.List = mgo.ListState{FollowEnd: true}
+	model.History.scroll = mgo.ScrollState{}
+	model.History.autoStart = 0
+	model.History.observedStart = 0
 	model.ToolCards = nil
 	model.Activity = nil
 	model.ToolInspector = nil

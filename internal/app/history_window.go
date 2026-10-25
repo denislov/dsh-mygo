@@ -12,13 +12,30 @@ import (
 // Each request has its own bounded read budget, independent of total log size.
 // beforeSeq is a durable append-only offset, so reading older history survives
 // expired cursors, newer turns and releasing/reacquiring an Agent.
+type historyWindowPage struct {
+	snapshot historySnapshot
+	events   []projection.Event
+	cursor   string
+	bytes    int
+}
+
 func readHistoryWindow(ctx context.Context, client rpcClient, id string, minimum uint64, before *uint64, live, wantStream bool) (historySnapshot, error) {
+	page, err := readHistoryWindowPage(ctx, client, id, minimum, before, live, wantStream, "")
+	for _, event := range page.events {
+		page.snapshot.Transcript.Apply(event)
+	}
+	return page.snapshot, err
+}
+
+func readHistoryWindowPage(ctx context.Context, client rpcClient, id string, minimum uint64, before *uint64, live, wantStream bool, continuation string) (historyWindowPage, error) {
 	invalid := errors.New("Invalid history window")
 	params := map[string]any{"sessionId": id, "direction": "backward", "limit": 64}
 	if !validSessionID(id) || minimum > maxSafeInteger {
-		return historySnapshot{}, invalid
+		return historyWindowPage{}, invalid
 	}
-	if before != nil {
+	if continuation != "" {
+		params["cursor"] = continuation
+	} else if before != nil {
 		params["beforeSeq"] = *before
 	}
 	if live {
@@ -29,7 +46,7 @@ func readHistoryWindow(ctx context.Context, client rpcClient, id string, minimum
 	}
 	raw, err := client.Call(ctx, "session/history", params)
 	if err != nil {
-		return historySnapshot{}, errors.New("Could not load history. Retry loading earlier messages")
+		return historyWindowPage{}, errors.New("Could not load history. Retry loading earlier messages")
 	}
 	var page struct {
 		Events   []json.RawMessage `json:"events"`
@@ -42,31 +59,32 @@ func readHistoryWindow(ctx context.Context, client rpcClient, id string, minimum
 		Stream   json.RawMessage   `json:"assistantStream"`
 	}
 	if len(raw) > maxSessionHistoryBytes || json.Unmarshal(raw, &page) != nil || page.Events == nil || len(page.Events) > 64 || page.Start == nil || page.Next == nil || page.More == nil || *page.Next > maxSafeInteger || *page.Next < minimum {
-		return historySnapshot{}, invalid
+		return historyWindowPage{}, invalid
 	}
 	end := *page.Next
 	if before != nil {
 		end = *before
 	}
 	if end > *page.Next || *page.Start > end || end-*page.Start != uint64(len(page.Events)) || *page.More != (*page.Start > 0) || end > 0 && len(page.Events) == 0 {
-		return historySnapshot{}, invalid
+		return historyWindowPage{}, invalid
 	}
 	cursor, err := pageCursor(page.Cursor)
 	if err != nil || (cursor != "") != *page.More {
-		return historySnapshot{}, invalid
+		return historyWindowPage{}, invalid
 	}
 	result := historySnapshot{NextSeq: *page.Next, StartSeq: *page.Start, Status: page.Status, Baseline: page.Stream}
 	if live {
 		if page.Status != "idle" && page.Status != "running" || page.Revision == nil || *page.Revision > maxSafeInteger {
-			return historySnapshot{}, invalid
+			return historyWindowPage{}, invalid
 		}
 		result.StatusRevision = *page.Revision
 	}
 	if wantStream {
 		if err := result.Stream.Restore(page.Stream); err != nil {
-			return historySnapshot{}, err
+			return historyWindowPage{}, err
 		}
 	}
+	events := make([]projection.Event, 0, len(page.Events))
 	for index, rawEvent := range page.Events {
 		var event projection.Event
 		var required struct {
@@ -74,16 +92,16 @@ func readHistoryWindow(ctx context.Context, client rpcClient, id string, minimum
 			Time *int64  `json:"time"`
 		}
 		if json.Unmarshal(rawEvent, &event) != nil || json.Unmarshal(rawEvent, &required) != nil || required.Seq == nil || required.Time == nil || *required.Time < 0 || *required.Time > maxSafeInteger || event.Seq != *page.Start+uint64(index) || len(event.Type) == 0 || len(event.Type) > 256 || strings.ContainsRune(event.Type, '\x00') || len(event.Data) == 0 || event.Data[0] != '{' {
-			return historySnapshot{}, invalid
+			return historyWindowPage{}, invalid
 		}
-		result.Transcript.Apply(event)
+		events = append(events, event)
 	}
-	return result, nil
+	return historyWindowPage{snapshot: result, events: events, cursor: cursor, bytes: len(raw)}, nil
 }
 
 func readOpenHistory(ctx context.Context, client rpcClient, id string, minimum uint64, window bool) (historySnapshot, error) {
 	if window {
-		return readHistoryWindow(ctx, client, id, minimum, nil, false, false)
+		return readConversationHistory(ctx, client, id, minimum, nil, false, false)
 	}
 	return readHistorySnapshot(ctx, client, id, minimum, false, false)
 }
@@ -105,14 +123,13 @@ func (a *App) loadHistoryPage(latest bool) {
 	a.model.History.Busy = true
 	client, cancel, id, minimum := a.currentClient(), a.sessionCancel, a.sessionID, a.nextSeq
 	start := a.model.History.Start
-	following := a.model.List.AtEnd()
 	go func() {
 		defer cancel()
 		var before *uint64
 		if !latest {
 			before = &start
 		}
-		snapshot, err := readHistoryWindow(ctx, client, id, minimum, before, false, false)
+		snapshot, err := readConversationHistory(ctx, client, id, minimum, before, false, false)
 		a.post(func() {
 			if !a.currentSessionOperation(operation) || a.sessionID != id {
 				return
@@ -139,9 +156,6 @@ func (a *App) loadHistoryPage(latest bool) {
 				if dropped {
 					a.model.ToolInspector = nil
 					a.model.ToolCards = nil
-					a.model.List.ScrollTo(0, 0)
-				}
-				if following {
 					a.model.List.ScrollTo(0, 0)
 				}
 			}

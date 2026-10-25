@@ -154,7 +154,7 @@
 - 首页捕获 agent.session.seq 为 nextSeq；forward 固定读取 `[0,nextSeq)`。backward 从捕获的 nextSeq 或显式 beforeSeq 向前读取，返回升序连续的 `[startSeq,end)`，hasMore 表示 startSeq > 0，下一游标继续更早的页并保持原 nextSeq。beforeSeq 为不超过捕获 nextSeq 的非负安全整数，仅 backward 首页可传，不能与 cursor 混用；它是持久的 append-only offset，可在游标过期后继续读取更早页。实时接续总以 nextSeq 为准，不把 startSeq 或旧页末端作为新事件边界。缺失/损坏返回 session/history-failed，不跳过事件。
 - list/history 的 limit 默认为 64，合法范围 1–256（null 不是默认值）；history 默认 forward，backward 必须协商 session.history-window。单页 JSON 数组预算为配置 maxFrameBytes 的一半；反向页优先保留靠近 end 的事件，并据实际页长推进 startSeq。单条超限返回 session/page-too-large，不截断原始日志；baseline 计入页预算。
 - 游标是连接内不透明 UUID，绑定方法/会话/快照边界；最多保留 32 个，5 分钟失效，重启全部失效；过期/淘汰/伪造返回 session/invalid-cursor，客户端须重新开始分页。列表快照最多 1000 条且 256 KiB，超出返回 session/catalog-too-large，不静默漏项。
-- Go 在协商历史窗口时，打开、重启和 resync 仅读取最新最多 64 条事件；显式加载更早页同样最多 64 条，单次输入预算 32 MiB，不限制整份日志的事件数。读取在后台，60 秒超时；失败不发布半份页面。显示缓存与淘汰规则见 [会话投影](session-projection.md#历史回放)。列表仍限制 1 MiB/1000 条输入；旧 Host 的 forward 完整回放保留 32 MiB/20000 事件/1024 页预算。
+- Go 在协商历史窗口时，每个传输页读取最多 64 条事件；打开、重启、resync 和更早历史读取通过同一冻结 cursor 连续取页，将最旧显示回合补齐到 turn/start 后整体投影，并省略该起点之前的不完整回合前缀。有回合结束但缺少起点的尾页继续往前读；没有回合标记的旧日志保留有界事件窗口，不推断回合。每个展示窗口输入预算 32 MiB/20000 个事件，不限制整份日志的事件数。跨页校验 nextSeq、状态版本和流式 baseline 不变；读取在后台，60 秒超时，非法页、预算超限或失败不发布半份窗口。显示缓存与淘汰规则见 [会话投影](session-projection.md#历史回放)。列表仍限制 1 MiB/1000 条输入；旧 Host 的 forward 完整回放保留 32 MiB/20000 事件/1024 页预算。
 - Go 校验摘要字段、类型、字符串长度与安全整数；历史页需明确 events/hasMore/nextSeq，逐条验证 seq/time/type/data，禁止缺口、边界变化、重复游标、空页停滞与多余末页游标。未知事件可通过序列校验，但由投影忽略。
 - 目标会话加载期间的 durable/status/交互通知有界缓冲（1024 条/8 MiB），不从零散临时帧猜测历史或 baseline；运行中的临时流以 Host 同步快照续接。成功切换后按原顺序从历史 nextSeq 衔接，重复 durable 事件丢弃。溢出、实时缺口或无法安全处理的并发会话活动触发 resync；resync 失败才停止 Host，不猜测或静默丢失真相。
 

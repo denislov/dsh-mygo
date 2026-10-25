@@ -42,32 +42,75 @@ type HistoryState struct {
 	Busy, Detached      bool
 	Error               string
 	LoadEarlier, Latest func()
+	scroll              mgo.ScrollState
+	autoStart           uint64
+	observedStart       uint64
 }
 
 func (model *Model) CanLoadHistory() bool {
 	return model.History.Available && model.CanChooseSession() && !model.SessionsOpen
 }
 
-func historyControls(c *mgo.Context, model *Model) {
+// Called after building the virtual list. Each durable boundary schedules at
+// most one guarded read; stable list keys keep the reader's anchor on prepend.
+func autoLoadHistory(c *mgo.Context, model *Model, rows int) {
 	h := &model.History
-	if !h.Available || h.Start == 0 && !h.Detached && h.Error == "" {
+	_, last := model.List.Visible()
+	// Let List commit the new keys and anchor before testing its top edge.
+	if h.observedStart != h.Start {
+		h.observedStart = h.Start
+		c.After(0)
 		return
 	}
-	mgo.Column(c.Key("history-controls")).Padding(6, 20).Gap(4).Children(func() {
-		mgo.Row(c).Gap(8).Children(func() {
-			if h.Start > 0 {
-				mgo.Button(c.Key("earlier"), model.T("Load earlier messages")).Disabled(!model.CanLoadHistory() || h.LoadEarlier == nil).OnClick(h.LoadEarlier)
-			}
-			mgo.Button(c.Key("latest"), model.T("Return to latest")).Disabled(!model.CanLoadHistory() || h.Latest == nil).OnClick(h.Latest)
-			if h.Busy {
-				mgo.Text(c, model.T("Loading history…")).FontSize(11)
+	if !model.CanLoadHistory() || h.Busy || h.Start == 0 || h.LoadEarlier == nil || h.Error != "" || h.autoStart == h.Start {
+		return
+	}
+	if last < 0 && rows > 0 || h.scroll.Y > 160 {
+		return
+	}
+	h.autoStart = h.Start
+	h.LoadEarlier()
+}
+
+func historyControls(c *mgo.Context, model *Model) {
+	h := &model.History
+	if h.Error == "" {
+		return
+	}
+	mgo.Row(c.Key("history-error")).FillWidth().MaxWidth(readingWidth).Gap(space8).AlignItems(mgo.Center).Children(func() {
+		mgo.Text(c, model.T(h.Error)).FontSize(textMicro).TextColor(c.Theme().Danger).Grow(1)
+		iconButton(c.Key("retry-history"), model.T("Retry loading earlier messages"), iconRefresh).
+			Disabled(!model.CanLoadHistory() || h.Busy || h.LoadEarlier == nil).OnClick(func() {
+			h.Error = ""
+			h.LoadEarlier()
+		})
+	})
+}
+
+func historyJumpButton(c *mgo.Context, model *Model) {
+	h := &model.History
+	_, last := model.List.Visible()
+	if model.SessionSwitching || model.RecoveryOpen || overlayActive(model) || !h.Detached && (last < 0 || model.List.AtEnd()) {
+		return
+	}
+	mgo.Box(c.Key("history-jump-anchor")).FillWidth().MaxWidth(readingWidth).Height(0).Children(func() {
+		button := iconButton(c.Key("jump-to-latest"), model.T("Return to latest"), iconDown).
+			Attach(mgo.AnchorTop, mgo.AnchorBottom).Margin(0, 0, space12, 0).Size(36, 36).Padding(space8).Radius(radiusPill).
+			Background(tokensFor(c.Theme()).SurfaceRaised).Border(1, tokensFor(c.Theme()).BorderStrong).
+			Disabled(h.Busy || h.Detached && (!model.CanLoadHistory() || h.Latest == nil)).OnClick(func() {
+			if h.Detached {
+				h.Latest()
+			} else {
+				model.List.ScrollToEnd()
 			}
 		})
-		if h.Detached {
-			mgo.Text(c, model.T("Viewing earlier history. Return to latest before sending.")).FontSize(11).TextColor(c.Theme().TextMuted)
-		}
-		if h.Error != "" {
-			mgo.Text(c, model.T(h.Error)).FontSize(11).TextColor(c.Theme().Danger)
-		}
+		shadowFloating.apply(button)
+	})
+}
+
+func sessionLoading(c *mgo.Context, model *Model) {
+	mgo.Column(c.Key("session-loading")).Grow(1).MinHeight(0).FillWidth().Justify(mgo.Center).AlignItems(mgo.Center).Gap(space12).Children(func() {
+		mgo.Spinner(c.Key("session-loading-spinner")).Size(20, 20)
+		mgo.Text(c, model.T("Loading session history…")).FontSize(textCaption).TextColor(c.Theme().TextMuted)
 	})
 }

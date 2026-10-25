@@ -104,3 +104,38 @@ func TestAgainstMygoLargeHistoryAndReleasedSessions(t *testing.T) {
 		t.Fatalf("large live baseline: %v", err)
 	}
 }
+
+func TestAgainstMygoCompleteTurnHistory(t *testing.T) {
+	launch, root := realMygoLaunch(t, true)
+	updates := make(chan func(), 512)
+	a := New(Options{Launch: launch, CWD: root, Provider: "mygo-mock", Model: "history-probe", Post: func(fn func()) { updates <- fn }})
+	t.Cleanup(func() { a.Shutdown(10 * time.Second) })
+	go a.Start()
+	waitFor(t, a, updates, 90*time.Second, func() bool { return a.model.Phase == view.PhaseIdle && !a.model.SessionPanel.Refreshing })
+	original := a.sessionID
+	a.Send("Older complete prompt")
+	waitFor(t, a, updates, 30*time.Second, func() bool { return a.model.Phase == view.PhaseIdle && hasAssistantText(a.model.Items, "pong") })
+	a.Send("Tool-heavy complete prompt")
+	longAnswer := strings.Repeat("A complete long response. ", 500)
+	waitFor(t, a, updates, 60*time.Second, func() bool { return a.model.Phase == view.PhaseIdle && hasAssistantText(a.model.Items, longAnswer) })
+	for range 2 {
+		previous := a.sessionID
+		a.NewSession()
+		waitFor(t, a, updates, 30*time.Second, func() bool { return !a.model.SessionBusy && a.sessionID != previous })
+	}
+	a.SwitchSession(original)
+	waitFor(t, a, updates, 30*time.Second, func() bool { return !a.model.SessionBusy })
+	start := a.model.History.Start
+	if a.sessionID != original || start == 0 || a.nextSeq-start <= 64 || len(a.model.Items) != 72 {
+		t.Fatalf("incomplete tool-heavy turn: start=%d next=%d rows=%d error=%s", start, a.nextSeq, len(a.model.Items), a.model.SessionsError)
+	}
+	if !hasAssistantText(a.model.Items, longAnswer) {
+		t.Fatal("long assistant response was truncated")
+	}
+	a.model.Draft = "keep while reading"
+	a.LoadEarlierHistory()
+	completeSessionJob(t, a, updates)
+	if a.model.History.Start >= start || len(a.model.Items) != 74 || a.model.Draft != "keep while reading" {
+		t.Fatal("older complete round lost history or draft")
+	}
+}

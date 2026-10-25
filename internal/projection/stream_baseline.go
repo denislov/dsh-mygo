@@ -52,7 +52,7 @@ func (stream *AssistantStream) Restore(raw json.RawMessage) error {
 		value := &streamBlock{kind: block.Type, ended: *block.Ended}
 		if block.Text != nil {
 			count := utf8.RuneCountInString(*block.Text)
-			limit, used := maxMessageRunes, next.textRunes
+			limit, used := maxStreamTextRunes, next.textRunes
 			if block.Type == "reasoning" {
 				limit, used = maxReasoningRunes, next.reasoningRunes
 			}

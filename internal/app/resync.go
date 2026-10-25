@@ -172,7 +172,7 @@ func (a *App) readResync(job *resyncState) {
 		var snapshot historySnapshot
 		var err error
 		if window {
-			snapshot, err = readHistoryWindow(job.ctx, client, job.id, minimumSeq, nil, true, wantStream)
+			snapshot, err = readConversationHistory(job.ctx, client, job.id, minimumSeq, nil, true, wantStream)
 		} else {
 			snapshot, err = readHistorySnapshot(job.ctx, client, job.id, minimumSeq, true, wantStream)
 		}

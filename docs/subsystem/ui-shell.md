@@ -39,7 +39,7 @@ UI 壳层是 MyGo 进程里的原生界面：
 - 协商 `session.assistant-stream` 后，额外展示带 `Streaming…` 标记的临时 assistant 行与 `Thinking…` 的临时 reasoning 行，稳定绑定 attemptId；提交时由 durable 行替换。没有可见 text 时不显示空卡片；缺口/abandoned/idle/失败/关闭移除临时行，不改 composer 草稿。
 - 助手正文使用 MyGo 原生 `markdown.Stream` / `markdown.View`：标题、强调、列表、表格、内联代码与只读语法高亮代码块。流式同一 key 增量解析，直接显示已收到内容，不额外逐字延迟；最终提交使用 durable 行身份，不把 Markdown 展示状态写回历史。用户输入、工具参数/结果仍为可选择的原文，不解释为 Markdown。
 - `Copy Markdown` 复制保留的助手源文，`Copy message` 复制可见用户文本；流式按钮标为 `Copy current text`。代码块有独立复制按钮，复制解析后的代码正文（代码行以换行结尾），不带围栏；正在生成的开放代码块禁用复制。Interrupted 消息的代码块也禁用完整代码复制，可显式 `Copy partial Markdown`。
-- 复制反馈绑定消息 ID 与源文；流式源文改变或换消息时不继承“已复制”。超过 8000 rune 的消息明确标为截断，回退原文展示并只提供 `Copy visible text`，不把截断围栏解释为完整代码。复制的是当前保留内容，不承诺复制完整历史。
+- 复制反馈绑定消息 ID 与源文；流式源文改变或换消息时不继承“已复制”。超过 65536 rune 的提交正文（reasoning/临时正文各 8000 rune）明确标为截断，回退原文展示并只提供 `Copy visible text`，不把截断围栏解释为完整代码。复制的是当前保留内容，不承诺复制完整历史。
 - 图片只显示描述，不配置网络或文件加载器；HTML 不接入执行/浏览器渲染器，代码不执行。链接只响应显式点击，并限制为无凭据、无控制字符的 HTTP(S) 地址；file/javascript/data/mailto/相对路径等不打开。剪贴板/URL 回调仅捕获 `c.Services()`，不保存帧作用域 Context/Element。
 - Enter 发送，Shift+Enter 换行；发送期间仍可编辑草稿，但发送按钮与 Enter 发送禁用。
 - 状态来自自定义 channel 的 `session/status`（显式 SDK 模式为 `session.status`）：starting / ready / working / resyncing / host error。发送失败保留草稿并显示可关闭的错误横幅。自定义 channel 的错误详情不展示原始 stderr。
@@ -118,7 +118,9 @@ App
 - 每个 turn 一个或多个行；稳定 key 用 turn/seq。
 - 流式 assistant 行固定在一个位置；提交后原位替换。
 - 滚动到底部跟随流式；用户向上滚动后停止自动跟随，显示“回到最新”。
-- 协商 session.history-window 后首屏只读最近事件，Load earlier messages 显式向前加载；用户已经向上阅读时保留锚点，处于最新端时滚动到新页。读取期间禁用重复操作/发送，允许保留编辑；失败在正文上方提供重试，旧内容不清空。Return to latest 重建最新窗口，清除过期检视状态但保留草稿。
+- 协商 session.history-window 后首屏按回合加载最近窗口；用户向上滚动接近顶部时自动前插更早的完整回合，不提供 Load earlier messages 文字按钮。内容不足一屏时自动补充，已有阅读锚点保持；每个边界只调度一次读取，窗口变更先完成原生列表布局再判断触顶。读取期间禁用重复操作/发送，允许保留编辑；失败在输入区上方提供错误和图标重试，旧内容不清空。
+- 返回最新使用输入框上方居中的圆形向下箭头，以浮层放置，不占正文或输入区布局高度；离开底部或较新缓存被淘汰时才显示。最新内容仍在缓存时直接本地滚动到底；历史浏览已淘汰尾部时重新读完整尾部回合，保留草稿。
+- 切换会话的加载状态位于中间对话区，替换正文为居中 Spinner 和说明；侧栏不插入加载/刷新进度文字，项目头和会话行位置保持稳定。
 - 展示预算与淘汰由 [会话投影](session-projection.md#历史回放) 定义；浏览缓存淘汰较新行时显示 Viewing earlier history 并禁用发送，返回最新后恢复。历史控制条在最小窗口保持可达；没有可见消息的页提示 No visible messages，不冒充空会话。
 - 用户消息的附件显示元数据行（类型、尺寸、大小、可选文件名），图片未解码或读取失败时不阻塞其余正文；只有图片、没有文本的消息仍保留卡片和标题，但此时不显示复制正文动作。
 

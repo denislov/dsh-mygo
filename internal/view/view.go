@@ -270,8 +270,11 @@ func View(c *mgo.Context, model *Model) {
 					if model.Error != "" && !model.RecoveryOpen {
 						errorBanner(c, model)
 					}
-					historyControls(c, model)
-					transcript(c, model)
+					if model.SessionSwitching {
+						sessionLoading(c, model)
+					} else {
+						transcript(c, model)
+					}
 					if !detailsPaneVisible(c, model) {
 						taskPanel(c, model)
 					}
@@ -326,7 +329,7 @@ func transcript(c *mgo.Context, model *Model) {
 			return
 		}
 		message(c, model, *rows[row].item)
-	}).Grow(1).Gap(space24).Padding(space20, space24).Children(func() {
+	}).Grow(1).MinHeight(0).TrackScroll(&model.History.scroll).Gap(space24).Padding(space20, space24).Children(func() {
 		if len(rows) == 0 {
 			if model.History.Start > 0 {
 				mgo.Text(c, model.T("No visible messages in this history window.")).FontSize(13)
@@ -335,6 +338,7 @@ func transcript(c *mgo.Context, model *Model) {
 			}
 		}
 	})
+	autoLoadHistory(c, model, len(rows))
 }
 
 func message(c *mgo.Context, model *Model, item projection.Item) {

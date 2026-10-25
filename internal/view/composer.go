@@ -25,6 +25,8 @@ func composer(c *mgo.Context, model *Model) {
 		zone.Border(1, tokens.Accent)
 	}
 	zone.Children(func() {
+		historyJumpButton(c, model)
+		historyControls(c, model)
 		surface := mgo.Column(c.Key("composer-surface")).FillWidth().MaxWidth(readingWidth).
 			Padding(space8, space10).Gap(space4).Radius(radiusComposer).
 			Background(tokens.SurfaceRaised).Border(1, tokens.Border).Transition(quietTransition)

@@ -17,6 +17,24 @@ class MygoMockAdapter extends LlmAdapter {
 
   async *stream(options) {
     let reply = 'pong'
+    if (options.model === 'history-probe') {
+      const lastUser = options.messages.findLast(message => message.role === 'user' && message.source?.kind === 'user')
+      const text = lastUser?.content.filter(block => block.type === 'text').map(block => block.text).join('') ?? ''
+      if (text.includes('Tool-heavy complete prompt')) {
+        if (!this.historyProbeStarted) {
+          this.historyProbeStarted = true
+          for (let index = 0; index < 70; index++) {
+            const id = ToolCallId(`history-probe-${index}`)
+            yield { type: 'block-start', index, blockType: 'tool-call' }
+            yield { type: 'tool-call-delta', index, id, name: 'mygo_history_probe', argumentsDelta: '{}' }
+            yield { type: 'block-end', index, block: { type: 'tool-call', id, name: 'mygo_history_probe', arguments: '{}' } }
+          }
+          yield { type: 'finish', reason: { kind: 'tool-calls' } }
+          return
+        }
+        reply = 'A complete long response. '.repeat(500)
+      }
+    }
     if (options.model === 'route-probe') reply = `Selected ${options.provider}/${options.model}/${options.reasoningEffort ?? 'default'}`
     if (options.model === 'todo-probe') {
       const step = this.todoCalls ?? 0
@@ -153,6 +171,12 @@ export const inject = ['llm', 'tools', 'approval', 'workingDirectory']
 
 export function apply(ctx) {
   ctx.llm.registerAdapter(['mygo-mock'], new MygoMockAdapter())
+  ctx.tools.register(defineTool({
+    name: 'mygo_history_probe', description: 'Return a harmless result for long history pagination tests.',
+    parameters: {},
+    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+    execute: async () => 'history probe result',
+  }))
   ctx.tools.register(defineTool({
     name: 'mygo_approval_probe', description: 'Write a harmless marker only after explicit approval.',
     parameters: { file_path: { type: 'string', required: true } },

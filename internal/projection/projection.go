@@ -226,8 +226,8 @@ func (t *Transcript) applyUser(event Event) bool {
 
 func (t *Transcript) applyAssistant(event Event) bool {
 	var data struct {
-		Turn json.RawMessage `json:"turn"`
-		Step json.RawMessage `json:"step"`
+		Turn    json.RawMessage `json:"turn"`
+		Step    json.RawMessage `json:"step"`
 		Message struct {
 			Content []contentBlock `json:"content"`
 		} `json:"message"`
@@ -855,8 +855,9 @@ func eventID(event Event) string {
 }
 
 const (
-	maxMessageRunes   = 8000
-	maxReasoningRunes = 8000
+	maxMessageRunes    = 64 * 1024
+	maxStreamTextRunes = 8000
+	maxReasoningRunes  = 8000
 	// One event may alternate reasoning and text, but the row budget stays
 	// small enough for hostile logs.
 	maxAssistantParts = 8

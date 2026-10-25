@@ -195,7 +195,7 @@ func (stream *AssistantStream) removeText(block *streamBlock) {
 }
 
 func (stream *AssistantStream) appendText(block *streamBlock, text string) {
-	limit, counter, truncated := maxMessageRunes, &stream.textRunes, &stream.textTruncated
+	limit, counter, truncated := maxStreamTextRunes, &stream.textRunes, &stream.textTruncated
 	if block.kind == "reasoning" {
 		limit, counter, truncated = maxReasoningRunes, &stream.reasoningRunes, &stream.reasoningTruncated
 	}
@@ -256,7 +256,7 @@ func (stream *AssistantStream) Items() []Item {
 		}
 	}
 	if len(parts) > 0 {
-		text, clipped := clipMarkdown(strings.Join(parts, "\n\n"), maxMessageRunes)
+		text, clipped := clipMarkdown(strings.Join(parts, "\n\n"), maxStreamTextRunes)
 		if text != "" {
 			if stream.textTruncated && !clipped {
 				text += "…"

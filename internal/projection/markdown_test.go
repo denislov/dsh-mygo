@@ -16,10 +16,21 @@ func TestAssistantMarkdownPreservesWhitespaceAndMarksTruncation(t *testing.T) {
 	if item := transcript.Items()[0]; item.Text != source || item.Truncated {
 		t.Fatal("Markdown source whitespace changed")
 	}
-	data, _ = json.Marshal(map[string]any{"message": map[string]any{"content": []any{map[string]any{"type": "text", "text": strings.Repeat("界", 9000)}}}})
+	data, _ = json.Marshal(map[string]any{"message": map[string]any{"content": []any{map[string]any{"type": "text", "text": strings.Repeat("界", maxMessageRunes+1)}}}})
 	transcript.Apply(Event{Type: "assistant/message", Seq: 2, Data: data})
 	if !transcript.Items()[1].Truncated {
 		t.Fatal("truncated source presented as complete")
+	}
+}
+
+func TestLongAssistantReplySurvivesHistoryProjection(t *testing.T) {
+	source := strings.Repeat("一轮完整回复的内容。", 1500)
+	data, _ := json.Marshal(map[string]any{"message": map[string]any{"content": []any{map[string]any{"type": "text", "text": source}}}})
+	var transcript Transcript
+	transcript.Apply(Event{Type: "assistant/message", Seq: 1, Data: data})
+	item := transcript.Items()[0]
+	if item.Truncated || item.Text != source {
+		t.Fatal("ordinary long reply was cut off")
 	}
 }
 
