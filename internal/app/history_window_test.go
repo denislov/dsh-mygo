@@ -7,10 +7,58 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"dsh-mygo/internal/projection"
 	"dsh-mygo/internal/view"
 )
+
+func TestHistoryReadKeepsShellInteractiveAndRejectsSupersededResults(t *testing.T) {
+	for _, action := range []string{"send", "settings"} {
+		t.Run(action, func(t *testing.T) {
+			client := &sessionClient{request: func(_ context.Context, method string, _ any) (json.RawMessage, error) {
+				if method == "session/history" {
+					return historyWindowJSON(0, 64, 128), nil
+				}
+				return json.RawMessage(`{}`), nil
+			}}
+			a, updates := sessionTestApp(client)
+			a.canHistoryWindow, a.model.History.Available, a.model.CanModels = true, true, true
+			a.model.History.Start, a.nextSeq = 64, 128
+			a.model.Draft = "keep editing"
+			a.LoadEarlierHistory()
+			operation := a.sessionOperation
+			a.LoadEarlierHistory()
+			if a.sessionOperation != operation {
+				t.Fatal("duplicate history request was not rejected")
+			}
+			if !a.model.History.Busy || a.model.SessionBusy || !a.model.CanChooseSession() || !a.model.CanEditSettings() || a.model.CanLoadHistory() {
+				t.Fatal("background read changed global interaction state")
+			}
+			var late func()
+			select {
+			case late = <-updates:
+			case <-time.After(3 * time.Second):
+				t.Fatal("history result did not arrive")
+			}
+			if action == "send" {
+				a.Send(a.model.Draft)
+				if a.model.Phase != view.PhaseRunning {
+					t.Fatal("background history blocked sending")
+				}
+			} else {
+				a.OpenSettings()
+				if !a.model.SettingsOpen {
+					t.Fatal("background history blocked settings")
+				}
+			}
+			late()
+			if a.model.History.Busy || a.model.History.Start != 64 || len(a.model.Items) != 0 || a.model.History.Error != "" {
+				t.Fatal("superseded history result changed current state")
+			}
+		})
+	}
+}
 
 func historyWindowJSON(start, end, next uint64) json.RawMessage {
 	events := make([]map[string]any, 0, end-start)
@@ -77,7 +125,6 @@ func TestLoadEarlierPreservesDraftRealtimeBoundaryAndRetryState(t *testing.T) {
 	}
 	a.publishTranscript()
 	a.LoadEarlierHistory()
-	a.Send("blocked during read")
 	completeSessionJob(t, a, updates)
 	if len(a.model.Items) != 128 || a.model.History.Start != 0 || a.nextSeq != 128 || a.model.Draft != "keep draft" {
 		t.Fatal("history prepend changed current state")

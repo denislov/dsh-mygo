@@ -904,9 +904,6 @@ func (a *App) Send(text string) {
 	if text == "" && len(a.model.Attachments.Pending) == 0 || a.shuttingDown.Load() || a.model.LocalState.Closing || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 || a.model.SessionBusy || a.model.History.Detached || a.model.SessionPanel.BlocksInput() || a.model.SettingsBusy || a.model.SettingsOpen || a.model.ModelUncertain || a.model.ConfigurationUncertain || a.model.Permission.Uncertain {
 		return
 	}
-	if a.model.SessionPanel.Refreshing {
-		a.cancelSessionOperation()
-	}
 	client := a.currentClient()
 	if client == nil {
 		return
@@ -916,6 +913,9 @@ func (a *App) Send(text string) {
 		a.model.Error = err.Error()
 		a.model.ErrorDetail = ""
 		return
+	}
+	if a.model.SessionPanel.Refreshing || a.model.History.Busy {
+		a.cancelSessionOperation()
 	}
 	a.model.Draft = ""
 	a.model.Error = ""

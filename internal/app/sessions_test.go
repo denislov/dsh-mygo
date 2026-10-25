@@ -31,7 +31,7 @@ func sessionTestApp(client rpcClient) (*App, chan func()) {
 func completeSessionJob(t *testing.T, application *App, updates <-chan func()) {
 	t.Helper()
 	deadline := time.After(3 * time.Second)
-	for application.model.SessionBusy {
+	for application.model.SessionBusy || application.model.History.Busy {
 		select {
 		case update := <-updates:
 			update()

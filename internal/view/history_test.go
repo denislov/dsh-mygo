@@ -28,7 +28,7 @@ func TestDetachedHistoryUsesArrowAndRetryWithoutSending(t *testing.T) {
 	model.History.Start = 64
 	model.History.Detached = true
 	model.History.Error = "Could not load history. Retry loading earlier messages"
-	model.History.LoadEarlier = func() { earlier++; model.History.Busy = true; model.SessionBusy = true }
+	model.History.LoadEarlier = func() { earlier++; model.History.Busy = true }
 	tt.Frame()
 	if !tt.HasText(model.History.Error) {
 		t.Fatal("history failure hidden")

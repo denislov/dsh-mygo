@@ -120,6 +120,9 @@ func (a *App) loadHistoryPage(latest bool) {
 		return
 	}
 	ctx, operation := a.beginSessionOperation()
+	// A background read must not dim the shell's navigation and composer.
+	// Keep the operation token so foreground actions can supersede its result.
+	a.model.SessionBusy = false
 	a.model.History.Busy = true
 	client, cancel, id, minimum := a.currentClient(), a.sessionCancel, a.sessionID, a.nextSeq
 	start := a.model.History.Start

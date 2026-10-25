@@ -21,7 +21,7 @@ func scrollingHistoryModel() *Model {
 func TestPrependingHistoryKeepsReadingAnchorAndDoesNotDuplicateLoad(t *testing.T) {
 	m := scrollingHistoryModel()
 	loads := 0
-	m.History.LoadEarlier = func() { loads++; m.History.Busy = true; m.SessionBusy = true }
+	m.History.LoadEarlier = func() { loads++; m.History.Busy = true }
 	tt := tester(m)
 	tt.Scroll(600, 160, 0, -100000)
 	before, ok := tt.Find("Answer 0")
@@ -49,7 +49,7 @@ func TestAutomaticHistoryWorksInsideOneTallMessage(t *testing.T) {
 	m := scrollingHistoryModel()
 	m.Items = []projection.Item{{ID: "tall", Kind: projection.KindAssistant, Title: "Assistant", Text: strings.Repeat("A paragraph in one long assistant response.\n\n", 80)}}
 	loads := 0
-	m.History.LoadEarlier = func() { loads++; m.History.Busy = true; m.SessionBusy = true }
+	m.History.LoadEarlier = func() { loads++; m.History.Busy = true }
 	tt := tester(m)
 	if loads != 0 {
 		t.Fatal("tail of a tall message triggered earlier history")
@@ -65,7 +65,7 @@ func TestAutomaticHistoryWorksInsideOneTallMessage(t *testing.T) {
 func TestHistoryLoadsOnScrollAndReturnsWithFloatingArrow(t *testing.T) {
 	m := scrollingHistoryModel()
 	loads := 0
-	m.History.LoadEarlier = func() { loads++; m.History.Busy = true; m.SessionBusy = true }
+	m.History.LoadEarlier = func() { loads++; m.History.Busy = true }
 	tt := tester(m)
 	if tt.HasText("Load earlier messages") || tt.HasText("Return to latest") {
 		t.Fatal("history actions rendered as visible text")
@@ -83,8 +83,6 @@ func TestHistoryLoadsOnScrollAndReturnsWithFloatingArrow(t *testing.T) {
 	if loads != 1 {
 		t.Fatal("rebuild duplicated history request")
 	}
-	m.History.Busy, m.SessionBusy = false, false
-	tt.Frame()
 	arrow, ok := tt.Find("Return to latest")
 	input, _ := tt.Find("Message")
 	if !ok || arrow.W > 44 || arrow.Y+arrow.H > input.Y {
@@ -96,6 +94,30 @@ func TestHistoryLoadsOnScrollAndReturnsWithFloatingArrow(t *testing.T) {
 	tt.Frame()
 	if !m.List.AtEnd() {
 		t.Fatal("arrow did not return to the loaded tail")
+	}
+}
+
+func TestCanceledHistoryCanLoadAgainWithoutLockingSidebar(t *testing.T) {
+	m := scrollingHistoryModel()
+	loads := 0
+	m.History.LoadEarlier = func() { loads++; m.History.Busy = true }
+	selected := ""
+	m.SwitchSession = func(id string) { selected = id }
+	tt := tester(m)
+	tt.Scroll(600, 160, 0, -100000)
+	if loads != 1 || !m.History.Busy {
+		t.Fatal("scroll did not start the background read")
+	}
+	if err := tt.Click("Session two"); err != nil {
+		t.Fatal(err)
+	}
+	if selected != "two" {
+		t.Fatal("background read disabled sidebar navigation")
+	}
+	m.History.FinishRead()
+	tt.Frame()
+	if loads != 2 {
+		t.Fatal("canceled boundary could not be read again")
 	}
 }
 

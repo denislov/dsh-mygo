@@ -93,6 +93,9 @@ func (a *App) openSettings(connection bool) {
 	if !a.canEditSettings() {
 		return
 	}
+	if a.model.History.Busy {
+		a.cancelSessionOperation()
+	}
 	a.model.SettingsOpen = true
 	a.model.QuickSelector = ""
 	a.model.SettingsConnection = connection

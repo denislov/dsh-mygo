@@ -42,7 +42,7 @@ func (a *App) cancelSessionOperation() {
 	a.model.SessionSwitching = false
 	a.model.SessionPanel.Refreshing = false
 	a.model.SessionPanel.Writing = false
-	a.model.History.Busy = false
+	a.model.History.FinishRead()
 	a.loadingSession = ""
 	a.sessionBuffer = nil
 	a.sessionBufferBytes = 0

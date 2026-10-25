@@ -47,8 +47,15 @@ type HistoryState struct {
 	observedStart       uint64
 }
 
+// FinishRead releases the per-boundary guard as well as the busy flag, so a
+// canceled background read can be requested again when the reader returns.
+func (h *HistoryState) FinishRead() {
+	h.Busy = false
+	h.autoStart = 0
+}
+
 func (model *Model) CanLoadHistory() bool {
-	return model.History.Available && model.CanChooseSession() && !model.SessionsOpen
+	return model.History.Available && !model.History.Busy && model.CanChooseSession() && !model.SessionsOpen
 }
 
 // Called after building the virtual list. Each durable boundary schedules at
@@ -97,7 +104,7 @@ func historyJumpButton(c *mgo.Context, model *Model) {
 		button := iconButton(c.Key("jump-to-latest"), model.T("Return to latest"), iconDown).
 			Attach(mgo.AnchorTop, mgo.AnchorBottom).Margin(0, 0, space12, 0).Size(36, 36).Padding(space8).Radius(radiusPill).
 			Background(tokensFor(c.Theme()).SurfaceRaised).Border(1, tokensFor(c.Theme()).BorderStrong).
-			Disabled(h.Busy || h.Detached && (!model.CanLoadHistory() || h.Latest == nil)).OnClick(func() {
+			Disabled(h.Detached && (!model.CanLoadHistory() || h.Latest == nil)).OnClick(func() {
 			if h.Detached {
 				h.Latest()
 			} else {
