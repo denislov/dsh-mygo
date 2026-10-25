@@ -46,18 +46,11 @@ func TestQuickControlsApplyThroughHostAndPreserveSessionDraft(t *testing.T) {
 	}
 	completeSettingsJob(t, a, updates)
 	tt.Advance(300 * time.Millisecond)
-	if err := tt.Click("Permission option · danger-full-access"); err != nil {
+	if err := tt.Click("Permission option · Full access"); err != nil {
 		t.Fatal(err)
 	}
-	_ = tt.Click("Apply permissions")
-	if a.model.Permission.Writing {
-		t.Fatal("dangerous permission applied without confirmation")
-	}
-	if err := tt.Click("I understand this permission change"); err != nil {
-		t.Fatal(err)
-	}
-	if err := tt.Click("Apply permissions"); err != nil {
-		t.Fatal(err)
+	if !a.model.Permission.Writing || a.model.Permission.Snapshot.Current == "danger-full-access" {
+		t.Fatal("mode click did not start a write or applied before Host confirmation")
 	}
 	completeSettingsJob(t, a, updates)
 	if a.model.Permission.Snapshot.Current != "danger-full-access" || a.model.SettingsOpen || a.model.QuickSelector != "" {

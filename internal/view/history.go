@@ -16,6 +16,17 @@ func (model *Model) PruneTranscriptState(items []projection.Item) {
 			delete(model.ToolCards, id)
 		}
 	}
+	reasoning := make(map[string]bool)
+	for _, item := range items {
+		if item.Kind == projection.KindReasoning {
+			reasoning[reasoningIdentity(item)] = true
+		}
+	}
+	for key := range model.Reasoning {
+		if !reasoning[key] {
+			delete(model.Reasoning, key)
+		}
+	}
 	groups := make(map[string]bool)
 	for _, row := range buildTranscriptRows(items) {
 		if row.activity != nil {

@@ -86,6 +86,10 @@ node scripts/smoke-installer.mjs                # 未运行：本机已安装 ds
 本批验证：`go test ./...`、`CGO_ENABLED=0 go test ./...` 各 535 项；`go test -race ./internal/app ./internal/view ./internal/workspace` 337 项；显式设置 `DSH_MYGO_NATIVE_TERMINAL=1` 后，两项原生终端/PTY 生命周期竞态 smoke 通过；显式设置 `DSH_MYGO_DSH_DIR` 后，模型、配置、权限、本机编辑状态、会话切换和完整历史回合共 14 项真实 Host 回归通过。MyGo vet、Go vet、修改文档链接与差异检查通过。Windows 1280×760 / 560×420 原生复核设置、提供商卡片、模型编辑与终端/文件/预览组合；桌面点击注入未确认状态变化，交互由 Tester 与真实 Host/PTY 验证。安装器、macOS 未重验。末轮并行复验曾出现一次 fake 审批 Host 初始化超时；单独定向和纯 Go 全量重跑均通过。
 
 
+2026-10-26 活动与权限交互精简：活动组中的每条思考可独立折叠，保留跨流式提交的展开身份；工具折叠行显示动作、命令说明/文件路径等有界摘要，成功状态不再占用独立 pill，运行与失败仍可见。横纵面板之间保持 13 DIP 间隔。权限快捷菜单改为模式名称、实际策略短说明与当前勾选态，点选即提交，沿用 Host 确认/seq 与失败刷新门禁；完整设置页保留确认框。
+
+本批验证：全量/纯 Go 各 540 项、app/view race 339 项通过；真实 DSH 权限持久化与策略执行回归 6 项通过，快捷控件与 fake Host 的确认/草稿链路通过。MyGo vet、Go vet 与差异检查通过；Windows 原生预览复核四面板间隔、宽/最小窗口权限菜单与展开思考。原生点击注入仍未能确认状态变化，交互由 Tester 与 Host 集成验证。安装器与 macOS 未重验。
+
 ## 4. 缺口
 
 ### 4.1 发布阻塞（没有它不能称为产品）

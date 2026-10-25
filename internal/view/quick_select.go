@@ -44,13 +44,25 @@ func quickSelector(c *mgo.Context, m *Model, anchor mgo.Element, kind string) {
 	width, height := c.Size()
 	tokens := tokensFor(c.Theme())
 	panel := mgo.Popover(c.Key("quick-"+kind), anchor, &m.SettingsOpen, func() {
+		if kind == "permission" {
+			mgo.Column(c).Width(min(340, width-48)).MaxHeight(max(180, height-80)).Gap(space4).Padding(space8).Children(func() {
+				mgo.Text(c, m.T("Mode")).FontSize(textMicro).TextColor(tokens.TextFaint).Margin(0, space6, space2, space6)
+				if m.SettingsBusy {
+					mgo.Spinner(c.Key("permission-loading")).Size(12, 12)
+				}
+				if m.SettingsError != "" {
+					mgo.Text(c, m.T(m.SettingsError)).FontSize(textMicro).TextColor(tokens.Danger)
+				}
+				quickPermissions(c, m, height)
+				if !m.SettingsBusy && (m.SettingsError != "" || !m.Permission.Ready || m.Permission.Uncertain || m.ModelUncertain || m.ConfigurationUncertain) {
+					mgo.Button(c.Key("refresh-quick"), m.T("Refresh")).Disabled(m.RefreshSettings == nil).OnClick(m.RefreshSettings)
+				}
+			})
+			return
+		}
 		mgo.Column(c).Width(min(420, width-64)).MaxHeight(min(540, height-90)).Gap(space8).Padding(space8).Children(func() {
-			title := "Choose model"
-			if kind == "permission" {
-				title = "Choose permissions"
-			}
 			mgo.Row(c).FillWidth().AlignItems(mgo.Center).Children(func() {
-				mgo.Text(c, m.T(title)).FontSize(textLabel).Bold().Grow(1)
+				mgo.Text(c, m.T("Choose model")).FontSize(textLabel).Bold().Grow(1)
 				iconButton(c.Key("close-quick"), m.T("Close selector"), iconClose).Background(mgo.Transparent).
 					Disabled(m.SettingsApplying).OnClick(m.closeSettingsCenter)
 			})
@@ -60,21 +72,13 @@ func quickSelector(c *mgo.Context, m *Model, anchor mgo.Element, kind string) {
 			if m.SettingsError != "" {
 				mgo.Text(c, m.T(m.SettingsError)).FontSize(textCaption).TextColor(tokens.Danger)
 			}
-			if kind == "model" {
-				quickModels(c, m, height)
-			} else {
-				quickPermissions(c, m, height)
-			}
+			quickModels(c, m, height)
 			mgo.Row(c).FillWidth().Gap(space8).Children(func() {
 				mgo.Button(c.Key("refresh-quick"), m.T("Refresh")).Disabled(m.SettingsBusy || m.RefreshSettings == nil).OnClick(m.RefreshSettings)
 				mgo.Spacer(c)
 				mgo.Button(c.Key("advanced-settings"), m.T("More settings…")).Disabled(m.SettingsBusy).OnClick(func() {
 					m.QuickSelector = ""
-					if kind == "model" {
-						m.SettingsSection = SettingsSectionConversation
-					} else {
-						m.SettingsSection = SettingsSectionPermissions
-					}
+					m.SettingsSection = SettingsSectionConversation
 				})
 			})
 		})
@@ -172,24 +176,38 @@ func quickModels(c *mgo.Context, m *Model, height float32) {
 
 func quickPermissions(c *mgo.Context, m *Model, height float32) {
 	s := &m.Permission
-	disabled := m.SettingsBusy || !s.Ready || s.Uncertain || m.ModelUncertain || m.ConfigurationUncertain
-	mgo.Scroll(c.Key("quick-permission-list")).MaxHeight(max(70, min(250, height-330))).FillWidth().Children(func() {
-		mgo.Column(c).FillWidth().Gap(space4).Children(func() {
+	disabled := m.SettingsBusy || m.SettingsApplying || !s.Ready || s.Uncertain || m.ModelUncertain || m.ConfigurationUncertain || s.Apply == nil
+	tokens := tokensFor(c.Theme())
+	mgo.Scroll(c.Key("quick-permission-list")).MaxHeight(max(80, min(360, height-160))).Shrink(1).MinHeight(0).FillWidth().Children(func() {
+		mgo.Column(c).FillWidth().Gap(space2).Children(func() {
 			for _, option := range s.Snapshot.Options {
-				b := quickChip(c.Key("permission-"+option.ID), m.T("Permission option · ")+option.Name, option.Name).FillWidth().Disabled(disabled)
-				if s.Selected == option.ID {
-					b.Background(tokensFor(c.Theme()).SurfaceHover)
+				label, description := permissionPresentation(m, option)
+				b := mgo.Button(c.Key("permission-"+option.ID), "").Label(m.T("Permission option · ")+label).
+					FillWidth().Padding(space6, space8).Radius(radiusSm).Background(mgo.Transparent).Border(0, mgo.Transparent).Disabled(disabled)
+				if b.Hovered() {
+					b.Background(tokens.SurfaceHover)
 				}
-				b.Tooltip(option.Sandbox + " / " + option.Approval).OnClick(func() { s.Selected = option.ID; s.Confirm = false })
+				b.Children(func() {
+					mgo.Column(c).FillWidth().Gap(space2).Children(func() {
+						mgo.Row(c).FillWidth().Gap(space8).AlignItems(mgo.Center).Children(func() {
+							mgo.Text(c, label).FontSize(textLabel).Grow(1).MinWidth(0).SingleLine()
+							if option.ID == s.Snapshot.Current {
+								mgo.Icon(c, iconCheck).Size(14, 14).TextColor(tokens.Accent)
+							}
+						})
+						if description != "" {
+							mgo.Text(c, description).FontSize(textMicro).TextColor(tokens.TextMuted).FillWidth()
+						}
+					})
+				})
+				b.Tooltip(option.Sandbox + " / " + option.Approval).OnClick(func() {
+					// The explicit mode choice confirms the policy described in this
+					// row. The Host still validates the actual bundle and sequence.
+					s.Selected, s.Confirm = option.ID, option.RequiresConfirmation
+					s.Apply()
+					s.Confirm = false
+				})
 			}
 		})
 	})
-	if option := s.SelectedOption(); option != nil {
-		mgo.Text(c, option.Sandbox+" / "+option.Approval).FontSize(textMicro).TextColor(c.Theme().TextMuted)
-		if option.RequiresConfirmation {
-			mgo.Text(c, m.T("This preset permits unrestricted file access or disables approval prompts. It applies to future operations in this conversation.")).FontSize(textCaption).TextColor(c.Theme().Warning)
-			mgo.Checkbox(c.Key("quick-permission-confirm-"+option.ID), &s.Confirm, m.T("I understand this permission change")).Disabled(disabled)
-		}
-		mgo.PrimaryButton(c.Key("quick-apply-permission"), m.T("Apply permissions")).Disabled(disabled || s.Apply == nil || option.RequiresConfirmation && !s.Confirm).OnClick(s.Apply)
-	}
 }

@@ -93,7 +93,9 @@ func activityCard(c *mgo.Context, model *Model, group *activityGroup) {
 	card := mgo.Column(c.Key("activity-card-"+group.key)).FillWidth().MaxWidth(readingWidth).
 		Padding(space8, space12).Gap(space2).Radius(radiusLg).
 		Background(tokens.ActivitySurface).Transition(quietTransition).Selectable()
-	if card.Hovered() {
+	if state.Expanded {
+		card.Background(mgo.Transparent)
+	} else if card.Hovered() {
 		card.Background(tokens.ActivityHover)
 	}
 	card.Children(func() {
@@ -129,17 +131,59 @@ func activityCard(c *mgo.Context, model *Model, group *activityGroup) {
 
 func reasoningBlock(c *mgo.Context, model *Model, item projection.Item) {
 	tokens := tokensFor(c.Theme())
-	mgo.Column(c.Key("reasoning-"+item.ID)).FillWidth().Gap(space4).Padding(space2, space8).Children(func() {
-		if item.State == "streaming" {
-			markdown.Stream(c.Key("reasoning-markdown-"+item.ID), item.Text, &model.ReasoningMarkdown).FillWidth()
-		} else {
-			markdown.View(c.Key("reasoning-markdown-"+item.ID), item.Text, &model.ReasoningMarkdown).FillWidth()
-		}
-		if item.Truncated {
-			mgo.Text(c, model.T("Truncated message: only the visible prefix is available.")).
-				FontSize(textMicro).TextColor(tokens.Warning)
-		}
+	key := reasoningIdentity(item)
+	if model.Reasoning == nil {
+		model.Reasoning = make(map[string]*ActivityState)
+	}
+	if model.Reasoning[key] == nil {
+		model.Reasoning[key] = &ActivityState{}
+	}
+	summary := singleLineSummary(item.Text, 180)
+	mgo.Column(c.Key("reasoning-"+key)).FillWidth().Gap(space4).Padding(space4, space8).Children(func() {
+		disclosure := mgo.CollapsibleBase(c, &model.Reasoning[key].Expanded)
+		disclosure.Trigger.FillWidth().Gap(space8).AlignItems(mgo.Center).Padding(space2, 0).
+			Label(model.T("Thought · ") + summary)
+		disclosure.Trigger.Children(func() {
+			mgo.Icon(c, iconActivity).Size(14, 14).TextColor(tokens.TextMuted)
+			mgo.Text(c, model.T("Thought")).FontSize(textCaption).TextColor(tokens.TextMuted).SingleLine()
+			mgo.Text(c, "·").FontSize(textCaption).TextColor(tokens.TextFaint)
+			mgo.Text(c, summary).FontSize(textCaption).TextColor(tokens.TextMuted).SingleLine().Grow(1).MinWidth(0)
+			if item.State == "streaming" {
+				mgo.Spinner(c.Key("thinking")).Size(10, 10)
+			}
+			mgo.Icon(c, iconChevronRight).Size(12, 12).TextColor(tokens.TextFaint).Rotate(90 * disclosure.Progress())
+		})
+		disclosure.Panel(func() {
+			mgo.Column(c.Key("reasoning-body")).FillWidth().Padding(space6, space8).Children(func() {
+				if item.State == "streaming" {
+					markdown.Stream(c.Key("reasoning-markdown-"+key), item.Text, &model.ReasoningMarkdown).FillWidth()
+				} else {
+					markdown.View(c.Key("reasoning-markdown-"+key), item.Text, &model.ReasoningMarkdown).FillWidth()
+				}
+				if item.Truncated {
+					mgo.Text(c, model.T("Truncated message: only the visible prefix is available.")).
+						FontSize(textMicro).TextColor(tokens.Warning)
+				}
+			})
+		})
 	})
+}
+
+func reasoningIdentity(item projection.Item) string {
+	if item.ActivityKey != "" {
+		return item.ActivityKey
+	}
+	return item.ID
+}
+
+// A bounded plain-text preview, never Markdown or a replacement for the source.
+func singleLineSummary(text string, limit int) string {
+	text = strings.Join(strings.Fields(text), " ")
+	runes := []rune(text)
+	if len(runes) > limit {
+		return string(runes[:limit]) + "…"
+	}
+	return text
 }
 
 // activitySummary describes the group in one line: live status first, then a

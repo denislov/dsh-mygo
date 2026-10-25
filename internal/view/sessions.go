@@ -342,6 +342,7 @@ func (model *Model) ResetTranscript(items []projection.Item) {
 	model.History.autoStart = 0
 	model.History.observedStart = 0
 	model.ToolCards = nil
+	model.Reasoning = nil
 	model.Activity = nil
 	model.ToolInspector = nil
 	model.CopiedMessageID = ""

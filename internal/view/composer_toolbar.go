@@ -30,7 +30,7 @@ func composerToolbar(c *mgo.Context, model *Model) {
 				label = model.Permission.Snapshot.Current
 				for _, o := range model.Permission.Snapshot.Options {
 					if o.ID == model.Permission.Snapshot.Current {
-						label = o.Name
+						label, _ = permissionPresentation(model, o)
 					}
 				}
 			}

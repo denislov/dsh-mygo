@@ -41,6 +41,32 @@ func (state *PermissionState) Accept(snapshot PermissionSnapshot) {
 	state.Snapshot, state.Selected = snapshot, snapshot.Current
 	state.Ready, state.Uncertain, state.Confirm = true, false, false
 }
+
+func permissionPresentation(model *Model, option PermissionOption) (string, string) {
+	label, description := option.Name, ""
+	// Only rename built-in technical labels; custom provider names remain data.
+	if option.Name == option.ID {
+		switch {
+		case option.ID == "read-only" && option.Sandbox == "read-only" && option.Approval == "ask":
+			label = model.T("Read only")
+		case option.ID == "workspace-write" && option.Sandbox == "workspace-write" && option.Approval == "ask":
+			label = model.T("Workspace access")
+		case option.ID == "danger-full-access" && option.Sandbox == "danger-full-access" && option.Approval == "never":
+			label = model.T("Full access")
+		}
+	}
+	if option.Sandbox == "danger-full-access" && option.Approval == "never" {
+		description = model.T("Full file access without approval prompts.")
+	} else if option.Sandbox == "workspace-write" && option.Approval == "ask" {
+		description = model.T("Allow project file changes; ask when required.")
+	} else if option.Sandbox == "read-only" && option.Approval == "ask" {
+		description = model.T("Read files without making changes.")
+	} else {
+		// An unusual/custom bundle must not inherit a misleading built-in description.
+		description = option.Sandbox + " / " + option.Approval
+	}
+	return label, description
+}
 func permissionControls(c *mgo.Context, model *Model, disabled bool) {
 	state := &model.Permission
 	if !state.Available {

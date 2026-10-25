@@ -12,9 +12,15 @@ func Text(locale, key string) string {
 }
 
 var chinese = map[string]string{
-	"Models":              "模型",
-	"Edit":                "编辑",
-	"Toggle Session rail": "切换会话栏", "Toggle Terminal": "切换终端", "Toggle Changes": "切换变更", "Toggle Preview": "切换预览", "Toggle Files": "切换文件",
+	"Thought": "思考", "Thought · ": "思考 · ", "Workspace panel · ": "工作面板 · ",
+	"Run command": "运行命令", "Read": "读取", "Edit file": "编辑文件", "Search files": "搜索文件",
+	"Mode": "模式", "Read only": "只读", "Workspace access": "项目读写", "Full access": "完全访问",
+	"Full file access without approval prompts.":     "完整文件访问，不显示审批提示。",
+	"Allow project file changes; ask when required.": "允许修改项目文件，必要时请求审批。",
+	"Read files without making changes.":             "读取文件，不进行修改。",
+	"Models":                                         "模型",
+	"Edit":                                           "编辑",
+	"Toggle Session rail":                            "切换会话栏", "Toggle Terminal": "切换终端", "Toggle Changes": "切换变更", "Toggle Preview": "切换预览", "Toggle Files": "切换文件",
 	"Show Session rail": "显示会话栏", "Hide Session rail": "隐藏会话栏", "Show Terminal": "显示终端", "Hide Terminal": "隐藏终端",
 	"Show Changes": "显示变更", "Hide Changes": "隐藏变更", "Show Preview": "显示预览", "Hide Preview": "隐藏预览", "Show Files": "显示文件", "Hide Files": "隐藏文件",
 	"Session rail": "会话栏", "Terminal": "终端", "Preview": "预览", "Files": "文件", "More": "更多",

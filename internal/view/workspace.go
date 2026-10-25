@@ -152,8 +152,26 @@ func workspacePanelGroup(c *mgo.Context, model *Model, panels []WorkspacePanel, 
 		w.Splits[key] = &value
 	}
 	middle := (len(panels) + 1) / 2
-	first := func() { workspacePanelGroup(c, model, panels[:middle], false, key+"a") }
-	second := func() { workspacePanelGroup(c, model, panels[middle:], false, key+"b") }
+	// Split keeps its draggable divider; inset each side to create a 13 DIP
+	// gutter (6 + divider + 6) between the rounded panel surfaces.
+	first := func() {
+		box := mgo.Column(c).Fill().MinWidth(0).MinHeight(0)
+		if horizontal {
+			box.Padding(0, space6, 0, 0)
+		} else {
+			box.Padding(0, 0, space6, 0)
+		}
+		box.Children(func() { workspacePanelGroup(c, model, panels[:middle], false, key+"a") })
+	}
+	second := func() {
+		box := mgo.Column(c).Fill().MinWidth(0).MinHeight(0)
+		if horizontal {
+			box.Padding(0, 0, 0, space6)
+		} else {
+			box.Padding(space6, 0, 0, 0)
+		}
+		box.Children(func() { workspacePanelGroup(c, model, panels[middle:], false, key+"b") })
+	}
 	if horizontal {
 		mgo.SplitPercent(c.Key("dock-split-"+key), w.Splits[key], first, second).Fill()
 	} else {
@@ -164,7 +182,7 @@ func workspacePanelGroup(c *mgo.Context, model *Model, panels []WorkspacePanel, 
 func workspacePanel(c *mgo.Context, model *Model, p WorkspacePanel) {
 	w := &model.Workspace
 	tokens := tokensFor(c.Theme())
-	mgo.Column(c.Key("workspace-panel-"+string(p))).Fill().MinWidth(0).MinHeight(0).Radius(radiusLg).Background(tokens.Surface).Border(1, tokens.Border).Children(func() {
+	mgo.Column(c.Key("workspace-panel-"+string(p))).Label(model.T("Workspace panel · ")+model.T(workspacePanelLabel(p))).Fill().MinWidth(0).MinHeight(0).Radius(radiusLg).Background(tokens.Surface).Border(1, tokens.Border).Children(func() {
 		mgo.Row(c.Key("panel-header")).FillWidth().Height(40).Padding(space4, space8).Gap(space4).AlignItems(mgo.Center).Children(func() {
 			mgo.Text(c, model.T(workspacePanelLabel(p))).FontSize(textCaption).SingleLine().Grow(1).MinWidth(0)
 			if p == PanelTerminal && w.RestartTerminal != nil {

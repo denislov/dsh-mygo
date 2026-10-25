@@ -133,6 +133,7 @@ type Model struct {
 	RespondQuestion         func(requestID string, cancel bool)
 	List                    mgo.ListState
 	ToolCards               map[string]*ToolCardState
+	Reasoning               map[string]*ActivityState
 	ToolInspector           *ToolInspectorState
 	Markdown                markdown.Options
 	InterruptedMarkdown     markdown.Options
@@ -510,6 +511,7 @@ func card(c *mgo.Context, model *Model, item projection.Item, fromUser bool) {
 func toolCard(c *mgo.Context, model *Model, item projection.Item, nested bool) {
 	tokens := tokensFor(c.Theme())
 	state := model.toolCardState(item.ID)
+	summary := toolSummary(item)
 	var card mgo.Element
 	if nested {
 		card = mgo.Column(c.Key("tool-card-"+item.ID)).FillWidth().Padding(space4, space8).Gap(space4).
@@ -524,12 +526,20 @@ func toolCard(c *mgo.Context, model *Model, item projection.Item, nested bool) {
 	card.Children(func() {
 		disclosure := mgo.CollapsibleBase(c, &state.Expanded)
 		disclosure.Trigger.FillWidth().Gap(space8).AlignItems(mgo.Center).Padding(space2, 0).
-			Label(model.toolTitle(item.Title))
+			Label(model.toolTitle(item.Title)).Tooltip(summary)
 		disclosure.Trigger.Children(func() {
 			mgo.Icon(c, toolIcon(item.Title)).Size(15, 15).TextColor(tokens.TextMuted)
-			mgo.Text(c, model.toolTitle(item.Title)).FontSize(textCaption).Bold().SingleLine().Grow(1)
-			if item.State != "" {
+			mgo.Text(c, model.T(toolAction(item.Title))).FontSize(textCaption).TextColor(tokens.TextMuted).SingleLine()
+			if summary != "" {
+				mgo.Text(c, "·").FontSize(textCaption).TextColor(tokens.TextFaint)
+				mgo.Text(c, summary).FontSize(textCaption).TextColor(tokens.TextMuted).SingleLine().Grow(1).MinWidth(0)
+			} else {
+				mgo.Spacer(c)
+			}
+			if item.IsError || item.State == "error" {
 				toolStatusPill(c, model, item)
+			} else if item.State == "running" {
+				mgo.Spinner(c.Key("tool-running-"+item.ID)).Size(10, 10)
 			}
 			mgo.Icon(c, iconChevronRight).Size(12, 12).TextColor(tokens.TextMuted).
 				Rotate(90 * disclosure.Progress())

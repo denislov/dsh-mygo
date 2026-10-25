@@ -33,6 +33,7 @@ UI 壳层是 MyGo 进程里的原生界面：
 - 窗口使用 MyGo `TitleBarHidden`，保留 Windows 自绘的最小化/最大化/关闭按钮；视图通过 `c.TitleBar()` 取得系统按钮占位，标题栏可拖动，操作按钮始终避开 `bar.Right`。根布局先垂直切分为左侧导航与右侧会话；侧栏贯穿窗口高度，顶部放应用菜单与收起按钮。右侧独立标题栏左侧显示会话标题，右侧依次提供 Session rail、Terminal、Changes、Preview、Files 和 More；前五项使用可切换图标与选中态，More 收纳会话列表、子代理、设置和应用操作。侧栏隐藏时导航按钮回到会话标题栏；窄窗口把次要入口收进菜单。无标题时使用本地化的未命名提示，不把会话 ID 当作页面标题。
 - 应用菜单使用 MyGo 原生系统菜单：New conversation、Sessions、Show/Hide sidebar、Subagents、Settings、About dsh-mygo、Quit；不可用的能力隐藏或禁用，不提供无后端动作的菜单项。凭据入口统一位于设置中心 Connection，不在新建会话和标题栏重复显示。
 - Session rail 展示 Environment、Context 与 Progress：本机/项目目录、Git 分支、Host 已报告的上下文用量、任务与子代理信息；不伪造未提供的 token 分类、连接器或变更指标。工作面板位于对话右侧，支持独立开关、拖动分隔线与单面板最大化。多个面板按列/行组合；宽度小于 1000 DIP 时以标签切换，提供返回对话入口，避免挤压输入区。设置/审批等弹层不清空面板布局。
+- 相邻工作面板在横向与纵向分隔器两侧各留 6 DIP，形成 13 DIP 间隔；圆角表面保持独立，分隔器继续支持鼠标拖动与键盘调整。单面板最大化与窄窗口标签模式不保留空白占位。
 - Terminal 使用 MyGo terminal 插件与 libghostty-vt，在当前项目目录启动真实本机 shell；隐藏面板保留进程，重启终端、切换项目与退出回收旧进程。终端启动和关闭等待不阻塞 UI；启动结果检查项目版本，过期资源关闭。终端输出不进入 Host 协议或会话日志，程序读取剪贴板默认拒绝、程序写剪贴板禁用；显式用户复制/粘贴沿用原生组件。
 - Files 按需后台读取项目目录，虚拟列表显示已展开条目；读取校验绝对根目录、相对路径和实际符号链接目标，拒绝越界。每目录最多 2000 项，缓存最多 64 个目录；项目切换丢弃旧结果与缓冲。
 - Changes 后台读取 Git 分支和工作区变更，提供只读文件差异；禁用外部 diff/textconv、可选索引锁和 fsmonitor，输出最多 1 MiB、命令超时 10 秒，不提供提交、应用或撤销动作。
@@ -41,7 +42,7 @@ UI 壳层是 MyGo 进程里的原生界面：
 - 聊天与输入区共享最大 860 DIP 的居中阅读宽度与水平留白。助手消息直接在页面上靠左排版，用户消息以自然内容宽度、最大 620 DIP 的圆角气泡靠右排版；正文使用 16 DIP 字号，助手 Markdown 使用 1.62 行高，用户原文保持字面语义。角色名保留为消息容器的可访问名称。复制动作位于正文/气泡外侧下方，用户消息靠右、助手消息靠左；平时透明，在消息 hover 或键盘焦点进入时显示。按钮保留名称、Tooltip 和复制反馈，透明时仍可通过键盘聚焦。
 
 - transcript 显示提交后的 user 消息、assistant 文本、reasoning、tool call/result 与 turn 结束通知；不显示 synthetic user context、system/developer 消息。
-- 同一回合内连续的 reasoning 与 tool 行显示为默认折叠的活动组：折叠头给出思考时长、工具数量或工具名，展开后显示思考原文与工具卡片。活动组是视图派生的展示行，工具行身份与详情入口保持不变。
+- 同一回合内连续的 reasoning 与 tool 行显示为默认折叠的活动组：折叠头给出思考时长、工具数量或工具名。展开后各条思考与工具仍默认折叠为单行：思考显示有界的纯文本预览；工具显示动作名称，以及参数中的命令说明、路径或命令摘要，省略成功状态 pill，保留运行指示与失败状态。进一步展开可查看原文与完整详情。思考展开状态使用跨流式/提交的 ActivityKey（缺失时使用行 ID），不写入会话日志；窗口淘汰与切换清理状态。活动组是视图派生的展示行，工具行身份与详情入口保持不变。
 - 协商 `session.assistant-stream` 后，额外展示带 `Streaming…` 标记的临时 assistant 行与 `Thinking…` 的临时 reasoning 行，稳定绑定 attemptId；提交时由 durable 行替换。没有可见 text 时不显示空卡片；缺口/abandoned/idle/失败/关闭移除临时行，不改 composer 草稿。
 - 助手正文使用 MyGo 原生 `markdown.Stream` / `markdown.View`：标题、强调、列表、表格、内联代码与只读语法高亮代码块。流式同一 key 增量解析，直接显示已收到内容，不额外逐字延迟；最终提交使用 durable 行身份，不把 Markdown 展示状态写回历史。用户输入、工具参数/结果仍为可选择的原文，不解释为 Markdown。
 - `Copy Markdown` 复制保留的助手源文，`Copy message` 复制可见用户文本；流式按钮标为 `Copy current text`。代码块有独立复制按钮，复制解析后的代码正文（代码行以换行结尾），不带围栏；正在生成的开放代码块禁用复制。Interrupted 消息的代码块也禁用完整代码复制，可显式 `Copy partial Markdown`。
@@ -53,7 +54,7 @@ UI 壳层是 MyGo 进程里的原生界面：
 - 协商 `session.cancel` 后，working 时的 Send 替换为 Stop；点击后显示禁用的 `Stopping…`，直到取消请求返回且 Host 确认 idle。提前收到 idle 也不会放行新消息；取消失败显示错误并允许重试。取消不清除下一条草稿。Stop 和 Send 使用不同的稳定 key，反复消失/返回时不复用错误控件状态。SDK/旧 Host 不启用 Stop。
 - 协商 `approval` 后，通过原生 Modal 按 FIFO 展示工具、原因和完整关联参数；提供 Allow once / Deny / Stop turn。Escape 或点击弹窗外拒绝，提交时防重复，失败可重试，草稿保留；external 请求显示未关联警告。请求身份作为稳定 key，关闭后下一请求不继承旧控件状态。
 - 协商 `question` 后，原生 Modal 支持整批单选、多选和自由文本，完整展示题目、选项说明和 detail；所有题目回答后一次提交。表单状态按请求/题目稳定绑定，重试保留答案，Escape/点击外部等同 Cancel question；Stop turn 另行停止回合。无 agent 请求明确标注，不显示 Stop turn。审批优先，同一时刻只有一个交互弹窗。
-- 工具卡片使用原生 `CollapsibleBase` 组合出自定义 header（工具图标、工具名、状态 pill、折叠箭头），默认折叠，展开状态绑定稳定工具行 ID，结果更新/列表位置变化不重置。展开显示预览和 `View details`；原生检视器提供 Arguments / Result / Changes、逐 hunk 导航和只读 DiffView，大 hunk 明确回退文本。不读写显示路径，不提供应用/撤销改动操作。
+- 工具卡片使用原生 `CollapsibleBase` 组合出自定义 header（工具图标、动作名称、单行摘要、运行/失败状态与折叠箭头），默认折叠，展开状态绑定稳定工具行 ID，结果更新/列表位置变化不重置。摘要最多 180 rune，仅提取已知参数字段，不直接展示任意 JSON 或结果内容；参数不可解析时保留工具名称。展开显示预览和 `View details`；原生检视器提供 Arguments / Result / Changes、逐 hunk 导航和只读 DiffView，大 hunk 明确回退文本。不读写显示路径，不提供应用/撤销改动操作。
 - 检视器只保留一个 hunk 的 editor 状态；关闭、结果更新和淘汰释放旧缓冲。审批/提问优先，暂时隐藏检视器，避免两个 Modal 叠加；交互结束后可以继续查看。
 - 协商 `session.history` 后，More 菜单提供 Sessions，当前会话 ID 与 cwd 在会话详情中查看。侧栏或选择弹窗显示当前 profile 的有界完整摘要列表、时间、状态与目录，支持 Refresh / New conversation / 选择恢复；窄窗口用弹窗降级。旧 Host/SDK 不显示入口。
 - 会话详情显示最新一步 token 用量与路由容量（`Context 已用 / 容量 · 百分比 · In / Out · cache`），只在 Host 提供对应事件时出现；容量或用量未知时省略对应片段，不阻塞 Sessions/Settings 入口，也不参与发送或历史回放。

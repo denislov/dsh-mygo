@@ -1,6 +1,7 @@
 package view
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -8,6 +9,42 @@ import (
 	mgo "github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/editor"
 )
+
+func toolAction(title string) string {
+	name := strings.ToLower(strings.TrimPrefix(title, "Tool · "))
+	switch name {
+	case "exec_command", "bash", "pwsh", "shell", "shell_command", "run_command", "terminal":
+		return "Run command"
+	case "read", "read_file", "view_file":
+		return "Read"
+	case "edit", "edit_file", "write", "write_file", "apply_patch":
+		return "Edit file"
+	case "grep", "glob", "search", "find", "list_files":
+		return "Search files"
+	default:
+		return strings.TrimPrefix(title, "Tool · ")
+	}
+}
+
+// Only recognized, user-facing argument fields become a summary. Avoid dumping
+// arbitrary JSON, file contents or a tool's entire result into the activity row.
+func toolSummary(item projection.Item) string {
+	var fields map[string]json.RawMessage
+	source := item.Text
+	if item.Tool != nil && item.Tool.Arguments != "" && !item.Tool.ArgumentsTruncated {
+		source = item.Tool.Arguments
+	}
+	if len(source) > projection.MaxToolDetailBytes || json.Unmarshal([]byte(source), &fields) != nil {
+		return ""
+	}
+	for _, key := range []string{"description", "file_path", "path", "command", "cmd", "query", "pattern"} {
+		var value string
+		if json.Unmarshal(fields[key], &value) == nil && strings.TrimSpace(value) != "" {
+			return singleLineSummary(value, 180)
+		}
+	}
+	return ""
+}
 
 func (model *Model) toolTitle(title string) string {
 	if strings.HasPrefix(title, "Tool · ") {
@@ -19,7 +56,7 @@ func (model *Model) toolTitle(title string) string {
 func toolIcon(title string) *mgo.SVG {
 	name := strings.ToLower(title)
 	switch {
-	case strings.Contains(name, "bash"), strings.Contains(name, "shell"), strings.Contains(name, "exec"), strings.Contains(name, "terminal"):
+	case strings.Contains(name, "bash"), strings.Contains(name, "pwsh"), strings.Contains(name, "shell"), strings.Contains(name, "exec"), strings.Contains(name, "terminal"):
 		return iconTerminal
 	case strings.Contains(name, "edit"), strings.Contains(name, "write"), strings.Contains(name, "patch"), strings.Contains(name, "apply"):
 		return iconEdit

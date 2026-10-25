@@ -25,7 +25,7 @@
 ## 会话模型设置
 
 - `model.selection` capability 覆盖 `model/list`、`model/select` 与原生 Settings 面板；只在双方支持时显示入口，旧 Host/SDK 不显示，未协商调用返回 capability-unavailable。
-- 输入区模型按钮打开原生快捷列表，支持 provider、标题/ID 搜索、当前项勾选与 effort；点击模型直接提交，Host 确认后才关闭并更新标签。快捷列表复用同一设置操作生命周期和失败刷新屏障，More settings 转入完整面板。权限入口独立显示，保留实际策略与危险确认，不跳转模型设置。
+- 输入区模型按钮打开原生快捷列表，支持 provider、标题/ID 搜索、当前项勾选与 effort；点击模型直接提交，Host 确认后才关闭并更新标签。快捷列表复用同一设置操作生命周期和失败刷新屏障，More settings 转入完整面板。权限入口独立显示简洁的模式列表：名称、基于实际策略的短说明与当前勾选态；点选直接通过原有权限写入流程提交，确认后关闭。普通状态不提供复选框、额外 Apply/Refresh/More settings 底栏；读取失败或状态不确定时提供刷新重试，不跳转模型设置。
 - Models 分区使用提供商卡片展示 provider 目录；编辑选中卡片时提供模型目录快捷选择、实际使用的 Model ID 和 adapter 声明的 effort。卡片状态区分当前会话与配置中可用，不把目录可读解释为认证成功；允许手填模型 ID，目录成员身份不充当路由校验。空 effort 表示 provider 默认，切回默认会清除上一请求继承的显式 effort，不硬编码 low/high。
 - 目录使用公开 llm.listProviders/listModels/resolveModelInfo；仅返回 id/name、可用性与 effort 白名单，不返回完整 adapter 配置、endpoint、authorization、凭据引用或原始异常。目录可读不代表 API key 可用，也不承诺模型调用成功。不做付费生成来探测配置。
 - 会话必须由此 Host 拥有且 idle；校验路由期间禁止 prompt、重复模型写入、history/resume。Host 用公开 resolveCallConfig 校验，再向真实 session log 提交 model/selection，通过 Agent setup 中安装的公开 installModelSelection 生效；不直接改 DSH core 或仅改 UI 标签。
@@ -100,7 +100,7 @@ base 提供：
 - `session.permissions` 独立协商 `permission/get|select`，不依赖模型目录能力。Host 使用公开 `permissionPresets.catalog/current/resolve/set`、`sandboxPolicy.resolve`、`approval.effectivePolicy` 与 `sessionPersistence.flush`；只操作本 Host 拥有的会话，不读取私有字段或自行重写工具策略。
 - 快照包括当前预设、实际 sandbox/approval、nextSeq 与有界选项；`custom` 仅显示，不可选。默认 workspace-write 为 workspace-write/ask，默认 danger-full-access 为 danger-full-access/never；自定义名称和标签不代表实际权限，以公开 resolve 的 bundle 为准。`never` 不弹出审批，但显式要求审批的操作会被 DSH 拒绝，不等于自动批准。
 - 首页在初始化、恢复、切换会话时从 Host 读取权限；Settings 刷新目录和实际状态。当前模式展示包括实际 knobs；收到权限事件或进入 resync 时使旧快照失效，不能继续标成当前值。实时恢复不推断遗漏的权限事件，显示刷新提示。
-- 切换要求所属会话 idle，无模型/元数据/配置写入。请求带 expectedNextSeq 检查会话边界；Host 读取目标预设的实际 bundle，如果 sandbox 是 danger-full-access 或 approval 是 never，必须有 confirmDangerous:true。UI 展示目标实际值、风险和默认不勾选的确认；改变选择、刷新、关闭或提交后清除确认。
+- 切换要求所属会话 idle，无模型/元数据/配置写入。请求带 expectedNextSeq 检查会话边界；Host 读取目标预设的实际 bundle，如果 sandbox 是 danger-full-access 或 approval 是 never，必须有 confirmDangerous:true。快捷列表在模式行中说明实际策略，用户显式点选该行即确认该策略；仅在调用提交回调期间传递确认，随后清除。完整设置页使用默认不勾选的确认框；改变选择、刷新、关闭或提交后清除确认。两种入口均等待 Host 确认才改变当前模式，失败后进入不确定状态，不能重复提交。
 - 写入预占会话直至公开 set 和 flush 完成，期间拒绝 prompt/resume/history/模型或元数据写入，退出等待已接受任务结算。返回完整快照确认 current/knobs/nextSeq；幂等选择不要求产生新事件。UI 不乐观覆盖，保持草稿和当前会话，15 秒读取、60 秒写入，后台处理并拒绝过期结果。
 - 失败或超时后显示固定错误，禁止发送、会话导航及下一设置写入，必须 Refresh 成功后解除。Host 同样保留失败确认屏障，get 等待已有写入完成并重新 flush；不以 RPC 超时冒充底层写入取消。选项最多 32，快照最多 32 KiB 且不超过配置帧上限一半；只返回白名单字符串/枚举/计数，不返回 workspaceRoot、配置对象或原始异常。
 

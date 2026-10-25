@@ -98,7 +98,7 @@ func TestComposerQuickModelSelectionKeepsDraftAndAvoidsSettingsCenter(t *testing
 	}
 }
 
-func TestComposerQuickPermissionsRequireExplicitDangerConfirmation(t *testing.T) {
+func TestComposerQuickPermissionsExplicitModeChoiceAppliesOnce(t *testing.T) {
 	m := settingsModel()
 	m.Permission.Available = true
 	m.Permission.Accept(PermissionSnapshot{Current: "safe", Options: []PermissionOption{
@@ -106,7 +106,12 @@ func TestComposerQuickPermissionsRequireExplicitDangerConfirmation(t *testing.T)
 		{ID: "danger", Name: "Full access", Sandbox: "danger-full-access", Approval: "never", RequiresConfirmation: true},
 	}})
 	applied := 0
-	m.Permission.Apply = func() { applied++ }
+	m.Permission.Apply = func() {
+		if !m.Permission.Confirm || m.Permission.Selected != "danger" {
+			t.Fatal("mode choice did not confirm its actual policy")
+		}
+		applied++
+	}
 	tt := tester(m)
 	if err := tt.Click("Choose permissions"); err != nil {
 		t.Fatal(err)
@@ -115,18 +120,13 @@ func TestComposerQuickPermissionsRequireExplicitDangerConfirmation(t *testing.T)
 	if err := tt.Click("Permission option · Full access"); err != nil {
 		t.Fatal(err)
 	}
-	_ = tt.Click("Apply permissions")
-	if applied != 0 {
-		t.Fatal("dangerous permissions applied without confirmation")
-	}
-	if err := tt.Click("I understand this permission change"); err != nil {
-		t.Fatal(err)
-	}
-	if err := tt.Click("Apply permissions"); err != nil {
-		t.Fatal(err)
-	}
 	if applied != 1 {
-		t.Fatal("confirmed permission was not applied")
+		t.Fatal("explicit mode choice was not applied once")
+	}
+	for _, label := range []string{"Apply permissions", "I understand this permission change", "More settings…"} {
+		if _, ok := tt.Find(label); ok {
+			t.Fatalf("complex control survived in quick picker: %s", label)
+		}
 	}
 	tt.Key(0, ui.KeyEscape)
 	tt.Advance(300 * time.Millisecond)
@@ -161,7 +161,7 @@ func TestQuickSelectorMinimumWindowAndRepeatedDismissal(t *testing.T) {
 	}
 }
 
-func TestPermissionConfirmationFitsMinimumClientArea(t *testing.T) {
+func TestPermissionModePickerFitsMinimumClientArea(t *testing.T) {
 	m := settingsModel()
 	m.Permission.Available = true
 	m.Permission.Accept(PermissionSnapshot{Current: "safe", Options: []PermissionOption{{ID: "danger", Name: "Full access", Sandbox: "danger-full-access", Approval: "never", RequiresConfirmation: true}}})
@@ -174,10 +174,37 @@ func TestPermissionConfirmationFitsMinimumClientArea(t *testing.T) {
 	if err := tt.Click("Permission option · Full access"); err != nil {
 		t.Fatal(err)
 	}
-	for _, label := range []string{"Close selector", "I understand this permission change", "Apply permissions", "More settings…"} {
+	for _, label := range []string{"Mode", "Permission option · Full access", "Full file access without approval prompts."} {
 		r, ok := tt.Find(label)
 		if !ok || r.Y < 0 || r.Y+r.H > 380 {
 			t.Fatalf("%s outside client area: %+v", label, r)
 		}
+	}
+}
+
+func TestQuickPermissionPickerBlocksUncertainAndInFlightChoices(t *testing.T) {
+	m := permissionModel()
+	applied := 0
+	m.Permission.Apply = func() { applied++; m.SettingsBusy = true; m.SettingsApplying = true }
+	tt := tester(m)
+	if err := tt.Click("Choose permissions"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Advance(300 * time.Millisecond)
+	m.Permission.Uncertain = true
+	tt.Frame()
+	_ = tt.Click("Permission option · Full")
+	if applied != 0 {
+		t.Fatal("uncertain policy was editable")
+	}
+	m.Permission.Uncertain = false
+	tt.Frame()
+	if err := tt.Click("Permission option · Full"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	_ = tt.Click("Permission option · Full")
+	if applied != 1 || m.Permission.Snapshot.Current != "workspace-write" || m.Permission.Confirm {
+		t.Fatal("duplicate write, optimistic policy, or stale confirmation")
 	}
 }
