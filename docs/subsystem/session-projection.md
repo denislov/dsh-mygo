@@ -16,14 +16,14 @@
 | 事件 | 投影 |
 | --- | --- |
 | `user/message`（`source.kind == "user"`） | `KindUser`，文本块拼接；image 块投影为 `Attachments` 元数据行 |
-| `assistant/message` | `KindAssistant`，只取 text 块；`interrupted` 写入 `Detail` |
+| `assistant/message` | `KindReasoning`（reasoning 块，按 run 合并）+ `KindAssistant`（text/image/file 块）；`interrupted` 写入 `Detail` |
 | `tool/call` | `KindTool`，按 `callId` 建行，参数格式化 JSON |
 | `tool/result` | 更新同 `callId` 的工具行状态与结果；`error.reason` 优先于原始内容 |
 | `turn/end`（非 `completed`） | `KindNotice`，显示取消/失败原因 |
 
 约束：
 
-- synthetic user context（`source.kind != "user"`）、system/developer 消息、reasoning、`assistant/attempt`、请求元数据不进入 transcript。
+- synthetic user context（`source.kind != "user"`）、system/developer 消息、`assistant/attempt`、请求元数据不进入 transcript。reasoning 投影为独立的 `KindReasoning` 行，不并入 assistant 正文或复制源文。
 - 每个事件的 `seq` 去重；工具结果先到时保留稳定占位，之后仅按确切 callId 补齐，不按工具名/位置猜测。工具行身份始终是 `tool:<callId>`，补齐不覆盖已记录结果与错误状态。
 - 自定义 channel 的 `session/create.session.nextSeq` 提供实时事件起点；打开旧会话时以已验证历史快照的 nextSeq 为起点。展示可以只是日志尾部，不能以显示行数推断事件边界。App 校验外层 `seq` 与 `event.seq` 一致，重复事件忽略；协商 `session.resync` 后实时缺口触发后台补齐，失败才停止 Host，旧 Host 保留手工重启恢复路径。
 - 旧 SDK 回归模式仍消费 `session.event`；两种 envelope 共用相同提交事件投影，UI 不生成或持久化会话历史。
@@ -32,7 +32,8 @@
 - `question/request` / `question/closed` 同样由交互层管理，不把本地表单或取消动作写成历史。结构化答案通过真实 `ask_user_question` 工具结果进入 Host 日志；协议只支持阻塞提问，timed/continued 问题与迟到回复不进入投影。会话 idle 清理本会话提问，无 agent 请求不随会话 idle 消失。
 - 列表预览按 rune 截断：消息 8000、工具参数/结果 4000；工具详情按下述独立字节预算保留，超限或淘汰必须提示，不冒充完整内容。打开历史也遵守相同展示上限，不承诺完整原文复制或按需加载被淘汰详情。
 - 附件只投影显示元数据：`attachmentId`（不透明标识）、`mediaType`、`bytes`、`width`、`height`、可选 `name`；不读取或缓存图片字节，不把引用解释成路径。只有 png/jpeg/webp/gif 且引用字段有界的块才进入 UI，畸形引用丢弃而不是渲染可疑内容；纯图片消息同样保留一行，不能因文本为空而消失。附件不进入本地草稿文件。
-- 助手 Markdown 增量展示及工具折叠/只读 diff；reasoning、工具参数不展示为临时正文。原生 Sessions 历史入口回放正文；usage/context 作为会话级指标展示，不进入正文。
+- 助手 Markdown 增量展示及工具折叠/只读 diff；工具参数不展示为临时正文。reasoning 作为独立的静音文本行展示。原生 Sessions 历史入口回放正文；usage/context 作为会话级指标展示，不进入正文。
+- 同一回合内连续的 reasoning 与 tool 行聚合为默认折叠的活动组；组头显示思考时长、工具数量或工具名，展开后按事件顺序显示 reasoning 与工具卡片。分组是视图派生的展示行，不改变 flat transcript、seq 去重或工具行身份。
 - 会话指标取最新值而不累计：`assistant/message.usage` 提供最近一步的 token 计数（工具-only 步骤也更新），`request/context` 提供路由 `provider`/`model` 与 `contextWindow`。计数为负数或超出安全上界时按缺失处理；未知容量/用量保持未知，不推算、不跨历史窗口求和。展示只读取投影，不回写日志、不改变 nextSeq，也不进入下一次请求内容。
 - 深度快照同样只显示最新值：`todo/write` 最多 64 行、内容单行截断 200 rune，非法状态/空内容跳过，下一 `turn/start` 清空，与 DSH `todos` 折叠一致；`plan/mode` 为 latest-wins；`goal/change` 只接受 active/paused/blocked/complete，objective 单行截断 400 rune，clear 清除当前目标。所有快照不进入正文、不推测缺失字段。
 - `subagent/started|finished` 是实时通知而非 session 事件：只为当前父会话维护最多 8 条子代理状态，父/子 id 与 provider 经白名单校验，`reason` 取固定枚举；切换会话或新建时清空，历史回放不重建该状态。子代理消息与结果正文不进入主 transcript。
@@ -159,14 +160,14 @@ idle
 - `end.abandoned` 没有提交事件；丢弃草稿，必要时展示一次“已取消/已中断”提示。
 - 流式期间不要重新解析整个 Markdown；用 `markdown.Stream` 的增量能力。
 
-原生 `markdown.Stream` 增量显示，提交后用 `markdown.View`，不每个 token 重建解析器；具体复制与安全策略见 [UI 壳层](ui-shell.md)。每 attempt 最多保留 128 个块和 8000 个可见 rune，按块顺序拼接 text；block-end 的完整 text 可修正未提交前缀。reasoning/工具参数不进入临时文本缓存。idle、失败、关闭或 turn/end 清理临时状态；取消后的 Interrupted 文本只能来自 Host 提交。
+原生 `markdown.Stream` 增量显示，提交后用 `markdown.View`，不每个 token 重建解析器；具体复制与安全策略见 [UI 壳层](ui-shell.md)。每 attempt 最多保留 128 个块，text 与 reasoning 各自最多 8000 个可见 rune；block-end 的完整文本可修正未提交前缀。工具参数不进入临时文本缓存。idle、失败、关闭或 turn/end 清理临时状态；取消后的 Interrupted 文本只能来自 Host 提交。
 
 ### 重连
 
 - `session/history` 通过 `session.assistant-stream-baseline` 协商并显式请求临时快照；`session/resume` 的运行中 attach 可复用该快照机制。字段与预算见 [通道协议](channel-protocol.md#流式-baseline)。
-- Host 从公开帧保留有界文本/块状态，快照包含 revision、activeAttempt 的身份/turn/step/nextIndex、按序 blocks 与 truncated，不包含 reasoning/工具参数。持久提交同步清除匹配 attempt，历史首页同步捕获持久、状态及流式边界，分页固定。
+- Host 从公开帧保留有界文本/块状态，快照包含 revision、activeAttempt 的身份/turn/step/nextIndex、按序 blocks 与 truncated，不包含工具参数。reasoning 文本只在协商 `session.assistant-stream-baseline-reasoning` 时进入快照，未协商时仅保留块边界。持久提交同步清除匹配 attempt，历史首页同步捕获持久、状态及流式边界，分页固定。
 - UI 从 baseline 的 revision/nextIndex 继续接收；旧帧不重放。基线在后台整体校验后与历史一起发布，不显示半份状态；校验缓冲中的流式连续性，后续缺口共用历史重读上限。
-- activeAttempt 缺省表示流式空闲，回合状态仍由 status/statusRevision 决定；未协商 baseline 且收到缺少 start 的 chunk 时丢弃，等待新 start 或提交。baseline 文字截断与普通临时行共用 8000 rune/128 块限制，不落盘。
+- activeAttempt 缺省表示流式空闲，回合状态仍由 status/statusRevision 决定；未协商 baseline 且收到缺少 start 的 chunk 时丢弃，等待新 start 或提交。baseline 的 text 与 reasoning 各自使用 8000 rune 上限，块总数与普通临时行共用 128 块限制，不落盘。
 
 ## 子代理详情投影
 

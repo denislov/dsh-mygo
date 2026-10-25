@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { AssistantStreamBaseline } from '../stream-baseline.mjs'
 
-test('baseline restores text and chunk position without retaining private blocks', () => {
+test('baseline restores text and reasoning only when negotiated', () => {
   const stream = new AssistantStreamBaseline()
   stream.accept({ type: 'start', revision: 1, attemptId: 's:1', turn: 1, step: 2 })
   stream.accept({ type: 'chunk', revision: 2, attemptId: 's:1', index: 0, chunk: { type: 'block-start', index: 0, blockType: 'text' } })
@@ -10,13 +10,32 @@ test('baseline restores text and chunk position without retaining private blocks
   const first = stream.snapshot()
   assert.equal(first.activeAttempt.nextIndex, 2)
   assert.equal(first.activeAttempt.blocks[0].text, '你好')
-  stream.accept({ type: 'chunk', revision: 4, attemptId: 's:1', index: 2, chunk: { type: 'reasoning-delta', index: 1, text: 'private-reasoning' } })
+  stream.accept({ type: 'chunk', revision: 4, attemptId: 's:1', index: 2, chunk: { type: 'block-start', index: 1, blockType: 'reasoning' } })
+  stream.accept({ type: 'chunk', revision: 5, attemptId: 's:1', index: 3, chunk: { type: 'reasoning-delta', index: 1, text: 'private-reasoning' } })
   assert.equal(first.revision, 3)
   assert.ok(!JSON.stringify(stream.snapshot()).includes('private-reasoning'))
+  const negotiated = stream.snapshot(true)
+  assert.equal(negotiated.activeAttempt.blocks[1].text, 'private-reasoning')
+  assert.equal(negotiated.activeAttempt.truncated, false)
   stream.commit({ type: 'assistant/message', data: { turn: 1, step: 2 } })
-  assert.deepEqual(stream.snapshot(), { revision: 4 })
-  stream.accept({ type: 'end', revision: 5, attemptId: 's:1', index: 3 })
   assert.deepEqual(stream.snapshot(), { revision: 5 })
+  stream.accept({ type: 'end', revision: 6, attemptId: 's:1', index: 4 })
+  assert.deepEqual(stream.snapshot(), { revision: 6 })
+})
+
+test('baseline bounds reasoning separately from text and reports truncation', () => {
+  const stream = new AssistantStreamBaseline()
+  stream.accept({ type: 'start', revision: 1, attemptId: 's:1', turn: 1, step: 1 })
+  stream.accept({ type: 'chunk', revision: 2, attemptId: 's:1', index: 0, chunk: { type: 'block-start', index: 0, blockType: 'reasoning' } })
+  stream.accept({ type: 'chunk', revision: 3, attemptId: 's:1', index: 1, chunk: { type: 'reasoning-delta', index: 0, text: '想'.repeat(9000) } })
+  stream.accept({ type: 'chunk', revision: 4, attemptId: 's:1', index: 2, chunk: { type: 'block-start', index: 1, blockType: 'text' } })
+  stream.accept({ type: 'chunk', revision: 5, attemptId: 's:1', index: 3, chunk: { type: 'text-delta', index: 1, text: 'answer' } })
+  const snapshot = stream.snapshot(true)
+  assert.equal([...snapshot.activeAttempt.blocks[0].text].length, 8000)
+  assert.equal(snapshot.activeAttempt.blocks[1].text, 'answer')
+  assert.equal(snapshot.activeAttempt.truncated, true)
+  assert.equal(stream.snapshot().activeAttempt.blocks[0].text, undefined)
+  assert.equal(stream.snapshot().activeAttempt.truncated, false)
 })
 
 test('baseline bounds text and blocks and discards broken attempts until a new start', () => {

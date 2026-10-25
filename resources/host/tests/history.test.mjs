@@ -238,6 +238,29 @@ test('stream baseline shares the history cut, stays fixed across pages and requi
   await legacy.shutdown()
 })
 
+test('reasoning baseline requires its own negotiated capability', async () => {
+  for (const reasoning of [true, false]) {
+    const { server } = runtime()
+    const capabilities = ['session.history', 'session.resync', 'session.assistant-stream', 'session.assistant-stream-baseline', ...(reasoning ? ['session.assistant-stream-baseline-reasoning'] : [])]
+    await server.handle('initialize', { ...handshake, capabilities })
+    assert.equal(server.capabilities.includes('session.assistant-stream-baseline-reasoning'), reasoning)
+    await server.handle('session/resume', resume)
+    const stream = new AssistantStreamBaseline()
+    server.sessions.get(resume.sessionId).assistantStream = stream
+    stream.accept({ type: 'start', revision: 1, attemptId: 's:1', turn: 1, step: 1 })
+    stream.accept({ type: 'chunk', revision: 2, attemptId: 's:1', index: 0, chunk: { type: 'block-start', index: 0, blockType: 'reasoning' } })
+    stream.accept({ type: 'chunk', revision: 3, attemptId: 's:1', index: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'plan' } })
+    stream.accept({ type: 'chunk', revision: 4, attemptId: 's:1', index: 2, chunk: { type: 'block-start', index: 1, blockType: 'text' } })
+    stream.accept({ type: 'chunk', revision: 5, attemptId: 's:1', index: 3, chunk: { type: 'text-delta', index: 1, text: 'answer' } })
+    const result = await server.handle('session/history', { ...resume, live: true, assistantStream: true })
+    const blocks = result.assistantStream.activeAttempt.blocks
+    assert.equal(blocks[0].type, 'reasoning')
+    assert.equal(blocks[0].text, reasoning ? 'plan' : undefined)
+    assert.equal(blocks[1].text, 'answer')
+    await server.shutdown()
+  }
+})
+
 test('live history is negotiated and holds one sequence and status cut while the agent runs', async () => {
   const { server, stored, handles } = runtime()
   await server.handle('initialize', { ...handshake, capabilities: ['session.history', 'session.resync'] })

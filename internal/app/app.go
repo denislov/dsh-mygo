@@ -709,7 +709,7 @@ func (a *App) initializeSession(ctx context.Context, client rpcClient, resumeID 
 	result, err := client.Call(ctx, "initialize", map[string]any{
 		"protocolVersion": channel.ProtocolVersion,
 		"client":          map[string]string{"name": "dsh-mygo", "version": channel.ReleaseVersion, "platform": runtime.GOOS, "locale": a.currentLocale()},
-		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history", "session.history-window", "session.release", "session.resync", "session.assistant-stream-baseline", "session.rename", "session.archive", "model.selection", "settings.configuration", "session.permissions", "attachments", "subagent.inspection"},
+		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history", "session.history-window", "session.release", "session.resync", "session.assistant-stream-baseline", "session.assistant-stream-baseline-reasoning", "session.rename", "session.archive", "model.selection", "settings.configuration", "session.permissions", "attachments", "subagent.inspection"},
 	})
 	if err != nil {
 		return initializedSession{}, err

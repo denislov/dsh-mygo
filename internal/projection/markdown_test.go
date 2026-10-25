@@ -67,7 +67,7 @@ func TestStreamMarkdownPreservesOpenFenceWhitespace(t *testing.T) {
 	source := "```go\n  fmt.Println(\"hello\")\n"
 	wire, _ := json.Marshal(map[string]any{"type": "chunk", "attemptId": "s1:1", "revision": 3, "index": 1, "time": 1, "chunk": map[string]any{"type": "text-delta", "index": 0, "text": source}})
 	streamFrame(t, &stream, string(wire))
-	if item, visible := stream.Item(); !visible || item.Text != source {
+	if item, visible := streamTextItem(t, &stream); !visible || item.Text != source {
 		t.Fatal("stream removed code whitespace")
 	}
 }

@@ -26,10 +26,11 @@ export function sessionSummary(header, record, metadata = record?.metadata ?? {}
 }
 
 export class SessionHistory {
-  constructor(ctx, sessions, maxPageBytes) {
+  constructor(ctx, sessions, maxPageBytes, reasoningBaseline = () => false) {
     this.ctx = ctx
     this.sessions = sessions
     this.maxPageBytes = maxPageBytes
+    this.reasoningBaseline = reasoningBaseline
     this.cursors = new Map()
     this.metadata = new Map()
   }
@@ -179,7 +180,7 @@ export class SessionHistory {
       kind: 'history', id, offset: 0, nextSeq: record.handle.agent.session.seq, live,
       backward, ...(backward ? { offset: params.beforeSeq ?? record.handle.agent.session.seq } : {}),
       ...(live ? { status: record.busy || record.handle.agent.status !== 'idle' ? 'running' : 'idle', statusRevision: record.statusRevision ?? 0 } : {}),
-      ...(params.assistantStream ? { assistantStream: record.assistantStream?.snapshot() ?? { revision: 0 } } : {}),
+      ...(params.assistantStream ? { assistantStream: record.assistantStream?.snapshot(this.reasoningBaseline()) ?? { revision: 0 } } : {}),
     } : this.cursor(params.cursor, 'history', id)
     if (params.beforeSeq !== undefined && (!backward || params.cursor !== undefined || !Number.isSafeInteger(params.beforeSeq) || params.beforeSeq < 0 || params.beforeSeq > state.nextSeq)) throw fault('protocol/invalid-params', 'Invalid history boundary', -32602)
     if (!!state.backward !== backward) throw fault('session/invalid-cursor', 'History cursor direction does not match')

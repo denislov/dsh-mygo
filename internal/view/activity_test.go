@@ -122,6 +122,32 @@ func TestActivityPruneAndReset(t *testing.T) {
 	}
 }
 
+func TestStreamingReasoningShowsLiveSummaryAndExpands(t *testing.T) {
+	model := NewModel()
+	model.Phase = PhaseIdle
+	model.Items = []projection.Item{
+		{ID: "stream:s1:r:0", Kind: projection.KindReasoning, State: "streaming", Text: "live thought", Turn: 1, Step: 1, ActivityKey: "activity:1:1:r:0"},
+		{ID: "stream:s1", Kind: projection.KindAssistant, State: "streaming", Text: "partial answer", Detail: "Streaming…"},
+	}
+	tester := tester(model)
+	if !tester.HasText("Thinking…") {
+		t.Fatalf("live summary missing: %v", tester.Texts())
+	}
+	if tester.HasText("live thought") {
+		t.Fatal("streaming reasoning started expanded")
+	}
+	if !tester.HasText("partial answer") {
+		t.Fatal("assistant preview missing")
+	}
+	if err := tester.Click("Thinking…"); err != nil {
+		t.Fatal(err)
+	}
+	tester.Advance(300 * time.Millisecond)
+	if !tester.HasText("live thought") {
+		t.Fatal("streaming reasoning did not expand")
+	}
+}
+
 func TestActivitySummaryIsLocalized(t *testing.T) {
 	model := activityModel()
 	model.Prefs.Value.Locale = "zh-CN"

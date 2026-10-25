@@ -15,7 +15,7 @@ func TestStreamBaselineContinuesAndIgnoresOlderFrames(t *testing.T) {
 	}
 	streamFrame(t, &stream, `{"type":"chunk","attemptId":"s1:1","revision":3,"index":1,"time":1,"chunk":{"type":"text-delta","index":0,"text":"duplicate"}}`)
 	streamFrame(t, &stream, `{"type":"chunk","attemptId":"s1:1","revision":4,"index":2,"time":1,"chunk":{"type":"text-delta","index":0,"text":"世界"}}`)
-	if item, ok := stream.Item(); !ok || item.Text != "你好世界" {
+	if item, ok := streamTextItem(t, &stream); !ok || item.Text != "你好世界" {
 		t.Fatal("baseline did not continue")
 	}
 	if stream.NeedsResync() {
@@ -31,7 +31,7 @@ func TestStreamBaselineContinuesAndIgnoresOlderFrames(t *testing.T) {
 	if stream.NeedsResync() {
 		t.Fatal("baseline did not reset gap")
 	}
-	if _, ok := stream.Item(); ok {
+	if _, ok := streamTextItem(t, &stream); ok {
 		t.Fatal("empty baseline retained text")
 	}
 }
@@ -50,9 +50,26 @@ func TestStreamBaselineRejectsMalformedOrOversizedStateAtomically(t *testing.T) 
 		if err := stream.Restore(json.RawMessage(raw)); err == nil {
 			t.Fatalf("accepted invalid baseline: %s", raw)
 		}
-		if item, _ := stream.Item(); item.Text != "你好" {
+		if item, _ := streamTextItem(t, &stream); item.Text != "你好" {
 			t.Fatal("failed baseline mutated current state")
 		}
+	}
+}
+
+func TestStreamBaselineRestoresReasoningText(t *testing.T) {
+	var stream AssistantStream
+	raw := `{"revision":4,"activeAttempt":{"attemptId":"s1:1","turn":1,"step":2,"nextIndex":3,"blocks":[{"index":0,"type":"reasoning","text":"plan","ended":true},{"index":1,"type":"text","text":"answer","ended":false}],"truncated":false}}`
+	if err := stream.Restore(json.RawMessage(raw)); err != nil {
+		t.Fatal(err)
+	}
+	items := stream.Items()
+	if len(items) != 2 || items[0].Kind != KindReasoning || items[0].Text != "plan" || items[0].ActivityKey != "activity:1:2:r:0" || items[1].Kind != KindAssistant || items[1].Text != "answer" {
+		t.Fatalf("restored items = %+v", items)
+	}
+	oversized := strings.Replace(raw, `"text":"plan"`, `"text":"`+strings.Repeat("想", 8001)+`"`, 1)
+	var broken AssistantStream
+	if broken.Restore(json.RawMessage(oversized)) == nil {
+		t.Fatal("oversized reasoning baseline accepted")
 	}
 }
 
@@ -63,11 +80,11 @@ func TestStreamBaselineRetainsBlockBoundariesAndTruncation(t *testing.T) {
 		t.Fatal(err)
 	}
 	streamFrame(t, &stream, `{"type":"chunk","attemptId":"s1:1","revision":9,"index":7,"time":1,"chunk":{"type":"block-end","index":1,"block":{"type":"text","text":"prefix complete"}}}`)
-	if item, ok := stream.Item(); !ok || item.Text != "prefix complete…" || !item.Truncated {
+	if item, ok := streamTextItem(t, &stream); !ok || item.Text != "prefix complete…" || !item.Truncated {
 		t.Fatal("baseline lost block state or truncation")
 	}
 	stream.Commit(Event{Type: "assistant/message", Seq: 12, Data: json.RawMessage(`{"turn":1,"step":1}`)})
-	if _, ok := stream.Item(); ok {
+	if _, ok := streamTextItem(t, &stream); ok {
 		t.Fatal("baseline duplicated durable commit")
 	}
 }

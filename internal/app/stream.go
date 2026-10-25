@@ -90,8 +90,8 @@ func (a *App) publishTranscript() {
 	a.model.Tasks = a.transcript.Tasks
 	a.model.PlanActive = a.transcript.PlanActive
 	a.model.Goal = a.transcript.Goal
-	if item, visible := a.stream.Item(); visible {
-		a.model.Items = append(slices.Clone(a.model.Items), item)
+	if items := a.stream.Items(); len(items) > 0 {
+		a.model.Items = append(slices.Clone(a.model.Items), items...)
 	}
 	// Prune with the merged rows so a live-only activity group keeps its state.
 	a.model.PruneTranscriptState(a.model.Items)

@@ -86,7 +86,7 @@ export class MygoServer {
     // runId -> parent/child identity learned at start, because a settled child
     // may already be gone from the agent registry when subagent/end arrives.
     this.subagentRuns = new Map()
-    this.history = new SessionHistory(ctx, this.sessions, Math.floor(maxFrameBytes / 2))
+    this.history = new SessionHistory(ctx, this.sessions, Math.floor(maxFrameBytes / 2), () => this.capabilities.includes('session.assistant-stream-baseline-reasoning'))
     this.subagentInspection = new SubagentInspection(this, maxFrameBytes)
     this.models = new ModelSettings(this, Math.floor(maxFrameBytes / 2))
     this.configuration = new Configuration(this, credentialRef)
@@ -246,6 +246,7 @@ export class MygoServer {
       if (params.capabilities.includes('session.resync')) this.capabilities.push('session.resync')
     }
     if (params.capabilities.includes('session.assistant-stream-baseline') && this.capabilities.includes('session.resync') && this.capabilities.includes('session.assistant-stream')) this.capabilities.push('session.assistant-stream-baseline')
+    if (params.capabilities.includes('session.assistant-stream-baseline-reasoning') && this.capabilities.includes('session.assistant-stream-baseline')) this.capabilities.push('session.assistant-stream-baseline-reasoning')
     if (params.capabilities.includes('attachments')) {
       const policy = imagePolicy(this.ctx.get('attachments'))
       if (policy !== undefined && typeof this.ctx.get('llm')?.resolveModelInfo === 'function') {

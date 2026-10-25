@@ -42,21 +42,31 @@ func (stream *AssistantStream) Restore(raw json.RawMessage) error {
 	}
 	next.attemptID, next.turn, next.step, next.index = active.AttemptID, *active.Turn, *active.Step, *active.NextIndex
 	next.blocks = make(map[uint64]*streamBlock)
-	next.truncated = *active.Truncated
+	next.textTruncated = *active.Truncated
+	next.reasoningTruncated = *active.Truncated
+	var lastText *streamBlock
 	for _, block := range active.Blocks {
-		if !validStreamInteger(block.Index) || next.blocks[*block.Index] != nil || block.Type == "" || len(block.Type) > 256 || strings.ContainsRune(block.Type, '\x00') || block.Ended == nil || (block.Type == "text") != (block.Text != nil) {
+		if !validStreamInteger(block.Index) || next.blocks[*block.Index] != nil || block.Type == "" || len(block.Type) > 256 || strings.ContainsRune(block.Type, '\x00') || block.Ended == nil || block.Type == "text" && block.Text == nil || block.Text != nil && block.Type != "text" && block.Type != "reasoning" {
 			return invalid
 		}
 		value := &streamBlock{kind: block.Type, ended: *block.Ended}
 		if block.Text != nil {
 			count := utf8.RuneCountInString(*block.Text)
-			if next.runes+count > maxMessageRunes {
+			limit, used := maxMessageRunes, next.textRunes
+			if block.Type == "reasoning" {
+				limit, used = maxReasoningRunes, next.reasoningRunes
+			}
+			if used+count > limit {
 				return invalid
 			}
 			next.appendText(value, *block.Text)
+			lastText = value
 		}
 		next.blocks[*block.Index] = value
 		next.order = append(next.order, *block.Index)
+	}
+	if *active.Truncated && lastText != nil {
+		lastText.truncated = true
 	}
 	*stream = next
 	return nil

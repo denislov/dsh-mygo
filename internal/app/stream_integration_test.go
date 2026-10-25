@@ -23,6 +23,15 @@ func hasStreamingText(items []projection.Item, text string) bool {
 	return false
 }
 
+func hasReasoningText(items []projection.Item, text string) bool {
+	for _, item := range items {
+		if item.Kind == projection.KindReasoning && strings.Contains(item.Text, text) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestAgainstMygoFakeStreaming(t *testing.T) {
 	for _, mode := range []string{"complete", "cancel", "old-host", "baseline-cancel"} {
 		t.Run(mode, func(t *testing.T) {
@@ -78,12 +87,46 @@ func TestAgainstMygoFakeStreaming(t *testing.T) {
 	}
 }
 
+func TestAgainstMygoFakeStreamingReasoning(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	fakeHost, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fake-mygo-host.mjs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	updates := make(chan func(), 256)
+	application := New(Options{Launch: host.Config{Command: node, Args: []string{fakeHost, "--stream-wait", "--reasoning"}}, CWD: t.TempDir(), Provider: "test", Model: "echo", Post: func(fn func()) { updates <- fn }})
+	defer application.Shutdown(5 * time.Second)
+	go application.Start()
+	waitFor(t, application, updates, 10*time.Second, func() bool { return application.Model().Phase == view.PhaseIdle })
+	application.Send("reasoning probe")
+	waitFor(t, application, updates, 5*time.Second, func() bool {
+		return hasReasoningText(application.Model().Items, "Considering the request") && hasStreamingText(application.Model().Items, "Live prefix")
+	})
+	for _, item := range application.Model().Items {
+		if item.Kind == projection.KindAssistant && strings.Contains(item.Text, "Considering the request") {
+			t.Fatal("reasoning merged into assistant text")
+		}
+	}
+	application.Cancel()
+	waitFor(t, application, updates, 10*time.Second, func() bool { return application.Model().Phase == view.PhaseIdle })
+	assertOneSettledAssistant(t, application)
+	if !hasReasoningText(application.Model().Items, "Considering the request") {
+		t.Fatal("settled reasoning missing")
+	}
+}
+
 func assertOneSettledAssistant(t *testing.T, application *App) {
 	t.Helper()
 	count := 0
 	for _, item := range application.Model().Items {
-		if item.State == "streaming" || strings.Contains(item.Text, "Hidden fixture reasoning") {
-			t.Fatal("preview or reasoning leaked into settled UI")
+		if item.State == "streaming" {
+			t.Fatal("preview leaked into settled UI")
+		}
+		if strings.Contains(item.Text, "Hidden fixture reasoning") && item.Kind != projection.KindReasoning {
+			t.Fatal("reasoning leaked into a non-reasoning row")
 		}
 		if item.Kind == projection.KindAssistant {
 			count++
@@ -127,10 +170,8 @@ func TestAgainstMygoRealStreaming(t *testing.T) {
 			sessionID := application.sessionID
 			application.Send("Stream the probe")
 			waitFor(t, application, updates, 30*time.Second, func() bool { return hasStreamingText(application.Model().Items, prefix) })
-			for _, item := range application.Model().Items {
-				if strings.Contains(item.Text, "Hidden fixture reasoning") {
-					t.Fatal("reasoning became visible")
-				}
+			if !hasReasoningText(application.Model().Items, "Hidden fixture reasoning") {
+				t.Fatal("streaming reasoning missing")
 			}
 			for _, item := range application.transcript.Items() {
 				if item.Kind == projection.KindAssistant {

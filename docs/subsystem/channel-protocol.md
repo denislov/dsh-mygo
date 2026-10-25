@@ -16,7 +16,7 @@
 - 请求方法：`initialize`、`session/create`、`session/list`、`session/resume`、`session/release`、`session/rename`、`session/archive`、`session/delete`、`session/fork`、`session/history`、`session/prompt`、`session/cancel`、`session/queue`、`session/wait`、`session/working-directory/get`、`session/working-directory/set`、`model/list`、`model/select`、`settings/get`、`settings/set`、`settings/open-document`、`configuration/get`、`configuration/default-model`、`configuration/credential`、`permission/get`、`permission/select`、`approval/respond`、`question/respond`、`question/cancel`、`subagent/list`、`subagent/history`、`shutdown`。
 - 通知：`session/event`、`session/assistant-stream`、`session/status`、`approval/request`、`approval/closed`、`question/request`、`question/closed`、`subagent/started`、`subagent/finished`、`host/notice`、`host/fatal`。
 - UI 声明 `session.cancel`，Host 仅在双方支持时返回该 capability；未协商时调用取消返回 `protocol/capability-unavailable`。旧 Host 不声明时，UI 不展示 Stop。UI 通过 `session.history` 协商 list/resume/history，并提供原生 Sessions 入口。
-- 文本流式通过 `session.assistant-stream` capability 启用；Host 只转发自己拥有的确切 agent 的公开流式帧。旧 Host/SDK 保持仅提交模式，不自动降级协议。Go 只展示 text，reasoning/工具参数不进入临时行。
+- 文本流式通过 `session.assistant-stream` capability 启用；Host 只转发自己拥有的确切 agent 的公开流式帧。旧 Host/SDK 保持仅提交模式，不自动降级协议。Go 展示 text 与 reasoning；工具参数不进入临时行。
 - `session/create` 要求已有绝对目录 `cwd` 和显式 provider/model（可选 effort），或协商 settings.configuration 后单独传 useDefaultModel:true；两种路由不能混用。Host 验证模型路由后创建并拥有 session id。prompt 只接受自己创建或通过公开 agents.resume 恢复并拥有的会话和 text content，忙碌时拒绝新 prompt。
 - 创建结果中的 `session.nextSeq` 是创建完成时 DSH 的下一事件 offset。初始会话元数据不重放；其余完整提交事件从此 offset 开始转发。`session/event` 同时携带外层 `seq` 和原始 `event.seq`，两者必须相同。
 - DSH 提交事件按原样转发（含 `request/context` 等 log-only 事件）；哪些事件成为 UI 行、如何聚合为会话指标由投影层决定，Host 不替 UI 裁剪语义。
@@ -239,8 +239,9 @@ type AssistantStreamFrame =
 ### 流式 baseline
 
 - 独立 capability `session.assistant-stream-baseline` 依赖 `session.resync` 与 `session.assistant-stream`。协商后，`session/history` 的 `live:true, assistantStream:true` 请求同时捕获持久边界、状态版本与流式快照；未协商或非 live 请求携带 true 返回 capability-unavailable。省略/false 保持原结果；标志必须为 boolean，游标绑定两个模式，不得跨模式复用。
-- 快照形状为 `{revision, activeAttempt?:{attemptId,turn,step,nextIndex,blocks:[{index,type,text?,ended}],truncated}}`。`revision` 为非负安全整数；activeAttempt 缺省表示没有可续接的临时流（不改变回合 running/idle），不能为 null。其余计数为安全整数，nextIndex 是下一 chunk offset 且小于 revision。块按出现顺序排列，index 不重复；text 只属于 text 块。ended/truncated 必须为 boolean。
-- Host 只从公开 `agent/assistant-stream` 累计文本和块边界，不读取 Agent 私有字段，也不保留 reasoning、工具参数或完整帧列表。文本最多 8000 rune，最多 128 块；文字超限标记 truncated，块超限或关联错误清除 attempt 直到下个 start。匹配 turn/step 的持久 assistant 提交及 turn/end 同步清除 attempt，避免提交与 end 之间捕获重复预览。
+- 快照形状为 `{revision, activeAttempt?:{attemptId,turn,step,nextIndex,blocks:[{index,type,text?,ended}],truncated}}`。`revision` 为非负安全整数；activeAttempt 缺省表示没有可续接的临时流（不改变回合 running/idle），不能为 null。其余计数为安全整数，nextIndex 是下一 chunk offset 且小于 revision。块按出现顺序排列，index 不重复；text 属于 text 块，reasoning 块在协商 `session.assistant-stream-baseline-reasoning` 时也可携带 text。ended/truncated 必须为 boolean。
+- 独立 capability `session.assistant-stream-baseline-reasoning` 依赖 `session.assistant-stream-baseline`。未协商时快照仅保留 reasoning 块边界、不返回其文本；协商后 Host 在快照中包含已累计的 reasoning 文本。旧 UI 不协商即得到旧形状。
+- Host 只从公开 `agent/assistant-stream` 累计文本、reasoning 和块边界，不读取 Agent 私有字段，也不保留工具参数或完整帧列表。text 与 reasoning 各自最多 8000 rune，块总数最多 128；文字超限标记 truncated，块超限或关联错误清除 attempt 直到下个 start。匹配 turn/step 的持久 assistant 提交及 turn/end 同步清除 attempt，避免提交与 end 之间捕获重复预览。
 - 历史首页在第一次 await 前同步捕获快照；后续页返回同一份 baseline，不能混入之后的 chunk。baseline JSON 最多 128 KiB，并从历史单页事件预算中扣除，超限或剩余预算无法容纳单事件时明确返回 page-too-large；仍计入 Go 的历史总字节预算。连接内游标数量/有效期沿用历史规则。
 - Go 在后台严格校验、整体恢复 revision/块状态/nextIndex；不接受低于本 Agent 已见版本的快照。缓冲流只应用更高 revision，整体发布前校验连续衔接；新缺口与持久缺口共用最多 3 次重读和 60 秒预算，非法 baseline 走失败恢复。提交事件替换临时文本，不把 baseline 写入历史。
 

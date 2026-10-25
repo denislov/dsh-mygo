@@ -4,6 +4,7 @@ import { LineChannel } from '../resources/host/transport.mjs'
 import { MygoServer } from '../resources/host/server.mjs'
 import { markdownPrefix, markdownReply } from './markdown-sample.mjs'
 
+const reasoningText = 'Considering the request before answering.'
 const events = new EventEmitter()
 const stored = new Map()
 const childAgents = new Map()
@@ -71,9 +72,10 @@ const ctx = {
                 let reply = work.streaming ? work.markdown ? markdownReply : 'Live prefix complete' : work.question ? approvalOutcome : work.approval ? approvalOutcome === 'allowed-once' ? 'Approved write' : 'Denied write' : `Echo: ${text || '(no text)'}${images ? ` [${images} image${images === 1 ? '' : 's'}]` : ''}`
                 const selected = agentScope.selection?.current ?? agentOptions
                 if (selected?.model === 'route-probe') reply = `Selected ${selected.provider}/${selected.model}/${selected.reasoningEffort ?? 'default'}`
+                const reasoning = process.argv.includes('--reasoning') ? [{ type: 'reasoning', text: reasoningText }] : []
                 if (work.streaming) {
-                  chunk({ type: 'text-delta', index: 0, text: work.markdown ? markdownReply.slice(markdownPrefix.length) : ' complete' })
-                  chunk({ type: 'block-end', index: 0, block: { type: 'text', text: reply } })
+                  chunk({ type: 'text-delta', index: work.textIndex, text: work.markdown ? markdownReply.slice(markdownPrefix.length) : ' complete' })
+                  chunk({ type: 'block-end', index: work.textIndex, block: { type: 'text', text: reply } })
                 } else event('tool/result', { message: { toolCallId: callId, content: [{ type: 'text', text: diffFixture ? 'Updated demo.txt (fixture only)' : work.approval ? reply : '# dsh-mygo' }] },
                   ...(diffFixture ? { meta: { operation: 'update', diffs: [
                     { path: 'demo.txt', oldText: 'before', newText: 'after' },
@@ -81,11 +83,12 @@ const ctx = {
                   ] } } : {}),
                 })
                 const usage = process.argv.includes('--usage') ? { inputTokens: 1200, outputTokens: 350, totalTokens: 1550, cacheReadTokens: 200 } : undefined
-                const seq = event('assistant/message', { turn, step: 1, message: { content: [{ type: 'text', text: reply }] }, ...(usage ? { usage } : {}) })
+                const seq = event('assistant/message', { turn, step: 1, message: { content: [...reasoning, { type: 'text', text: reply }] }, ...(usage ? { usage } : {}) })
                 if (work.streaming) stream({ type: 'end', index: streamIndex, outcome: { kind: 'committed', eventType: 'assistant/message', seq } })
               } else if (work.streaming) {
                 const usage = process.argv.includes('--usage') ? { inputTokens: 900, outputTokens: 120 } : undefined
-                const seq = event('assistant/message', { turn, step: 1, interrupted: true, message: { content: [{ type: 'text', text: work.markdown ? markdownPrefix : 'Live prefix' }] }, ...(usage ? { usage } : {}) })
+                const reasoning = process.argv.includes('--reasoning') ? [{ type: 'reasoning', text: reasoningText }] : []
+                const seq = event('assistant/message', { turn, step: 1, interrupted: true, message: { content: [...reasoning, { type: 'text', text: work.markdown ? markdownPrefix : 'Live prefix' }] }, ...(usage ? { usage } : {}) })
                 stream({ type: 'end', index: streamIndex, outcome: { kind: 'committed', eventType: 'assistant/message', seq } })
               }
               event('turn/end', { reason: aborted ? { kind: 'aborted', reason: { kind: 'user' } } : { kind: 'completed' } })
@@ -109,8 +112,16 @@ const ctx = {
               work.streaming = true
               work.markdown = process.argv.includes('--markdown') || process.argv.includes('--markdown-wait')
               stream({ type: 'start', turn, step: 1 })
-              chunk({ type: 'block-start', index: 0, blockType: 'text' })
-              chunk({ type: 'text-delta', index: 0, text: work.markdown ? markdownPrefix : 'Live prefix' })
+              let blockIndex = 0
+              if (process.argv.includes('--reasoning')) {
+                chunk({ type: 'block-start', index: blockIndex, blockType: 'reasoning' })
+                chunk({ type: 'reasoning-delta', index: blockIndex, text: reasoningText })
+                chunk({ type: 'block-end', index: blockIndex, block: { type: 'reasoning', text: reasoningText } })
+                blockIndex++
+              }
+              work.textIndex = blockIndex
+              chunk({ type: 'block-start', index: blockIndex, blockType: 'text' })
+              chunk({ type: 'text-delta', index: blockIndex, text: work.markdown ? markdownPrefix : 'Live prefix' })
               if (!process.argv.includes('--stream-wait') && !process.argv.includes('--markdown-wait')) work.timer = setTimeout(() => work.finish(false), 700)
             }
             else if ((process.argv.includes('--question') && turn === 1) || (process.argv.includes('--question-twice') && turn <= 2)) {

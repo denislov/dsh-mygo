@@ -34,8 +34,9 @@ UI 壳层是 MyGo 进程里的原生界面：
 - 会话详情在宽度至少 1180 DIP 时显示为右侧 300 DIP 常驻面板，包含 Progress / Working folder / Context 三张可折叠卡片，展示模型完整路由、工作目录、session id、Host/DSH 版本、实际权限、usage/context、计划/目标与子代理摘要；窄窗口回退为 MyGo Popover。面板默认打开、仅由标题栏入口切换，内容有界滚动，工作期间仍可查看；打开任意 Modal 时面板保留在遮罩下且不重排，Popover 则关闭且不自动重开。两种布局共用同一只读内容，不与审批/提问/检视器叠加。
 - 聊天与输入区共享最大 760 DIP 的居中阅读宽度。助手消息直接在页面上排版，不再显示可见的角色行；用户消息使用 `UserBubble` 暖色背景、圆角与右对齐，正文使用 15 DIP 字号，用户原文与助手 Markdown 维持各自解释规则。角色名保留为消息容器的可访问名称。复制动作位于消息下方并右对齐，默认降低不透明度、在消息 hover 或键盘焦点进入时恢复；使用带名称、Tooltip 和反馈图标的原生按钮，不以长文字按钮占据正文。
 
-- transcript 显示提交后的 user 消息、assistant 文本、tool call/result 与 turn 结束通知；不显示 synthetic user context、system/developer 消息、reasoning。
-- 协商 `session.assistant-stream` 后，额外展示带 `Streaming…` 标记的临时 assistant 行，稳定绑定 attemptId；提交时由唯一的 durable 行替换。没有可见 text 时不显示空卡片；缺口/abandoned/idle/失败/关闭移除临时行，不改 composer 草稿。
+- transcript 显示提交后的 user 消息、assistant 文本、reasoning、tool call/result 与 turn 结束通知；不显示 synthetic user context、system/developer 消息。
+- 同一回合内连续的 reasoning 与 tool 行显示为默认折叠的活动组：折叠头给出思考时长、工具数量或工具名，展开后显示思考原文与工具卡片。活动组是视图派生的展示行，工具行身份与详情入口保持不变。
+- 协商 `session.assistant-stream` 后，额外展示带 `Streaming…` 标记的临时 assistant 行与 `Thinking…` 的临时 reasoning 行，稳定绑定 attemptId；提交时由 durable 行替换。没有可见 text 时不显示空卡片；缺口/abandoned/idle/失败/关闭移除临时行，不改 composer 草稿。
 - 助手正文使用 MyGo 原生 `markdown.Stream` / `markdown.View`：标题、强调、列表、表格、内联代码与只读语法高亮代码块。流式同一 key 增量解析，直接显示已收到内容，不额外逐字延迟；最终提交使用 durable 行身份，不把 Markdown 展示状态写回历史。用户输入、工具参数/结果仍为可选择的原文，不解释为 Markdown。
 - `Copy Markdown` 复制保留的助手源文，`Copy message` 复制可见用户文本；流式按钮标为 `Copy current text`。代码块有独立复制按钮，复制解析后的代码正文（代码行以换行结尾），不带围栏；正在生成的开放代码块禁用复制。Interrupted 消息的代码块也禁用完整代码复制，可显式 `Copy partial Markdown`。
 - 复制反馈绑定消息 ID 与源文；流式源文改变或换消息时不继承“已复制”。超过 8000 rune 的消息明确标为截断，回退原文展示并只提供 `Copy visible text`，不把截断围栏解释为完整代码。复制的是当前保留内容，不承诺复制完整历史。

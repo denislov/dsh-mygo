@@ -24,7 +24,7 @@
 ## Go 单元
 
 - 投影：`user/message`、`assistant/message`、`tool/call|result`、`turn/end`、重复 seq、未知事件、截断。
-- 流式：start/chunk/end、缺口、abandoned、提交前后交错、reasoning 与工具参数不泄露。
+- 流式：start/chunk/end、缺口、abandoned、提交前后交错、reasoning 可见且受预算截断、工具参数不泄露。
 - 历史：分页、边界、游标、部分页失败不发布、历史与实时合并。
 - 协议：合法/非法帧、版本、未知方法、超时、取消、重复回答、背压。
 - 交互：审批/提问的载荷校验、FIFO、上限、过期身份、表单草稿。
@@ -76,7 +76,7 @@ Go channel 与 Node transport 共用非法帧 fixture。`resources/host/tests/pr
 - 显式创建会话、连续回合、工具投影、错误版本与无效 session 响应。
 - `--wait-for-cancel`：第一回合保持运行以验证 Stop；`--no-cancel` 模拟旧 Host。
 - `--approval`、`--question` / `--question-twice`：审批与提问表单。
-- `--stream` / `--stream-wait` / `--no-stream`：流式、取消流式与旧 Host 仅提交模式；`--sessions --stream-wait --stream-gap` 丢弃文本块起始帧，验证仅流式缺口的 baseline 恢复与取消。
+- `--stream` / `--stream-wait` / `--no-stream`：流式、取消流式与旧 Host 仅提交模式；`--reasoning` 在提交与流式内容中加入 reasoning 块；`--sessions --stream-wait --stream-gap` 丢弃文本块起始帧，验证仅流式缺口的 baseline 恢复与取消。
 - `--tool-diff`、`--markdown` / `--markdown-wait`：工具详情与 Markdown 渲染。
 - `--sessions`、`--models`、`--configuration`：会话、模型与配置面板。
 - `--permissions` 配合 `--sessions` 提供权限读取和切换；`--permission-full-start` 仅在 fake Host 预置完全访问初值，供原生确认门禁和幂等保存检查，不修改用户 DSH 数据。
@@ -117,7 +117,7 @@ node --test resources/host/tests/*.test.mjs
 - `TestMygoRealHistoryAfterRestart` 同时覆盖重命名提交、冷列表标题/更新时间、单写者冲突后重试、归档跨进程重启保留、取消归档及完整日志前缀不变；全程使用 mock provider，不调用付费模型。
 - `TestAgainstMygoSessionSwitching`、`TestAgainstMygoModelSettings`、`TestAgainstMygoConfiguration`、`TestAgainstMygoToolDiffs`：真实会话切换、模型请求、配置持久化与 write/edit diff。
 - `TestAgainstMygoSessionManagement`：fake/真实 Host 的目录启动加载、冷目标及当前会话重命名、提交确认、归档/恢复、草稿隔离与继续发送；真实组还覆盖归档当前会话后 kill/Restart、新建会话和恢复原草稿。Tester 覆盖侧栏/弹窗切换、标题过滤、归档筛选与表单身份，Windows UI Automation 验证原生按钮和输入流程。
-- `TestAgainstMygoResync`：fake Host 与真实 Host 传输过滤器丢弃持久通知或文本块起始帧，不修改日志；验证同一 Host/会话自动补齐、用户消息唯一、流式提交不重复、草稿保留、后续回合、审批/提问继续。baseline-complete/cancel 在真实模型 adapter 暂停时验证无需新 start 就恢复文本，并续流或取消。`resync_test.go`、`stream_baseline_test.go` 覆盖状态基线、流式续接/重放、分页变化、连续性重试上限、溢出、失败后迟到结果及取消确认屏障；Node 历史与 baseline 测试覆盖同步捕获、固定分页、能力隔离、资源限制和私有块内容排除。
+- `TestAgainstMygoResync`：fake Host 与真实 Host 传输过滤器丢弃持久通知或文本块起始帧，不修改日志；验证同一 Host/会话自动补齐、用户消息唯一、流式提交不重复、草稿保留、后续回合、审批/提问继续。baseline-complete/cancel 在真实模型 adapter 暂停时验证无需新 start 就恢复文本，并续流或取消。`resync_test.go`、`stream_baseline_test.go` 覆盖状态基线、流式续接/重放、分页变化、连续性重试上限、溢出、失败后迟到结果及取消确认屏障；Node 历史与 baseline 测试覆盖同步捕获、固定分页、能力隔离、资源限制、reasoning 能力门控与工具参数排除。
 - `TestAgainstMygoRestart`：完成一个回合后 kill Host，等待恢复对话框，Restart 后 resume 同一会话、回放 transcript 并继续发送。
 - `TestAgainstMygoLocalEditingState`：三个真实 Host 实例共享临时 DSH_HOME 与本机编辑文件，验证两会话草稿、最近会话自动恢复、确认发送后只清除对应草稿，以及历史仍来自 Host。单元测试覆盖无效最近会话回退/显式复制、未确认提交与后续编辑、退出最终保存及失败不关闭。
 - `TestAgainstMygoLargeHistoryAndReleasedSessions`：通过公开 persistence 写入 35001 条合法标题事件并确认物理大小超过 32 MiB；真实 Agent 冷恢复、尾部窗口、更早页、返回最新、连续 12 次新建、释放后恢复/继续回合和第二 Host 的目录检查点/持久尾部。fixture 不读写私有 JSONL 布局，不调用付费模型。
