@@ -37,7 +37,7 @@ func TestConversationDetailsDiscloseDiagnosticsAndKeepDraft(t *testing.T) {
 			t.Fatalf("details missing %q: %v", text, tt.Texts())
 		}
 	}
-	tt.Click("Close Session rail")
+	tt.Click("Toggle Session rail")
 	tt.Advance(300 * time.Millisecond)
 	if tt.HasText(model.Detail) || model.Draft != "unfinished prompt" {
 		t.Fatal("closing details changed the draft or kept the panel")

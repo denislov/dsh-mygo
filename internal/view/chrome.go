@@ -66,13 +66,22 @@ func titleBar(c *mgo.Context, model *Model) {
 		}
 
 		for _, panel := range []WorkspacePanel{PanelRail, PanelTerminal, PanelChanges, PanelPreview, PanelFiles} {
+			if panel == PanelTerminal {
+				mgo.Box(c.Key("tool-group-separator")).Label(model.T("Workspace tools separator")).Width(1).Height(18).Margin(0, space4).Background(tokens.Border)
+			}
 			button := iconButton(c.Key("workspace-"+string(panel)), model.T("Toggle "+workspacePanelLabel(panel)), workspacePanelIcon(panel)).
 				Disabled(model.RecoveryOpen || model.LocalState.Closing).OnClick(func() { model.ToggleWorkspacePanel(panel) })
 			if model.Workspace.Open[panel] {
 				button.Background(tokens.AccentSoft).TextColor(tokens.Accent)
+				if panel == PanelRail {
+					button.Background(tokens.SurfaceHover).TextColor(tokens.Text)
+				}
 				button.Tooltip(model.T("Hide " + workspacePanelLabel(panel)))
 			} else {
 				button.Tooltip(model.T("Show " + workspacePanelLabel(panel)))
+			}
+			if panel == PanelRail {
+				button.Bind(&model.Workspace.RailButton)
 			}
 		}
 		iconButton(c.Key("workspace-more"), model.T("More"), iconMoreVertical).

@@ -21,7 +21,7 @@ UI 壳层是 MyGo 进程里的原生界面：
 | `internal/app/app.go` | Host 启动/停止、版本握手、`session/create` / `session/prompt`、有界通知分发、`Window.Update` |
 | `internal/app/sessions.go` / `session_reader.go` | 会话操作、草稿隔离、列表/历史分页校验与后台回放 |
 | `internal/view/sessions.go`、`session_groups.go` | 原生固定侧栏、项目目录分组、窄窗口弹窗、标题搜索、会话管理表单与 transcript 控件重置 |
-| `internal/view/workspace.go`、`internal/app/workspace.go`、`internal/workspace/` | 原生工作面板、终端资源与项目文件/Git 的有界后台读取 |
+| `internal/view/workspace.go`、`session_rail.go`、`workspace_split.go`、`internal/app/workspace.go`、`internal/workspace/` | 原生工作面板、独立响应式 rail、留白拖动热区、终端资源与项目文件/Git 的有界后台读取 |
 | `internal/app/session_management.go` | 重命名、归档/取消归档、Host 确认与失败刷新屏障 |
 | `internal/app/settings.go` / `internal/view/settings.go`、`settings_center.go` | 白名单模型目录、会话级应用状态机与统一设置中心 |
 | `internal/app/configuration.go` / `internal/view/configuration.go` | 持久默认模型、只写密码凭据、配置快照校验与超时后刷新屏障 |
@@ -32,8 +32,9 @@ UI 壳层是 MyGo 进程里的原生界面：
 
 - 窗口使用 MyGo `TitleBarHidden`，保留 Windows 自绘的最小化/最大化/关闭按钮；视图通过 `c.TitleBar()` 取得系统按钮占位，标题栏可拖动，操作按钮始终避开 `bar.Right`。根布局先垂直切分为左侧导航与右侧会话；侧栏贯穿窗口高度，顶部放应用菜单与收起按钮。右侧独立标题栏左侧显示会话标题，右侧依次提供 Session rail、Terminal、Changes、Preview、Files 和 More；前五项使用可切换图标与选中态，More 收纳会话列表、子代理、设置和应用操作。侧栏隐藏时导航按钮回到会话标题栏；窄窗口把次要入口收进菜单。无标题时使用本地化的未命名提示，不把会话 ID 当作页面标题。
 - 应用菜单使用 MyGo 原生系统菜单：New conversation、Sessions、Show/Hide sidebar、Subagents、Settings、About dsh-mygo、Quit；不可用的能力隐藏或禁用，不提供无后端动作的菜单项。凭据入口统一位于设置中心 Connection，不在新建会话和标题栏重复显示。
-- Session rail 展示 Environment、Context 与 Progress：本机/项目目录、Git 分支、Host 已报告的上下文用量、任务与子代理信息；不伪造未提供的 token 分类、连接器或变更指标。工作面板位于对话右侧，支持独立开关、拖动分隔线与单面板最大化。多个面板按列/行组合；宽度小于 1000 DIP 时以标签切换，提供返回对话入口，避免挤压输入区。设置/审批等弹层不清空面板布局。
-- 相邻工作面板在横向与纵向分隔器两侧各留 6 DIP，形成 13 DIP 间隔；圆角表面保持独立，分隔器继续支持鼠标拖动与键盘调整。单面板最大化与窄窗口标签模式不保留空白占位。
+- Session rail 展示 Environment、Context 与 Progress：本机/项目目录、Git 分支、Host 已报告的上下文用量、任务与子代理信息；不伪造未提供的 token 分类、连接器或变更指标。rail 独立于工具网格，顶部按钮用短竖条与其余工具入口分组，选中态使用中性底色。扣除 sidebar 和工具区后的对话侧宽度至少为 820 DIP 时，rail 以 340 DIP 宽停靠于对话与工具区之间，保留至少 480 DIP 对话空间；空间不足时使用由 rail 按钮控制、定位于对话区右上角的非模态浮层，不替换对话或重排工具面板。仅工具标签可见、无对话列时回退到按钮附近。窗口/工具区尺寸变化自动切换形式，保留开关和章节展开状态；Escape 或点击浮层外的对话/工具区关闭浮层，工具栏/侧栏导航与设置/审批等弹层保留 rail 开关。
+- Terminal、Changes、Preview、Files 位于对话右侧，支持独立开关、拖动调整与单面板最大化。多个工具面板按列/行组合；窗口宽度小于 1000 DIP 时以标签切换，提供返回对话入口，避免挤压输入区。设置/审批等弹层不清空面板布局。
+- 相邻工具面板及对话与工具区之间使用 13 DIP 留白，无常驻分割线；圆角表面保留自身边框。整个间隔为原生拖动热区，横向/纵向分别使用 EW/NS 缩放光标，悬停、拖动或键盘焦点可见时显示居中的短 bar。焦点进入后方向键调整，窗口变化保持比例；单面板最大化与窄窗口标签模式不保留空白占位。
 - Terminal 使用 MyGo terminal 插件与 libghostty-vt，在当前项目目录启动真实本机 shell；隐藏面板保留进程，重启终端、切换项目与退出回收旧进程。终端启动和关闭等待不阻塞 UI；启动结果检查项目版本，过期资源关闭。终端输出不进入 Host 协议或会话日志，程序读取剪贴板默认拒绝、程序写剪贴板禁用；显式用户复制/粘贴沿用原生组件。
 - Files 按需后台读取项目目录，虚拟列表显示已展开条目；读取校验绝对根目录、相对路径和实际符号链接目标，拒绝越界。每目录最多 2000 项，缓存最多 64 个目录；项目切换丢弃旧结果与缓冲。
 - Changes 后台读取 Git 分支和工作区变更，提供只读文件差异；禁用外部 diff/textconv、可选索引锁和 fsmonitor，输出最多 1 MiB、命令超时 10 秒，不提供提交、应用或撤销动作。

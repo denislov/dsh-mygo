@@ -285,16 +285,18 @@ func View(c *mgo.Context, model *Model) {
 						composer(c, model)
 					})
 				}
+				conversation := func() { conversationWithRail(c, model, chat) }
 				if len(panels) == 0 {
-					chat()
+					conversation()
 				} else if width < 1000 {
 					workspaceDock(c, model, panels, true)
 				} else {
-					mgo.SplitPercent(c.Key("workspace-split"), &model.Workspace.ChatPercent, chat, func() { workspaceDock(c, model, panels, false) }).Fill()
+					workspaceSplit(c.Key("workspace-split"), model, &model.Workspace.ChatPercent, false, model.T("Resize tools"), conversation, func() { workspaceDock(c, model, panels, false) })
 				}
 			})
 		})
 	})
+	floatingSessionRail(c, model, c.Resolve(model.Workspace.RailButton))
 	approvalModal(c, model)
 	questionModal(c, model)
 	toolInspectorModal(c, model)

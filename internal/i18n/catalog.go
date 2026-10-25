@@ -12,6 +12,9 @@ func Text(locale, key string) string {
 }
 
 var chinese = map[string]string{
+	"Docked Session rail": "停靠会话栏", "Floating Session rail": "悬浮会话栏",
+	"Resize":                    "调整大小",
+	"Workspace tools separator": "工作面板分组分隔", "Resize tools": "调整工具区大小", "Resize panels · ": "调整面板大小 · ",
 	"Thought": "思考", "Thought · ": "思考 · ", "Workspace panel · ": "工作面板 · ",
 	"Run command": "运行命令", "Read": "读取", "Edit file": "编辑文件", "Search files": "搜索文件",
 	"Mode": "模式", "Read only": "只读", "Workspace access": "项目读写", "Full access": "完全访问",

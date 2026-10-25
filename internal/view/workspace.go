@@ -21,6 +21,7 @@ const (
 )
 
 type WorkspaceState struct {
+	RailButton, RailOrigin                  mgo.Handle
 	FilesList, ChangesList                  mgo.ListState
 	PreviewCode, DiffCode                   *editor.State
 	Root                                    string
@@ -56,8 +57,10 @@ func (model *Model) ToggleWorkspacePanel(panel WorkspacePanel) {
 	}
 	w.Open[panel] = !w.Open[panel]
 	if w.Open[panel] {
-		w.Active = panel
-		if len(model.workspacePanels()) > 2 && w.ChatPercent > 45 {
+		if panel != PanelRail {
+			w.Active = panel
+		}
+		if panel != PanelRail && len(model.workspacePanels()) > 2 && w.ChatPercent > 45 {
 			w.ChatPercent = 40
 		}
 		if w.Load != nil {
@@ -70,7 +73,7 @@ func (model *Model) ToggleWorkspacePanel(panel WorkspacePanel) {
 
 func (model *Model) workspacePanels() []WorkspacePanel {
 	var panels []WorkspacePanel
-	for _, p := range []WorkspacePanel{PanelRail, PanelTerminal, PanelChanges, PanelPreview, PanelFiles} {
+	for _, p := range []WorkspacePanel{PanelTerminal, PanelChanges, PanelPreview, PanelFiles} {
 		if model.Workspace.Open[p] {
 			panels = append(panels, p)
 		}
@@ -152,31 +155,10 @@ func workspacePanelGroup(c *mgo.Context, model *Model, panels []WorkspacePanel, 
 		w.Splits[key] = &value
 	}
 	middle := (len(panels) + 1) / 2
-	// Split keeps its draggable divider; inset each side to create a 13 DIP
-	// gutter (6 + divider + 6) between the rounded panel surfaces.
-	first := func() {
-		box := mgo.Column(c).Fill().MinWidth(0).MinHeight(0)
-		if horizontal {
-			box.Padding(0, space6, 0, 0)
-		} else {
-			box.Padding(0, 0, space6, 0)
-		}
-		box.Children(func() { workspacePanelGroup(c, model, panels[:middle], false, key+"a") })
-	}
-	second := func() {
-		box := mgo.Column(c).Fill().MinWidth(0).MinHeight(0)
-		if horizontal {
-			box.Padding(0, 0, 0, space6)
-		} else {
-			box.Padding(space6, 0, 0, 0)
-		}
-		box.Children(func() { workspacePanelGroup(c, model, panels[middle:], false, key+"b") })
-	}
-	if horizontal {
-		mgo.SplitPercent(c.Key("dock-split-"+key), w.Splits[key], first, second).Fill()
-	} else {
-		mgo.SplitVerticalPercent(c.Key("dock-split-"+key), w.Splits[key], first, second).Fill()
-	}
+	first := func() { workspacePanelGroup(c, model, panels[:middle], false, key+"a") }
+	second := func() { workspacePanelGroup(c, model, panels[middle:], false, key+"b") }
+	between := model.T(workspacePanelLabel(panels[middle-1])) + " / " + model.T(workspacePanelLabel(panels[middle]))
+	workspaceSplit(c.Key("dock-split-"+key), model, w.Splits[key], !horizontal, model.T("Resize panels · ")+between, first, second)
 }
 
 func workspacePanel(c *mgo.Context, model *Model, p WorkspacePanel) {
