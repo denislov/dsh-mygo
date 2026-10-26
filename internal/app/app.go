@@ -109,6 +109,7 @@ type rpcClient interface {
 // App owns one window's host process, protocol client, and projected
 // transcript.
 type App struct {
+	settingsComponent
 	workspace  workspaceResources
 	hostLocale atomic.Value
 	options    Options
@@ -149,7 +150,6 @@ type App struct {
 	drafts              map[string]string
 	local               *localEditingState
 	quitReady           bool
-	settingsSlot        operationSlot
 	runtimeGeneration   uint64
 	runtimeCancel       context.CancelFunc
 	switchMu            sync.Mutex
@@ -484,6 +484,7 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 		}
 		a.nextSeq = initialized.nextSeq
 		a.turn.reset()
+		a.settingsHostChanged()
 		a.model.CancelPending = false
 		a.clearApprovals()
 		a.clearQuestions()

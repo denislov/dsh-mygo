@@ -165,7 +165,7 @@ func (a *App) CloseSettings() {
 
 func (a *App) cancelSettingsOperation() {
 	a.model.ClearCredentialDraft()
-	a.settingsSlot.invalidate()
+	a.settingsComponent.invalidate()
 	a.model.SettingsBusy = false
 	a.model.SettingsApplying = false
 	a.model.SettingsWritingConfiguration = false
@@ -180,11 +180,21 @@ func (a *App) beginSettingsOperationTimeout(timeout time.Duration) (context.Cont
 	a.cancelSettingsOperation()
 	a.model.SettingsBusy = true
 	a.model.SettingsError = ""
-	return a.settingsSlot.begin(timeout)
+	return a.settingsComponent.begin(timeout, a.sessionID)
 }
 
 func (a *App) currentSettingsOperation(operation uint64, id string) bool {
-	return a.settingsSlot.valid(operation) && a.sessionID == id && !a.shuttingDown.Load() && a.model.Phase != view.PhaseFailed
+	return a.settingsComponent.current(operation, id) && !a.shuttingDown.Load() && a.model.Phase != view.PhaseFailed
+}
+
+// settingsHostChanged invalidates in-flight Host settings reads/writes for a new
+// generation while leaving device preferences intact.
+func (a *App) settingsHostChanged() {
+	a.settingsComponent.hostChanged()
+	a.model.SettingsBusy = false
+	a.model.SettingsApplying = false
+	a.model.SettingsWritingConfiguration = false
+	a.model.Permission.Writing = false
 }
 
 func (a *App) RefreshSettings() {

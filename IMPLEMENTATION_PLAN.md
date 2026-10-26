@@ -163,11 +163,12 @@ flowchart TD
 **测试**: 每迁移一个领域跑对应 fake/真实 Host、迟到结果/取消与草稿隔离；资源领域补 race 和释放验证。
 **状态**: 未开始
 
-### 3.1 设置组件：模型、配置、权限与 UI 偏好（中）
+### 3.1 设置组件：模型、配置、权限与 UI 偏好（中，已完成）
 
 - **范围/依赖**：依赖阶段 1、2.4；来源 `settings.go`、`configuration.go`、`permissions.go`、`ui_preferences.go`。
 - **实施/交付**：将读写操作、待确认状态和会话选择收归明确组件；设备级偏好与 Host 设置分开。提供刷新/应用/取消/HostChanged 入口，通过快照或窄适配发布 View 数据。
 - **验收/回归**：模型与权限能力互不依赖，默认与当前路由不混淆；失败屏障、secret 清空/控件换 key、偏好保存失败和 locale 启动快照保持。测试覆盖切换/重启期间迟到写入与读取。
+- **完成记录（2026-10-26）**：新增 `settingsComponent`，拥有 settings operation 令牌与目标会话；`begin/current/invalidate/hostChanged` 成为唯一入口，App 在 HostReady 时使旧读写失效。模型、配置、权限继续按能力独立读取/写入并发布到 View 快照；凭据清空、失败屏障与设备偏好存储不变。实际检查：`go test ./internal/app` 261 项通过；新增目标会话/换代失效用例。
 
 ### 3.2 会话导航、目录与元数据组件（高）
 
