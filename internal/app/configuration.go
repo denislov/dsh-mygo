@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -139,13 +140,12 @@ func (a *App) writeConfiguration(method string, params map[string]any, expected 
 	}()
 }
 
-func (a *App) routeParams(canConfigure bool) map[string]any {
+// sessionRoute returns the model route for a create/resume request. Host
+// defaults require the negotiated configuration capability; explicit routes
+// always carry provider and model and omit an empty effort.
+func (a *App) sessionRoute(canConfigure bool) protocol.SessionRoute {
 	if a.options.UseHostDefaults && canConfigure {
-		return map[string]any{"useDefaultModel": true}
+		return protocol.HostDefaultRoute()
 	}
-	params := map[string]any{"provider": a.options.Provider, "model": a.options.Model}
-	if a.options.ReasoningEffort != "" {
-		params["effort"] = a.options.ReasoningEffort
-	}
-	return params
+	return protocol.ExplicitRoute(a.options.Provider, a.options.Model, a.options.ReasoningEffort)
 }

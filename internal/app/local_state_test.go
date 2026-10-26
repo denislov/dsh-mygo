@@ -116,7 +116,7 @@ func TestStartupResumeFailureCreatesConversationAndOffersPreviousDraft(t *testin
 		case "session/resume":
 			return nil, errors.New("unavailable")
 		case "session/create":
-			return json.RawMessage(`{"session":{"id":"new","status":"idle","nextSeq":0}}`), nil
+			return json.RawMessage(`{"session":{"id":"new","title":"","cwd":"C:/work","provider":"","model":"","effort":"","createdAt":1,"updatedAt":1,"status":"idle","archived":false,"nextSeq":0}}`), nil
 		default:
 			return json.RawMessage(`{}`), nil
 		}
@@ -164,7 +164,8 @@ func TestRecentSessionUsesCurrentHostDefaultInsteadOfFallbackModel(t *testing.T)
 		case "initialize":
 			return json.RawMessage(`{"protocolVersion":1,"server":{"name":"host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":["session.history","settings.configuration"]}`), nil
 		case "session/resume":
-			if params.(map[string]any)["useDefaultModel"] != true || params.(map[string]any)["provider"] != nil {
+			fields := requestFields(t, params)
+			if fields["useDefaultModel"] != true || fields["provider"] != nil {
 				t.Error("cold resume ignored Host defaults")
 			}
 			return json.RawMessage(`{"session":{"id":"original","title":"","cwd":"C:/work","provider":"test","model":"host-default","effort":"","createdAt":1,"updatedAt":1,"status":"idle","archived":false,"nextSeq":0}}`), nil

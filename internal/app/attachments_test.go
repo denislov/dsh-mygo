@@ -181,7 +181,7 @@ func TestMygoInitializeParsesAttachmentPolicy(t *testing.T) {
 	}`
 	client := &fakeClient{results: map[string]json.RawMessage{
 		"initialize":     json.RawMessage(handshake),
-		"session/create": json.RawMessage(`{"session":{"id":"s1","status":"idle","nextSeq":0}}`),
+		"session/create": json.RawMessage(`{"session":{"id":"s1","title":"","cwd":"C:/work","provider":"","model":"","effort":"","createdAt":1,"updatedAt":1,"status":"idle","archived":false,"nextSeq":0}}`),
 	}}
 	application := newTestApp(client)
 	application.options.SDKProtocol = false

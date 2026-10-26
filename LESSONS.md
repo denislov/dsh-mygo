@@ -227,3 +227,12 @@
 - 教训：类型化是内部结构调整，须先以旧实现固定实际 wire 和接受范围；具名 DTO 本身不等于边界校验，也不应顺带收紧或放宽旧行为。
 - 做法：先跑请求编码与响应边界基线，再迁移 DTO；channel 保留原校验和兼容别名，双端 fixture 比较 JSON 对象，SDK 单独覆盖省略、空值和错误类型。
 - 固化：未固化
+
+## L-023 双路由载荷用构造器互斥，摘要校验保留原对象
+
+- 出现次数：1
+- 来源：2026-10-26 create/resume 与摘要载荷类型化
+- 现象：create/resume 同时支持 Host 默认与显式模型路由，旧 map 可同时写入 useDefaultModel 和 provider/model；显式空 provider/model 需要保留，空 effort 却要省略；摘要的 archived、时间、cwd 与缺失字段在结构体零值上无法区分。
+- 教训：一个扁平结构不能靠 omitempty 表达互斥变体；构造器应只产出一种路由，指针字段保留显式空串，摘要仍先校验原始对象再信任解码值。
+- 做法：HostDefaultRoute/ExplicitRoute 构造并嵌入请求，启动创建、冷恢复、普通导航和冷重命名共用；create 复用完整摘要校验，双端 fixture 覆盖两种路由、effort 省略/显式值、混合拒绝与必填摘要字段。
+- 固化：未固化

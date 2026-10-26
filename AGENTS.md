@@ -17,6 +17,7 @@ dsh-mygo 是 DeepSeek Harness 的原生桌面客户端：MyGo 原生 UI + Node H
 | --- | --- |
 | 文档索引与阅读路线 | [docs/README.md](docs/README.md) |
 | 当前进度、缺口与下一步路线 | [docs/roadmap.md](docs/roadmap.md) |
+| 后续审查重构实施计划（临时，实施前审阅） | [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) |
 | 经验教训（开发过程） | [LESSONS.md](LESSONS.md) |
 | 固化后的编码/文档规范 | [docs/code-standards.md](docs/code-standards.md) |
 | 子系统索引 | [docs/subsystem/README.md](docs/subsystem/README.md) |

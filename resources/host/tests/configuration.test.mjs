@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { test } from 'node:test'
 import { MygoServer } from '../server.mjs'
 
@@ -49,8 +50,9 @@ test('configuration is capability gated and status only returns whitelisted fact
 })
 
 test('default model persists with revision checks, clears effort, and leaves existing sessions unchanged', async () => {
+  const fixture = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/session.json', import.meta.url), 'utf8'))
   const { server, ctx } = runtime()
-  const { session } = await server.handle('session/create', { cwd: process.cwd(), useDefaultModel: true })
+  const { session } = await server.handle('session/create', { ...fixture.createDefault, cwd: process.cwd() })
   const saved = await server.handle('configuration/default-model', { revision: 0, provider: 'test', model: 'next', effort: '' })
   assert.equal(saved.defaults.model, 'next')
   assert.equal(saved.defaults.effort, '')

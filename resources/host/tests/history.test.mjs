@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { test } from 'node:test'
 import { MygoServer } from '../server.mjs'
 import { AssistantStreamBaseline } from '../stream-baseline.mjs'
@@ -68,11 +69,12 @@ function runtime(management = false) {
 const resume = { sessionId: 'stored-1', provider: 'test', model: 'echo' }
 
 test('backward windows read a large tail, keep the cut and bind direction', async () => {
+  const fixture = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/session.json', import.meta.url), 'utf8'))
   const { server, stored } = runtime()
   await server.handle('initialize', { ...handshake, capabilities: ['session.history', 'session.history-window'] })
   const source = stored.get(resume.sessionId)
   source.events = Array.from({ length: 25001 }, (_, seq) => ({ seq, time: seq, type: 'test/event', data: {} }))
-  await server.handle('session/resume', resume)
+  await server.handle('session/resume', { ...fixture.resumeExplicit, sessionId: resume.sessionId })
   const first = await server.handle('session/history', { ...resume, direction: 'backward', limit: 2 })
   assert.equal(first.startSeq, 24999)
   assert.equal(first.nextSeq, 25001)

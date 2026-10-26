@@ -15,7 +15,7 @@ func TestProjectFolderCreatesSessionAndKeepsOldDraft(t *testing.T) {
 	folder := t.TempDir()
 	client := &sessionClient{request: func(_ context.Context, method string, params any) (json.RawMessage, error) {
 		if method == "session/create" {
-			if params.(map[string]any)["cwd"] != folder {
+			if requestFields(t, params)["cwd"] != folder {
 				t.Error("wrong project folder")
 			}
 			return json.Marshal(map[string]any{"session": map[string]any{"id": "project", "title": "", "cwd": folder, "provider": "test", "model": "echo", "effort": "", "createdAt": 1, "updatedAt": 1, "archived": false, "status": "idle", "nextSeq": 0}})
@@ -40,7 +40,7 @@ func TestProjectHeaderCreatesOnlyInCatalogDirectory(t *testing.T) {
 	client := &sessionClient{request: func(_ context.Context, method string, params any) (json.RawMessage, error) {
 		if method == "session/create" {
 			created++
-			if params.(map[string]any)["cwd"] != folder {
+			if requestFields(t, params)["cwd"] != folder {
 				t.Error("wrong project directory")
 			}
 			return json.Marshal(map[string]any{"session": map[string]any{"id": "project", "title": "", "cwd": folder, "provider": "test", "model": "echo", "effort": "", "createdAt": 1, "updatedAt": 1, "archived": false, "status": "idle", "nextSeq": 0}})

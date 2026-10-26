@@ -72,7 +72,7 @@ func TestInitializeDoesNotEnableUnnegotiatedCapabilities(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{results: map[string]json.RawMessage{
 				"initialize":     json.RawMessage(test.handshake),
-				"session/create": json.RawMessage(`{"session":{"id":"new","status":"idle","nextSeq":0}}`),
+				"session/create": json.RawMessage(`{"session":{"id":"new","title":"","cwd":"C:/work","provider":"","model":"","effort":"","createdAt":1,"updatedAt":1,"status":"idle","archived":false,"nextSeq":0}}`),
 			}}
 			application := New(Options{SDKProtocol: test.sdk})
 			initialized, err := application.initializeSession(context.Background(), client, sessionInitialization{})

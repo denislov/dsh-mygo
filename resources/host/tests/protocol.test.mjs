@@ -56,6 +56,24 @@ test('initialize payload matches the shared Go wire fixture', async () => {
   }
 })
 
+test('session create payloads match the shared Go wire fixture and reject mixed routes', async () => {
+  const fixture = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/session.json', import.meta.url), 'utf8'))
+  const { server } = runtime()
+  try {
+    await server.handle('initialize', handshake)
+    const created = await server.handle('session/create', { ...fixture.createExplicit, cwd: process.cwd() })
+    assert.equal(created.session.provider, 'test')
+    assert.equal(created.session.model, 'echo')
+    assert.equal(created.session.effort, '')
+    const withEffort = await server.handle('session/create', { ...fixture.createExplicitEffort, cwd: process.cwd() })
+    assert.equal(withEffort.session.effort, 'high')
+    await assert.rejects(server.handle('session/create', { ...fixture.createExplicit, cwd: process.cwd(), useDefaultModel: true }), { code: -32602 })
+    await assert.rejects(server.handle('session/create', fixture.createDefault), { kind: 'protocol/capability-unavailable' })
+  } finally {
+    await server.shutdown()
+  }
+})
+
 test('shared client offer negotiates only supported capabilities, including independent reasoning baseline', async () => {
   const fixture = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/capabilities.json', import.meta.url), 'utf8'))
   for (const history of [false, true]) {

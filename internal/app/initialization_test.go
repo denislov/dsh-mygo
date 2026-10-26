@@ -110,7 +110,7 @@ func TestInitializeUsesCapturedRecoveryRouteWithoutViewModel(t *testing.T) {
 				case "initialize":
 					return json.RawMessage(`{"protocolVersion":1,"server":{"name":"host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":["session.history","settings.configuration"]}`), nil
 				case "session/resume":
-					fields := params.(map[string]any)
+					fields := requestFields(t, params)
 					if fields["sessionId"] != "saved" || fields["provider"] != "selected" || fields["model"] != "recovery" || fields["useDefaultModel"] != nil {
 						t.Errorf("resume ignored captured route: %v", fields)
 					}
@@ -145,7 +145,7 @@ func TestInitializeChecksIdentityOfThisLaunch(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{results: map[string]json.RawMessage{
 				"initialize":     json.RawMessage(`{"protocolVersion":1,"server":{"name":"host","version":"0.1.2","dshVersion":"0.2.1-rc.2","appMin":"0.1.0","appMaxExclusive":"0.2.0"},"capabilities":[]}`),
-				"session/create": json.RawMessage(`{"session":{"id":"new","status":"idle","nextSeq":0}}`),
+				"session/create": json.RawMessage(`{"session":{"id":"new","title":"","cwd":"C:/work","provider":"","model":"","effort":"","createdAt":1,"updatedAt":1,"status":"idle","archived":false,"nextSeq":0}}`),
 			}}
 			application := New(Options{})
 			application.model = nil
@@ -155,6 +155,49 @@ func TestInitializeChecksIdentityOfThisLaunch(t *testing.T) {
 			}
 			if !test.valid && len(client.called()) != 1 {
 				t.Fatal("created a session before identity validation")
+			}
+		})
+	}
+}
+
+func TestSessionCreateRequiresTheSharedSummaryContract(t *testing.T) {
+	base := map[string]any{
+		"id": "new", "title": "", "cwd": "C:/work", "provider": "test", "model": "echo", "effort": "",
+		"createdAt": 1, "updatedAt": 1, "status": "idle", "archived": false, "nextSeq": 0,
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(map[string]any)
+		valid  bool
+	}{
+		{"complete", func(map[string]any) {}, true},
+		{"missing title", func(summary map[string]any) { delete(summary, "title") }, false},
+		{"missing cwd", func(summary map[string]any) { delete(summary, "cwd") }, false},
+		{"missing archived", func(summary map[string]any) { delete(summary, "archived") }, false},
+		{"missing createdAt", func(summary map[string]any) { delete(summary, "createdAt") }, false},
+		{"null createdAt", func(summary map[string]any) { summary["createdAt"] = nil }, false},
+		{"negative updatedAt", func(summary map[string]any) { summary["updatedAt"] = -1 }, false},
+		{"missing nextSeq", func(summary map[string]any) { delete(summary, "nextSeq") }, false},
+		{"unsafe nextSeq", func(summary map[string]any) { summary["nextSeq"] = int64(1 << 53) }, false},
+		{"stored status", func(summary map[string]any) { summary["status"] = "stored" }, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			summary := make(map[string]any, len(base))
+			for key, value := range base {
+				summary[key] = value
+			}
+			test.mutate(summary)
+			body, err := json.Marshal(map[string]any{"session": summary})
+			if err != nil {
+				t.Fatal(err)
+			}
+			client := &fakeClient{results: map[string]json.RawMessage{
+				"initialize":     json.RawMessage(`{"protocolVersion":1,"server":{"name":"host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`),
+				"session/create": body,
+			}}
+			application := New(Options{Provider: "test", Model: "echo"})
+			if _, err := application.initializeSession(context.Background(), client, sessionInitialization{}); (err == nil) != test.valid {
+				t.Fatalf("initialize error = %v", err)
 			}
 		})
 	}

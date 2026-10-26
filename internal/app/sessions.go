@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"dsh-mygo/internal/projection"
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -153,19 +154,20 @@ func (a *App) loadSessionInDirectory(id, cwd string) {
 	a.loadingSession = id
 	client := a.currentClient()
 	cancel := a.sessionCancel
-	params := a.routeParams(a.model.CanConfigure)
-	method := "session/resume"
+	route := a.sessionRoute(a.model.CanConfigure)
+	method := protocol.MethodSessionResume
+	var params any
+	if id == "" {
+		method = protocol.MethodSessionCreate
+		params = protocol.SessionCreateParams{CWD: cwd, SessionRoute: route}
+	} else {
+		params = protocol.SessionResumeParams{SessionID: id, SessionRoute: route}
+	}
 	canPermissions := a.model.Permission.Available
 	window, retired, currentID := a.canHistoryWindow, a.retiredSessionIDs(id), a.sessionID
-	if id == "" {
-		method = "session/create"
-		params["cwd"] = cwd
-	} else {
-		params["sessionId"] = id
-	}
 	go func() {
 		defer cancel()
-		var summary sessionSummary
+		var summary protocol.SessionSummary
 		var transcript projection.Transcript
 		var nextSeq uint64
 		var permissions view.PermissionSnapshot
@@ -180,9 +182,7 @@ func (a *App) loadSessionInDirectory(id, cwd string) {
 		if err != nil {
 			err = errors.New("Could not open the session. Check ownership, working directory and model route, then retry")
 		} else {
-			var result struct {
-				Session json.RawMessage `json:"session"`
-			}
+			var result protocol.SessionResult
 			if json.Unmarshal(raw, &result) != nil {
 				err = errors.New("Invalid session response")
 			} else {
@@ -254,7 +254,7 @@ func (a *App) loadSessionInDirectory(id, cwd string) {
 				a.model.Permission.Accept(permissions)
 			}
 			a.model.SessionPanel.ActiveArchived = summary.Archived
-			a.upsertSession(summary.view())
+			a.upsertSession(sessionSummaryView(summary))
 			a.nextSeq = nextSeq
 			a.statusRevision = 0
 			a.hostStatus = ""

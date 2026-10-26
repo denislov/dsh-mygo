@@ -6,6 +6,7 @@ import (
 	"strings"
 	"unicode"
 
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -58,12 +59,10 @@ func (a *App) canWriteSession() bool {
 	return !a.options.SDKProtocol && !a.shuttingDown.Load() && a.currentClient() != nil && a.model.CanRefreshSessions() && !a.model.SessionPanel.Uncertain
 }
 
-func decodeManagedSession(raw json.RawMessage, id string) (sessionSummary, error) {
-	var response struct {
-		Session json.RawMessage `json:"session"`
-	}
+func decodeManagedSession(raw json.RawMessage, id string) (protocol.SessionSummary, error) {
+	var response protocol.SessionResult
 	if json.Unmarshal(raw, &response) != nil {
-		return sessionSummary{}, errors.New("Invalid session response")
+		return protocol.SessionSummary{}, errors.New("Invalid session response")
 	}
 	summary, err := decodeSessionSummary(response.Session)
 	if err == nil && (summary.ID != id || summary.Status != "idle" || summary.NextSeq == nil || summary.Archived || summary.Provider == "" || summary.Model == "") {
@@ -77,18 +76,17 @@ func (a *App) writeSession(id, title string, archived *bool) {
 	a.model.SessionPanel.Writing = true
 	client, cancel, currentID, startSeq := a.currentClient(), a.sessionCancel, a.sessionID, a.nextSeq
 	canArchive := a.model.SessionPanel.CanArchive
-	route := a.routeParams(a.model.CanConfigure)
+	route := a.sessionRoute(a.model.CanConfigure)
 	retired := a.retiredSessionIDs(id)
 	go func() {
 		defer cancel()
-		var summary sessionSummary
+		var summary protocol.SessionSummary
 		err := releaseSessions(ctx, client, retired)
 		opened := false
 		if err == nil && archived == nil {
 			// Cold rename takes ownership through the same public resume route as navigation.
 			if id != currentID {
-				route["sessionId"] = id
-				raw, resumeErr := client.Call(ctx, "session/resume", route)
+				raw, resumeErr := client.Call(ctx, protocol.MethodSessionResume, protocol.SessionResumeParams{SessionID: id, SessionRoute: route})
 				err = resumeErr
 				opened = err == nil
 				if err == nil {

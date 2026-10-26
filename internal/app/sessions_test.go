@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"dsh-mygo/internal/projection"
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -44,7 +46,7 @@ func completeSessionJob(t *testing.T, application *App, updates <-chan func()) {
 func TestSessionSwitchPreservesDraftsAndRejectsDuplicateActions(t *testing.T) {
 	client := &sessionClient{request: func(_ context.Context, method string, params any) (json.RawMessage, error) {
 		if method == "session/resume" {
-			id := params.(map[string]any)["sessionId"].(string)
+			id := requestFields(t, params)["sessionId"].(string)
 			return json.RawMessage(`{"session":{"id":"` + id + `","title":"","cwd":"C:/work","provider":"test","model":"echo","effort":"","createdAt":1,"updatedAt":1,"status":"idle","archived":false,"nextSeq":1}}`), nil
 		}
 		return json.RawMessage(`{"events":[{"seq":0,"time":1,"type":"assistant/message","data":{"message":{"content":[{"type":"text","text":"saved answer"}]}}}],"nextSeq":1,"hasMore":false}`), nil
@@ -75,6 +77,55 @@ func TestSessionSwitchPreservesDraftsAndRejectsDuplicateActions(t *testing.T) {
 	completeSessionJob(t, application, updates)
 	if application.model.Draft != "saved draft" {
 		t.Fatal("second session draft was not restored")
+	}
+}
+
+func TestSessionNavigationKeepsDefaultAndExplicitRoutesSeparate(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		resume       bool
+		useDefaults  bool
+		canConfigure bool
+		effort       string
+		want         map[string]any
+	}{
+		{"create default", false, true, true, "", map[string]any{"cwd": "C:/work", "useDefaultModel": true}},
+		{"create explicit", false, false, true, "", map[string]any{"cwd": "C:/work", "provider": "test", "model": "echo"}},
+		{"create explicit effort", false, false, true, "high", map[string]any{"cwd": "C:/work", "provider": "test", "model": "echo", "effort": "high"}},
+		{"resume default", true, true, true, "", map[string]any{"sessionId": "saved", "useDefaultModel": true}},
+		{"resume explicit", true, false, true, "", map[string]any{"sessionId": "saved", "provider": "test", "model": "echo"}},
+		{"resume explicit effort", true, false, true, "high", map[string]any{"sessionId": "saved", "provider": "test", "model": "echo", "effort": "high"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var captured any
+			client := &sessionClient{request: func(_ context.Context, method string, params any) (json.RawMessage, error) {
+				if method == protocol.MethodSessionCreate || method == protocol.MethodSessionResume {
+					captured = params
+					id := "new"
+					if method == protocol.MethodSessionResume {
+						id = "saved"
+					}
+					return json.RawMessage(`{"session":{"id":"` + id + `","title":"","cwd":"C:/work","provider":"test","model":"echo","effort":"","createdAt":1,"updatedAt":1,"status":"idle","archived":false,"nextSeq":0}}`), nil
+				}
+				return json.RawMessage(`{"events":[],"nextSeq":0,"hasMore":false}`), nil
+			}}
+			application, updates := sessionTestApp(client)
+			application.options.UseHostDefaults = test.useDefaults
+			application.options.ReasoningEffort = test.effort
+			application.model.CanConfigure = test.canConfigure
+			if test.resume {
+				application.SwitchSession("saved")
+			} else {
+				application.NewSession()
+			}
+			completeSessionJob(t, application, updates)
+			if captured == nil {
+				t.Fatal("navigation did not send a session request")
+			}
+			if fields := requestFields(t, captured); !reflect.DeepEqual(fields, test.want) {
+				t.Fatalf("request = %v, want %v", fields, test.want)
+			}
+		})
 	}
 }
 

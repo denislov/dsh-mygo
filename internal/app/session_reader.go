@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"dsh-mygo/internal/projection"
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -15,24 +16,8 @@ const maxSessionEvents = 20000
 const maxSessionHistoryBytes = 32 * 1024 * 1024
 const maxSafeInteger = 1<<53 - 1
 
-type sessionSummary struct {
-	MetadataIncomplete bool    `json:"metadataIncomplete"`
-	MetadataCached     bool    `json:"metadataCached"`
-	ID                 string  `json:"id"`
-	Title              string  `json:"title"`
-	CWD                string  `json:"cwd"`
-	Provider           string  `json:"provider"`
-	Model              string  `json:"model"`
-	Effort             string  `json:"effort"`
-	CreatedAt          int64   `json:"createdAt"`
-	UpdatedAt          int64   `json:"updatedAt"`
-	Status             string  `json:"status"`
-	Archived           bool    `json:"archived"`
-	NextSeq            *uint64 `json:"nextSeq"`
-}
-
-func decodeSessionSummary(raw json.RawMessage) (sessionSummary, error) {
-	var summary sessionSummary
+func decodeSessionSummary(raw json.RawMessage) (protocol.SessionSummary, error) {
+	var summary protocol.SessionSummary
 	var fields map[string]json.RawMessage
 	invalid := errors.New("Invalid session summary")
 	if json.Unmarshal(raw, &fields) != nil || json.Unmarshal(raw, &summary) != nil {
@@ -108,7 +93,7 @@ func readSessionList(ctx context.Context, client rpcClient, includeArchived ...b
 				return nil, errors.New("Invalid or duplicate session summary")
 			}
 			seen[summary.ID] = true
-			sessions = append(sessions, summary.view())
+			sessions = append(sessions, sessionSummaryView(summary))
 		}
 		cursor, err = pageCursor(page.NextCursor)
 		if err != nil || cursor != "" && (cursors[cursor] || len(page.Sessions) == 0) {
@@ -122,7 +107,7 @@ func readSessionList(ctx context.Context, client rpcClient, includeArchived ...b
 	return nil, errors.New("Session list exceeds the page budget")
 }
 
-func (summary sessionSummary) view() view.SessionSummary {
+func sessionSummaryView(summary protocol.SessionSummary) view.SessionSummary {
 	return view.SessionSummary{ID: summary.ID, Title: summary.Title, CWD: summary.CWD, CreatedAt: summary.CreatedAt, UpdatedAt: summary.UpdatedAt, Status: summary.Status, Archived: summary.Archived, MetadataIncomplete: summary.MetadataIncomplete, MetadataCached: summary.MetadataCached}
 }
 

@@ -1,0 +1,47 @@
+{
+  "createDefault": {
+    "cwd": "C:/work",
+    "useDefaultModel": true
+  },
+  "createExplicit": {
+    "cwd": "C:/work",
+    "provider": "test",
+    "model": "echo"
+  },
+  "createExplicitEffort": {
+    "cwd": "C:/work",
+    "provider": "test",
+    "model": "echo",
+    "effort": "high"
+  },
+  "resumeDefault": {
+    "sessionId": "saved",
+    "useDefaultModel": true
+  },
+  "resumeExplicit": {
+    "sessionId": "saved",
+    "provider": "test",
+    "model": "echo"
+  },
+  "resumeExplicitEffort": {
+    "sessionId": "saved",
+    "provider": "test",
+    "model": "echo",
+    "effort": "high"
+  },
+  "summary": {
+    "metadataIncomplete": true,
+    "metadataCached": true,
+    "id": "saved",
+    "title": "Saved session",
+    "cwd": "C:/work",
+    "provider": "test",
+    "model": "echo",
+    "effort": "high",
+    "createdAt": 1,
+    "updatedAt": 2,
+    "status": "idle",
+    "archived": false,
+    "nextSeq": 3
+  }
+}

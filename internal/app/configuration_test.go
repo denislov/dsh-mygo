@@ -117,11 +117,16 @@ func TestConfigurationFailureBlocksSendAndNavigationUntilCompleteRefresh(t *test
 func TestDefaultRoutingIsNegotiatedAndExplicitOptionsRemainOverrides(t *testing.T) {
 	application, _ := sessionTestApp(&sessionClient{})
 	application.options.UseHostDefaults = true
-	if application.routeParams(true)["useDefaultModel"] != true || application.routeParams(false)["provider"] != "test" {
+	defaultRoute := requestFields(t, application.sessionRoute(true))
+	if defaultRoute["useDefaultModel"] != true || defaultRoute["provider"] != nil {
 		t.Fatal("Host defaults were not capability gated")
 	}
+	explicitRoute := requestFields(t, application.sessionRoute(false))
+	if explicitRoute["provider"] != "test" || explicitRoute["useDefaultModel"] != nil {
+		t.Fatal("unnegotiated Host defaults leaked into the explicit route")
+	}
 	application.options.UseHostDefaults = false
-	if application.routeParams(true)["provider"] != "test" {
+	if requestFields(t, application.sessionRoute(true))["provider"] != "test" {
 		t.Fatal("explicit application route did not override Host defaults")
 	}
 }

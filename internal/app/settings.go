@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -250,7 +251,7 @@ func (a *App) ApplySettings() {
 	go func() {
 		defer cancel()
 		raw, err := client.Call(ctx, "model/select", map[string]any{"sessionId": id, "provider": route.Provider, "model": route.Model, "effort": route.Effort})
-		var summary sessionSummary
+		var summary protocol.SessionSummary
 		if err == nil {
 			var response struct {
 				Session json.RawMessage `json:"session"`

@@ -735,45 +735,41 @@ func (a *App) initializeSession(ctx context.Context, client rpcClient, request s
 	} else if request.resumeID != "" && request.allowFallback {
 		restoreNotice = localRestoreNotice()
 	}
-	params := a.routeParams(caps.Configure)
-	params["cwd"] = a.options.CWD
-	result, err = client.Call(ctx, "session/create", params)
+	result, err = client.Call(ctx, protocol.MethodSessionCreate, protocol.SessionCreateParams{
+		CWD:          a.options.CWD,
+		SessionRoute: a.sessionRoute(caps.Configure),
+	})
 	if err != nil {
 		return initializedSession{}, err
 	}
-	var created struct {
-		Session struct {
-			ID       string  `json:"id"`
-			Status   string  `json:"status"`
-			NextSeq  *uint64 `json:"nextSeq"`
-			Provider *string `json:"provider"`
-			Model    *string `json:"model"`
-			Effort   *string `json:"effort"`
-		} `json:"session"`
+	var response protocol.SessionResult
+	if json.Unmarshal(result, &response) != nil {
+		return initializedSession{}, errors.New("invalid session/create response")
 	}
-	if json.Unmarshal(result, &created) != nil || !validSessionID(created.Session.ID) || created.Session.Status != "idle" || created.Session.NextSeq == nil || *created.Session.NextSeq > maxSafeInteger {
+	created, err := decodeSessionSummary(response.Session)
+	if err != nil || created.Status != "idle" || created.NextSeq == nil {
 		return initializedSession{}, errors.New("invalid session/create response")
 	}
 	var selected view.ModelRoute
 	var permissions *view.PermissionSnapshot
 	if caps.Permissions {
-		snapshot, err := readPermissions(ctx, client, created.Session.ID)
+		snapshot, err := readPermissions(ctx, client, created.ID)
 		if err != nil {
 			return initializedSession{}, err
 		}
-		if snapshot.NextSeq != *created.Session.NextSeq {
+		if snapshot.NextSeq != *created.NextSeq {
 			return initializedSession{}, errors.New("Permission boundary changed during initialization")
 		}
 		permissions = &snapshot
 	}
 	if caps.Configure {
-		if created.Session.Provider == nil || created.Session.Model == nil || created.Session.Effort == nil || !validModelLabel(*created.Session.Provider, false) || !validModelLabel(*created.Session.Model, false) || !validModelLabel(*created.Session.Effort, true) {
+		if !validModelLabel(created.Provider, false) || !validModelLabel(created.Model, false) || !validModelLabel(created.Effort, true) {
 			return initializedSession{}, errors.New("Invalid created session route")
 		}
-		selected = view.ModelRoute{Provider: *created.Session.Provider, Model: *created.Session.Model, Effort: *created.Session.Effort}
+		selected = view.ModelRoute{Provider: created.Provider, Model: created.Model, Effort: created.Effort}
 	}
 	return initializedSession{
-		sessionID: created.Session.ID, nextSeq: *created.Session.NextSeq, cwd: a.options.CWD,
+		sessionID: created.ID, nextSeq: *created.NextSeq, cwd: a.options.CWD,
 		caps:          caps,
 		restoreNotice: restoreNotice,
 		permissions:   permissions,
@@ -786,25 +782,15 @@ func (a *App) initializeSession(ctx context.Context, client rpcClient, request s
 // resumeSession restores the previous session and replays its durable history
 // after a host restart. A failure leaves the previous projection untouched.
 func (a *App) resumeSession(ctx context.Context, client rpcClient, id string, initialized channel.InitializeResult, caps protocol.Capabilities, route view.ModelRoute) (initializedSession, error) {
-	params := map[string]any{"sessionId": id}
+	requestRoute := a.sessionRoute(caps.Configure)
 	if route.Provider != "" && route.Model != "" {
-		params["provider"] = route.Provider
-		params["model"] = route.Model
-		if route.Effort != "" {
-			params["effort"] = route.Effort
-		}
-	} else {
-		for key, value := range a.routeParams(caps.Configure) {
-			params[key] = value
-		}
+		requestRoute = protocol.ExplicitRoute(route.Provider, route.Model, route.Effort)
 	}
-	raw, err := client.Call(ctx, "session/resume", params)
+	raw, err := client.Call(ctx, protocol.MethodSessionResume, protocol.SessionResumeParams{SessionID: id, SessionRoute: requestRoute})
 	if err != nil {
 		return initializedSession{}, fmt.Errorf("resume session: %w", err)
 	}
-	var result struct {
-		Session json.RawMessage `json:"session"`
-	}
+	var result protocol.SessionResult
 	if json.Unmarshal(raw, &result) != nil {
 		return initializedSession{}, errors.New("invalid session/resume response")
 	}
