@@ -21,17 +21,17 @@ type runtimeSwitch struct {
 	previous runtimes.Runtime
 	resumeID string
 	route    view.ModelRoute
+	stage    runtimeSwitchStage
 }
 
 func (a *App) runtimeAvailable() bool { return a.options.Runtimes != nil }
 
 func (a *App) pendingRuntimeSwitch() (runtimes.Runtime, bool) {
-	a.switchMu.Lock()
-	defer a.switchMu.Unlock()
-	if a.switchRuntime == nil {
+	switching := a.runtimeComponent.switchSnapshot()
+	if switching == nil {
 		return runtimes.Runtime{}, false
 	}
-	return a.switchRuntime.target, true
+	return switching.target, true
 }
 
 func (a *App) hasPendingRuntimeSwitch() bool {
@@ -43,22 +43,15 @@ func (a *App) hasPendingRuntimeSwitch() bool {
 // a candidate that cannot restore the current session must roll back instead
 // of silently starting a different conversation.
 func (a *App) switchNeedsResume() bool {
-	a.switchMu.Lock()
-	defer a.switchMu.Unlock()
-	return a.switchRuntime != nil && a.switchRuntime.previous.ID != ""
+	switching := a.runtimeComponent.switchSnapshot()
+	return switching != nil && switching.previous.ID != ""
 }
 
 func (a *App) beginRuntimeOperation(status string) (context.Context, uint64, bool) {
 	if !a.runtimeAvailable() || a.model.Runtime.Busy || a.model.Runtime.Switching || a.shuttingDown.Load() {
 		return nil, 0, false
 	}
-	if a.runtimeCancel != nil {
-		a.runtimeCancel()
-	}
-	a.runtimeGeneration++
-	generation := a.runtimeGeneration
-	ctx, cancel := context.WithCancel(context.Background())
-	a.runtimeCancel = cancel
+	ctx, generation := a.runtimeComponent.beginOperation()
 	a.model.Runtime.Checking = false
 	a.model.Runtime.Busy = true
 	a.model.Runtime.Progress = 0
@@ -70,7 +63,7 @@ func (a *App) beginRuntimeOperation(status string) (context.Context, uint64, boo
 
 func (a *App) postRuntime(gen uint64, fn func()) {
 	a.post(func() {
-		if gen != a.runtimeGeneration || a.shuttingDown.Load() {
+		if !a.runtimeComponent.current(gen) || a.shuttingDown.Load() {
 			return
 		}
 		fn()
@@ -109,15 +102,15 @@ func (a *App) DetectRuntimes() {
 	a.model.Runtime.Checking = true
 	a.model.Runtime.Notice = ""
 	a.model.Runtime.Candidates = nil
-	a.runtimeGeneration++
-	generation := a.runtimeGeneration
+	a.runtimeComponent.invalidate()
+	generation := a.runtimeComponent.runtimeGeneration
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), runtimeCheckTimeout)
 		defer cancel()
 		external, probeErr := runtimes.ProbeExternal(ctx, "")
 		legacy, hasLegacy := a.options.Runtimes.LegacyCandidate()
 		a.post(func() {
-			if generation != a.runtimeGeneration || a.shuttingDown.Load() {
+			if !a.runtimeComponent.current(generation) || a.shuttingDown.Load() {
 				return
 			}
 			a.model.Runtime.Checking = false
@@ -167,14 +160,14 @@ func (a *App) probeExternal(command string) {
 	}
 	a.model.Runtime.Checking = true
 	a.model.Runtime.Error = ""
-	a.runtimeGeneration++
-	generation := a.runtimeGeneration
+	a.runtimeComponent.invalidate()
+	generation := a.runtimeComponent.runtimeGeneration
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), runtimeCheckTimeout)
 		defer cancel()
 		external, err := runtimes.ProbeExternal(ctx, command)
 		a.post(func() {
-			if generation != a.runtimeGeneration || a.shuttingDown.Load() {
+			if !a.runtimeComponent.current(generation) || a.shuttingDown.Load() {
 				return
 			}
 			a.model.Runtime.Checking = false
@@ -432,10 +425,11 @@ func (a *App) beginRuntimeSwitch(target, previous runtimes.Runtime, resumeID str
 	if !a.runtimeAvailable() || a.model.Runtime.Switching || a.model.Runtime.Busy {
 		return
 	}
-	a.switchMu.Lock()
 	route := a.model.ActiveRoute
-	a.switchRuntime = &runtimeSwitch{target: target, previous: previous, resumeID: resumeID, route: route}
-	a.switchMu.Unlock()
+	a.runtimeComponent.setSwitch(&runtimeSwitch{
+		target: target, previous: previous, resumeID: resumeID, route: route,
+		stage: runtimeSwitchPreparing,
+	})
 	a.cancelSessionOperation()
 	a.cancelResync()
 	a.CloseSubagents()
@@ -460,40 +454,37 @@ func (a *App) beginRuntimeSwitch(target, previous runtimes.Runtime, resumeID str
 	a.model.Restarting = false
 	a.logf("runtime switch: %s -> %s", previous.ID, target.ID)
 	go func() {
+		a.runtimeComponent.markStage(runtimeSwitchStopping)
 		a.stopHostInstance(previousHost)
+		a.runtimeComponent.markStage(runtimeSwitchInitializing)
 		a.startHost(false, resumeID, route)
 	}()
 }
 
 // commitRuntimeSwitch persists the candidate after its host initialized.
 func (a *App) commitRuntimeSwitch() (runtimes.Runtime, error) {
-	a.switchMu.Lock()
-	switching := a.switchRuntime
-	a.switchMu.Unlock()
+	switching := a.runtimeComponent.switchSnapshot()
 	if switching == nil {
 		return runtimes.Runtime{}, nil
 	}
+	a.runtimeComponent.markStage(runtimeSwitchCommitting)
 	if err := a.options.Runtimes.Select(switching.target.ID); err != nil {
 		return runtimes.Runtime{}, err
 	}
-	a.switchMu.Lock()
-	if a.switchRuntime == switching {
-		a.switchRuntime = nil
+	if a.runtimeComponent.clearSwitch() != switching {
+		return runtimes.Runtime{}, errors.New("runtime switch changed while committing")
 	}
-	a.switchMu.Unlock()
 	return switching.target, nil
 }
 
 // failRuntimeSwitch stops the candidate and restores the previous runtime. A
 // first start without a previous runtime returns to setup.
 func (a *App) failRuntimeSwitch(cause error) {
-	a.switchMu.Lock()
-	switching := a.switchRuntime
-	a.switchRuntime = nil
-	a.switchMu.Unlock()
+	switching := a.runtimeComponent.clearSwitch()
 	if switching == nil {
 		return
 	}
+	switching.stage = runtimeSwitchRollingBack
 	a.logf("runtime switch failed: %v", cause)
 	a.stopHost()
 	if switching.previous.ID == "" {
@@ -572,11 +563,7 @@ func (a *App) RemoveRuntime(id string) {
 
 // CancelRuntimeOperation cancels the current download/install/probe.
 func (a *App) CancelRuntimeOperation() {
-	if a.runtimeCancel != nil {
-		a.runtimeCancel()
-		a.runtimeCancel = nil
-	}
-	a.runtimeGeneration++
+	a.runtimeComponent.invalidate()
 	a.model.Runtime.Busy = false
 	a.model.Runtime.Checking = false
 	a.model.Runtime.Progress = 0

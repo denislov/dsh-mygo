@@ -363,7 +363,7 @@ func TestShutdownCancelsRuntimeOperation(t *testing.T) {
 		Post:     func(fn func()) { fn() },
 	})
 	ctx, cancel := context.WithCancel(context.Background())
-	application.runtimeCancel = cancel
+	application.runtimeComponent.runtimeCancel = cancel
 	application.Shutdown(time.Second)
 	if ctx.Err() == nil {
 		t.Fatal("shutdown did not cancel the runtime operation")

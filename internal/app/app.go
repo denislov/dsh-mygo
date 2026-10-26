@@ -113,6 +113,7 @@ type App struct {
 	sessionComponent
 	historyComponent
 	localComponent
+	runtimeComponent
 	workspace  workspaceResources
 	hostLocale atomic.Value
 	options    Options
@@ -128,19 +129,15 @@ type App struct {
 	notificationInput chan hostNotification
 
 	// These fields belong to the main thread.
-	turn              turnTracker
-	sessionID         string
-	nextSeq           uint64
-	batchUpdating     bool
-	transcriptDirty   bool
-	attachmentLimits  *attachment.Limits
-	mentionSeq        atomic.Uint64
-	runtimeGeneration uint64
-	runtimeCancel     context.CancelFunc
-	switchMu          sync.Mutex
-	switchRuntime     *runtimeSwitch
-	inspectionRead    operationSlot
-	restarting        bool
+	turn             turnTracker
+	sessionID        string
+	nextSeq          uint64
+	batchUpdating    bool
+	transcriptDirty  bool
+	attachmentLimits *attachment.Limits
+	mentionSeq       atomic.Uint64
+	inspectionRead   operationSlot
+	restarting       bool
 
 	hostGeneration atomic.Uint64
 	shuttingDown   atomic.Bool
@@ -1153,10 +1150,7 @@ func (a *App) Shutdown(timeout time.Duration) {
 	a.cancelWorkspaceReads()
 	a.closeWorkspaceTerminals(true)
 	close(a.stopped)
-	if a.runtimeCancel != nil {
-		a.runtimeCancel()
-		a.runtimeCancel = nil
-	}
+	a.runtimeComponent.cancel()
 	if a.local != nil && a.local.writer != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), timeout)
 		_ = a.local.writer.Flush(ctx)
@@ -1247,9 +1241,7 @@ func (a *App) setFailure(summary string, err error) {
 	a.model.Recoverable = !a.options.SDKProtocol && !a.shuttingDown.Load()
 	a.model.Restarting = false
 	a.model.Runtime.Switching = false
-	a.switchMu.Lock()
-	a.switchRuntime = nil
-	a.switchMu.Unlock()
+	a.runtimeComponent.clearSwitch()
 	a.model.RecoveryError = ""
 	a.model.ToolInspector = nil
 	a.turn.clear()
