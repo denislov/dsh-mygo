@@ -34,15 +34,12 @@ func (a *App) CloseSessions() {
 }
 
 func (a *App) cancelSessionOperation() {
-	a.sessionSlot.invalidate()
+	a.sessionNavigator.invalidate()
 	a.model.SessionBusy = false
 	a.model.SessionSwitching = false
 	a.model.SessionPanel.Refreshing = false
 	a.model.SessionPanel.Writing = false
 	a.model.History.FinishRead()
-	a.loadingSession = ""
-	a.sessionBuffer = nil
-	a.sessionBufferBytes = 0
 }
 
 func (a *App) beginSessionOperation() (context.Context, uint64, context.CancelFunc) {
@@ -50,7 +47,7 @@ func (a *App) beginSessionOperation() (context.Context, uint64, context.CancelFu
 	a.cancelSessionOperation()
 	a.model.SessionBusy = true
 	a.model.SessionsError = ""
-	return a.sessionSlot.begin(60 * time.Second)
+	return a.sessionNavigator.begin(60 * time.Second)
 }
 
 func (a *App) currentSessionOperation(operation uint64) bool {
@@ -58,18 +55,18 @@ func (a *App) currentSessionOperation(operation uint64) bool {
 }
 
 func (a *App) RefreshSessions() {
-	a.refreshSessions(false)
+	a.refreshSessions()
 }
 
-func (a *App) refreshSessions(background bool) {
+func (a *App) refreshSessions() {
 	if a.options.SDKProtocol || a.shuttingDown.Load() || !a.model.CanRefreshSessions() || a.currentClient() == nil {
 		return
 	}
 	ctx, operation, cancel := a.beginSessionOperation()
-	if background {
-		a.model.SessionBusy = false
-		a.model.SessionPanel.Refreshing = true
-	}
+	// Catalog refresh never owns the global navigation/input gate; a foreground
+	// action supersedes it through the operation token.
+	a.model.SessionBusy = false
+	a.model.SessionPanel.Refreshing = true
 	client := a.currentClient()
 	includeArchived := a.model.SessionPanel.CanArchive
 	needsHistory, id, minimumSeq, window := a.sessionNeedsHistory, a.sessionID, a.nextSeq, a.canHistoryWindow
@@ -250,8 +247,7 @@ func (a *App) loadSessionInDirectory(id, cwd string) {
 			a.nextSeq = nextSeq
 			a.statusRevision = 0
 			a.hostStatus = ""
-			a.sessionTitleSeq = 0
-			a.sessionTitle = ""
+			a.sessionCatalog.clearTitle()
 			a.turn.reset()
 			a.model.CancelPending = false
 			a.transcript = transcript
@@ -297,12 +293,13 @@ func (a *App) bufferSessionNotificationFrom(source *hostInstance, method string,
 	if method == protocol.NotificationSessionAssistantStream {
 		return true
 	}
-	if len(a.sessionBuffer) >= 1024 || a.sessionBufferBytes+len(params) > 8*1024*1024 {
-		a.setFailure("Too many session updates while loading history", errors.New("Restart the host to recover from the durable log"))
-		go a.stopHost()
+	ok, overflow := a.sessionNavigator.bufferResponse(hostNotification{host: source, method: method, params: params})
+	if !ok {
+		if overflow {
+			a.setFailure("Too many session updates while loading history", errors.New("Restart the host to recover from the durable log"))
+			go a.stopHost()
+		}
 		return true
 	}
-	a.sessionBuffer = append(a.sessionBuffer, hostNotification{host: source, method: method, params: params})
-	a.sessionBufferBytes += len(params)
 	return true
 }

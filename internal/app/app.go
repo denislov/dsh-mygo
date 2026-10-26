@@ -110,6 +110,7 @@ type rpcClient interface {
 // transcript.
 type App struct {
 	settingsComponent
+	sessionComponent
 	workspace  workspaceResources
 	hostLocale atomic.Value
 	options    Options
@@ -125,37 +126,28 @@ type App struct {
 	notificationInput chan hostNotification
 
 	// These fields belong to the main thread.
-	turn                turnTracker
-	sessionID           string
-	nextSeq             uint64
-	batchUpdating       bool
-	transcriptDirty     bool
-	sessionSlot         operationSlot
-	loadingSession      string
-	sessionBuffer       []hostNotification
-	sessionBufferBytes  int
-	sessionTitleSeq     uint64
-	sessionTitle        string
-	sessionNeedsHistory bool
-	sessionCatalogDirty bool
-	resync              *resyncState
-	statusRevision      uint64
-	hostStatus          string
-	canStreamBaseline   bool
-	canHistoryWindow    bool
-	canRelease          bool
-	attachmentLimits    *attachment.Limits
-	mentionSeq          atomic.Uint64
-	retiredSessions     map[string]bool
-	drafts              map[string]string
-	local               *localEditingState
-	quitReady           bool
-	runtimeGeneration   uint64
-	runtimeCancel       context.CancelFunc
-	switchMu            sync.Mutex
-	switchRuntime       *runtimeSwitch
-	inspectionRead      operationSlot
-	restarting          bool
+	turn              turnTracker
+	sessionID         string
+	nextSeq           uint64
+	batchUpdating     bool
+	transcriptDirty   bool
+	resync            *resyncState
+	statusRevision    uint64
+	hostStatus        string
+	canStreamBaseline bool
+	canHistoryWindow  bool
+	canRelease        bool
+	attachmentLimits  *attachment.Limits
+	mentionSeq        atomic.Uint64
+	drafts            map[string]string
+	local             *localEditingState
+	quitReady         bool
+	runtimeGeneration uint64
+	runtimeCancel     context.CancelFunc
+	switchMu          sync.Mutex
+	switchRuntime     *runtimeSwitch
+	inspectionRead    operationSlot
+	restarting        bool
 
 	hostGeneration atomic.Uint64
 	shuttingDown   atomic.Bool
@@ -507,7 +499,6 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 		a.model.CanHistory = initialized.caps.History
 		a.canHistoryWindow = initialized.caps.HistoryWindow
 		a.canRelease = initialized.caps.Release
-		a.retiredSessions = nil
 		a.model.History.Available = initialized.caps.HistoryWindow
 		a.acceptHistoryWindow(initialized.history)
 		a.model.CanResync = initialized.caps.Resync
@@ -526,9 +517,7 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 		a.model.SessionPanel.CanArchive = initialized.caps.Archive
 		a.model.SessionPanel.Uncertain = false
 		a.model.SessionPanel.ActiveArchived = false
-		a.sessionNeedsHistory = false
-		a.sessionTitleSeq = 0
-		a.sessionTitle = ""
+		a.sessionCatalog.reset()
 		a.CancelSessionEdit()
 		a.model.CanModels = initialized.caps.Models
 		a.model.CanConfigure = initialized.caps.Configure
@@ -565,7 +554,7 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 		if a.model.Phase == view.PhaseStarting || a.model.Phase == view.PhaseResyncing {
 			a.model.Phase = view.PhaseIdle
 		}
-		a.refreshSessions(true)
+		a.refreshSessions()
 		a.persistLocalState()
 	})
 }
@@ -1074,8 +1063,7 @@ func (a *App) handleSessionEventNotification(source *hostInstance, params json.R
 				Title string `json:"title"`
 			}
 			if json.Unmarshal(event.Data, &data) == nil {
-				a.sessionTitleSeq = a.nextSeq
-				a.sessionTitle = data.Title
+				a.sessionCatalog.setTitle(a.nextSeq, data.Title)
 				for index, summary := range a.model.Sessions {
 					if summary.ID == a.sessionID {
 						a.model.Sessions[index].Title = data.Title
@@ -1161,7 +1149,7 @@ func (a *App) applyStatus(status string) {
 		a.clearApprovals()
 		if a.resync == nil && a.sessionCatalogDirty && a.model.CanRefreshSessions() && !a.model.SessionPanel.Uncertain {
 			a.sessionCatalogDirty = false
-			a.refreshSessions(true)
+			a.refreshSessions()
 		}
 	}
 }

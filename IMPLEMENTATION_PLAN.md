@@ -170,11 +170,12 @@ flowchart TD
 - **验收/回归**：模型与权限能力互不依赖，默认与当前路由不混淆；失败屏障、secret 清空/控件换 key、偏好保存失败和 locale 启动快照保持。测试覆盖切换/重启期间迟到写入与读取。
 - **完成记录（2026-10-26）**：新增 `settingsComponent`，拥有 settings operation 令牌与目标会话；`begin/current/invalidate/hostChanged` 成为唯一入口，App 在 HostReady 时使旧读写失效。模型、配置、权限继续按能力独立读取/写入并发布到 View 快照；凭据清空、失败屏障与设备偏好存储不变。实际检查：`go test ./internal/app` 261 项通过；新增目标会话/换代失效用例。
 
-### 3.2 会话导航、目录与元数据组件（高）
+### 3.2 会话导航、目录与元数据组件（高，已完成）
 
 - **范围/依赖**：依赖 1.1/1.3/1.6、2.3/2.4；来源 `sessions.go`、`session_management.go`、目录读取逻辑。
 - **实施/交付**：分清 Navigator、Catalog、元数据写入的所有者；目录刷新不能取得全局导航/输入门禁。切换在完整历史/权限快照有效后一次提交，退休句柄由所属组件管理。
 - **验收/回归**：搜索/归档过滤、重命名确认、切换失败保留旧投影、迟到目标通知隔离、草稿切回和 release 后冷恢复保持；不会累计无限 Agent 或把目录缓存当日志真相。
+- **完成记录（2026-10-26）**：新增 `sessionNavigator`（操作令牌、加载目标、有界通知缓冲）与 `sessionCatalog`（标题/dirty/历史需求/退休句柄）并嵌入 App；目录刷新改用 `Refreshing`，不再占用 `SessionBusy` 全局门禁；切换/元数据写入复用 Navigator 令牌并在完整历史/权限快照后一次提交。实际检查：`go test ./internal/app` 263 项通过；新增缓冲预算、失效与 catalog 换代用例。
 
 ### 3.3 历史窗口、流式与 resync 组件（高）
 

@@ -66,7 +66,7 @@ func TestAgainstMygoSessionSwitching(t *testing.T) {
 			}
 			application.model.Draft = "new session draft"
 			application.OpenSessions()
-			waitFor(t, application, updates, 30*time.Second, func() bool { return !application.model.SessionBusy })
+			waitFor(t, application, updates, 30*time.Second, func() bool { return !application.model.SessionBusy && !application.model.SessionPanel.Refreshing })
 			found := false
 			for _, session := range application.model.Sessions {
 				if session.ID == original {
@@ -94,7 +94,7 @@ func TestAgainstMygoSessionSwitching(t *testing.T) {
 			application.Shutdown(10 * time.Second)
 			restarted, restartedUpdates := start()
 			restarted.OpenSessions()
-			waitFor(t, restarted, restartedUpdates, 30*time.Second, func() bool { return !restarted.model.SessionBusy })
+			waitFor(t, restarted, restartedUpdates, 30*time.Second, func() bool { return !restarted.model.SessionBusy && !restarted.model.SessionPanel.Refreshing })
 			found = false
 			for _, session := range restarted.model.Sessions {
 				if session.ID == original {
