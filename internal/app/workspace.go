@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"sync"
 	"time"
 
 	"dsh-mygo/internal/view"
@@ -11,16 +10,6 @@ import (
 	"github.com/egoist/mygo/plugins/terminal"
 	"github.com/egoist/mygo/ui/editor"
 )
-
-// Native workspace resources are independent of the Host protocol and log.
-// Only explicit user actions start a shell or read project files.
-type workspaceResources struct {
-	generation, preview, diff, terminal uint64 // main thread
-	mu                                  sync.Mutex
-	terminals                           map[*terminal.Terminal]bool
-	ctx                                 context.Context
-	cancel                              context.CancelFunc
-}
 
 func (a *App) configureWorkspace() {
 	w := &a.model.Workspace
@@ -37,9 +26,7 @@ func (a *App) syncWorkspace() {
 	if root == w.Root {
 		return
 	}
-	a.workspace.generation++
-	a.cancelWorkspaceReads()
-	a.closeWorkspaceTerminals(false)
+	a.workspace.switchProject()
 	w.Root = root
 	w.Directories = make(map[string][]workspace.Entry)
 	w.Loading = make(map[string]bool)
@@ -71,29 +58,15 @@ func (a *App) syncWorkspace() {
 }
 
 func (a *App) currentWorkspace(generation uint64) bool {
-	return !a.shuttingDown.Load() && a.workspace.generation == generation
+	return !a.shuttingDown.Load() && a.workspace.current(generation)
 }
 
 func (a *App) workspaceContext() context.Context {
-	a.workspace.mu.Lock()
-	defer a.workspace.mu.Unlock()
-	if a.workspace.ctx == nil {
-		a.workspace.ctx, a.workspace.cancel = context.WithCancel(context.Background())
-	}
-	if a.shuttingDown.Load() {
-		a.workspace.cancel()
-	}
-	return a.workspace.ctx
+	return a.workspace.project.readContext(a.shuttingDown.Load())
 }
 
 func (a *App) cancelWorkspaceReads() {
-	a.workspace.mu.Lock()
-	cancel := a.workspace.cancel
-	a.workspace.ctx, a.workspace.cancel = nil, nil
-	a.workspace.mu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
+	a.workspace.project.cancelReads()
 }
 
 func (a *App) loadWorkspacePanel(panel view.WorkspacePanel) {
@@ -134,7 +107,7 @@ func (a *App) readWorkspaceDirectory(path string) {
 	}
 	w.Loading[path] = true
 	w.FileError = ""
-	root, generation := w.Root, a.workspace.generation
+	root, generation := w.Root, a.workspace.project.generation
 	go func() {
 		entries, err := workspace.ReadDir(root, path)
 		a.post(func() {
@@ -164,9 +137,8 @@ func (a *App) openWorkspaceFile(path string) {
 	}
 	w.Open[view.PanelPreview] = true
 	w.Active = view.PanelPreview
-	a.workspace.preview++
-	request := a.workspace.preview
-	generation, root := a.workspace.generation, w.Root
+	generation, request := a.workspace.preview.begin(a.workspace.project.generation)
+	root := w.Root
 	w.PreviewBusy = true
 	w.PreviewError = ""
 	go func() {
@@ -176,7 +148,7 @@ func (a *App) openWorkspaceFile(path string) {
 		buffer.SetLanguage(editor.LanguageFor(file.Path))
 		code := &editor.State{Buffer: buffer, ReadOnly: true, NoScrollPastEnd: true}
 		a.post(func() {
-			if !a.currentWorkspace(generation) || a.workspace.preview != request {
+			if !a.currentWorkspace(generation) || !a.workspace.preview.current(generation, request) {
 				return
 			}
 			w.PreviewBusy = false
@@ -201,7 +173,7 @@ func (a *App) readWorkspaceChanges() {
 		return
 	}
 	w.ChangesBusy = true
-	root, generation := w.Root, a.workspace.generation
+	root, generation := w.Root, a.workspace.project.generation
 	base := a.workspaceContext()
 	go func() {
 		ctx, cancel := context.WithTimeout(base, 10*time.Second)
@@ -235,9 +207,8 @@ func (a *App) readWorkspaceDiff(path string) {
 	if !found {
 		return
 	}
-	a.workspace.diff++
-	request := a.workspace.diff
-	generation, root := a.workspace.generation, w.Root
+	generation, request := a.workspace.diff.begin(a.workspace.project.generation)
+	root := w.Root
 	w.DiffPath = path
 	w.DiffBusy = true
 	w.DiffError = ""
@@ -261,7 +232,7 @@ func (a *App) readWorkspaceDiff(path string) {
 		buffer.SetLanguage(editor.LanguageFor("working.diff"))
 		code := &editor.State{Buffer: buffer, ReadOnly: true, NoScrollPastEnd: true}
 		a.post(func() {
-			if !a.currentWorkspace(generation) || request != a.workspace.diff {
+			if !a.currentWorkspace(generation) || !a.workspace.diff.current(generation, request) {
 				return
 			}
 			w.DiffBusy = false
@@ -286,32 +257,19 @@ func (a *App) restartWorkspaceTerminal() {
 	}
 	w.TerminalBusy = true
 	w.TerminalError = ""
-	a.workspace.terminal++
-	request := a.workspace.terminal
-	generation, root := a.workspace.generation, w.Root
+	generation, request := a.workspace.terminal.begin(a.workspace.project.generation)
+	root := w.Root
 	go func() {
 		path, err := workspace.Resolve(root, "")
 		var term *terminal.Terminal
 		if err == nil {
 			term, err = terminal.New(terminal.Options{Dir: path, Scrollback: 4 * 1024 * 1024, NoClipboardWrite: true})
 		}
-		a.workspace.mu.Lock()
-		if a.shuttingDown.Load() {
-			a.workspace.mu.Unlock()
-			if term != nil {
-				term.Close()
-			}
+		if term != nil && !a.workspace.terminals.track(term, !a.shuttingDown.Load()) {
 			return
 		}
-		if term != nil {
-			if a.workspace.terminals == nil {
-				a.workspace.terminals = make(map[*terminal.Terminal]bool)
-			}
-			a.workspace.terminals[term] = true
-		}
-		a.workspace.mu.Unlock()
 		a.post(func() {
-			if !a.currentWorkspace(generation) || request != a.workspace.terminal {
+			if !a.currentWorkspace(generation) || !a.workspace.terminal.current(generation, request) {
 				if term != nil {
 					a.discardWorkspaceTerminal(term)
 				}
@@ -328,26 +286,9 @@ func (a *App) restartWorkspaceTerminal() {
 }
 
 func (a *App) discardWorkspaceTerminal(term *terminal.Terminal) {
-	a.workspace.mu.Lock()
-	delete(a.workspace.terminals, term)
-	a.workspace.mu.Unlock()
-	go term.Close()
+	a.workspace.terminals.discard(term)
 }
+
 func (a *App) closeWorkspaceTerminals(wait bool) {
-	a.workspace.mu.Lock()
-	terms := a.workspace.terminals
-	a.workspace.terminals = nil
-	a.workspace.mu.Unlock()
-	if len(terms) > 0 {
-		close := func() {
-			for term := range terms {
-				term.Close()
-			}
-		}
-		if wait {
-			close()
-		} else {
-			go close()
-		}
-	}
+	a.workspace.terminals.closeAll(wait)
 }

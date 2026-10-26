@@ -114,7 +114,7 @@ type App struct {
 	historyComponent
 	localComponent
 	runtimeComponent
-	workspace  workspaceResources
+	workspace  workspaceComponent
 	hostLocale atomic.Value
 	options    Options
 	model      *view.Model
