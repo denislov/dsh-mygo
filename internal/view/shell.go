@@ -8,12 +8,34 @@ import (
 
 // ShellState contains device-only disclosure state, never session facts.
 type ShellState struct {
-	pendingAction func()
-	SidebarOpen   bool
-	ProgressOpen  bool
-	FolderOpen    bool
-	ContextOpen   bool
-	TasksExpanded bool
+	pendingActions []func()
+	SidebarOpen    bool
+	ProgressOpen   bool
+	FolderOpen     bool
+	ContextOpen    bool
+	TasksExpanded  bool
+}
+
+// queueAction defers a business side effect to the end of the current build.
+// Display-state updates stay inline; navigation and persistence use this when
+// acting immediately would render the same list twice in one pass.
+func (model *Model) queueAction(action func()) {
+	if action == nil {
+		return
+	}
+	model.Shell.pendingActions = append(model.Shell.pendingActions, action)
+}
+
+func (model *Model) runPendingActions(c *mgo.Context) {
+	if len(model.Shell.pendingActions) == 0 {
+		return
+	}
+	actions := model.Shell.pendingActions
+	model.Shell.pendingActions = nil
+	for _, action := range actions {
+		action()
+	}
+	c.After(0)
 }
 
 func emptyConversation(c *mgo.Context, model *Model) {
@@ -57,9 +79,7 @@ func emptySuggestions(c *mgo.Context, model *Model) {
 			}
 			if button.Clicked() {
 				model.Draft = model.T(prompt)
-				if model.DraftChanged != nil {
-					model.DraftChanged()
-				}
+				model.queueAction(model.DraftChanged)
 			}
 		}
 	})

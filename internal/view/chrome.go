@@ -100,7 +100,7 @@ func titleBarMenu(menu *mgo.Menu, model *Model, width float32) {
 	}
 	if model.CanHistory && model.OpenSessions != nil {
 		if item := menu.Item(model.T("Sessions")).Disabled(!model.CanRefreshSessions()); item.Chosen() {
-			model.Shell.pendingAction = model.OpenSessions
+			model.queueAction(model.OpenSessions)
 		}
 	}
 	if width >= sidebarBreakpoint && model.CanHistory {

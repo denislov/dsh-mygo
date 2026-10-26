@@ -154,16 +154,7 @@ func View(c *mgo.Context, model *Model) {
 	applicationShortcuts(c, model)
 	theme := c.Theme()
 	services := c.Services()
-	model.Markdown.Theme = markdownTheme(c)
-	model.InterruptedMarkdown.Theme = model.Markdown.Theme
-	model.ReasoningMarkdown.Theme = reasoningMarkdownTheme(c)
-	model.Markdown.OnLink = func(address string) {
-		if safeMarkdownLink(address) {
-			services.OpenURL(address)
-		}
-	}
-	model.InterruptedMarkdown.OnLink = model.Markdown.OnLink
-	model.ReasoningMarkdown.OnLink = model.Markdown.OnLink
+	configureMarkdown(c, model, services)
 	mgo.Row(c.Key("shell")).Fill().Background(theme.Background).Children(func() {
 		if sidebarVisible(c, model) {
 			sessionSidebar(c, model)
@@ -211,14 +202,23 @@ func View(c *mgo.Context, model *Model) {
 	settingsCenterModal(c, model)
 	recoveryModal(c, model)
 	subagentModal(c, model)
-	// A menu in the right title bar is built after the sidebar list. Navigation
-	// takes effect after all construction so that list state is not used twice
-	// by the old sidebar and the new Sessions dialog in the same pass.
-	if action := model.Shell.pendingAction; action != nil {
-		model.Shell.pendingAction = nil
-		action()
-		c.After(0)
+	model.runPendingActions(c)
+}
+
+// configureMarkdown refreshes theme and link handling for this build. The
+// callback is persistent on the model, but it captures the current window
+// Services; no frame-scoped Element or Context is retained.
+func configureMarkdown(c *mgo.Context, model *Model, services mgo.Services) {
+	model.Markdown.Theme = markdownTheme(c)
+	model.InterruptedMarkdown.Theme = model.Markdown.Theme
+	model.ReasoningMarkdown.Theme = reasoningMarkdownTheme(c)
+	model.Markdown.OnLink = func(address string) {
+		if safeMarkdownLink(address) {
+			services.OpenURL(address)
+		}
 	}
+	model.InterruptedMarkdown.OnLink = model.Markdown.OnLink
+	model.ReasoningMarkdown.OnLink = model.Markdown.OnLink
 }
 
 func errorBanner(c *mgo.Context, model *Model) {
