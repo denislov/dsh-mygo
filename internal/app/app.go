@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,6 +25,7 @@ import (
 	"dsh-mygo/internal/interaction"
 	"dsh-mygo/internal/platform"
 	"dsh-mygo/internal/projection"
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/runtimes"
 	"dsh-mygo/internal/view"
 )
@@ -479,7 +479,7 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 
 	a.logf("session ready: %s", initialized.sessionID)
 	var initialConfiguration *view.Configuration
-	if initialized.canConfigure {
+	if initialized.caps.Configure {
 		configurationCtx, configurationCancel := context.WithTimeout(ctx, 5*time.Second)
 		if snapshot, err := readConfiguration(configurationCtx, client); err == nil {
 			initialConfiguration = &snapshot
@@ -531,16 +531,16 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 		a.model.SessionID = initialized.sessionID
 		a.model.Subagents = nil
 		a.CloseSubagents()
-		a.model.Inspection.Available = initialized.canInspectSubagents
+		a.model.Inspection.Available = initialized.caps.InspectSubagents
 		a.model.SessionCWD = initialized.cwd
 		a.syncWorkspace()
-		a.model.CanHistory = initialized.canHistory
-		a.canHistoryWindow = initialized.canHistoryWindow
-		a.canRelease = initialized.canRelease
+		a.model.CanHistory = initialized.caps.History
+		a.canHistoryWindow = initialized.caps.HistoryWindow
+		a.canRelease = initialized.caps.Release
 		a.retiredSessions = nil
-		a.model.History.Available = initialized.canHistoryWindow
+		a.model.History.Available = initialized.caps.HistoryWindow
 		a.acceptHistoryWindow(initialized.history)
-		a.model.CanResync = initialized.canResync
+		a.model.CanResync = initialized.caps.Resync
 		a.model.Permission.Available = initialized.permissions != nil
 		a.model.Permission.Ready = false
 		a.model.Permission.Uncertain = false
@@ -548,20 +548,20 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 		if initialized.permissions != nil {
 			a.model.Permission.Accept(*initialized.permissions)
 		}
-		a.canStreamBaseline = initialized.canStreamBaseline
+		a.canStreamBaseline = initialized.caps.StreamBaseline
 		a.acceptAttachments(initialized.attachments)
 		a.statusRevision = 0
 		a.hostStatus = ""
-		a.model.SessionPanel.CanRename = initialized.canRename
-		a.model.SessionPanel.CanArchive = initialized.canArchive
+		a.model.SessionPanel.CanRename = initialized.caps.Rename
+		a.model.SessionPanel.CanArchive = initialized.caps.Archive
 		a.model.SessionPanel.Uncertain = false
 		a.model.SessionPanel.ActiveArchived = false
 		a.sessionNeedsHistory = false
 		a.sessionTitleSeq = 0
 		a.sessionTitle = ""
 		a.CancelSessionEdit()
-		a.model.CanModels = initialized.canModels
-		a.model.CanConfigure = initialized.canConfigure
+		a.model.CanModels = initialized.caps.Models
+		a.model.CanConfigure = initialized.caps.Configure
 		a.model.ConfigurationReady = initialConfiguration != nil
 		if initialConfiguration != nil {
 			a.model.Configuration = *initialConfiguration
@@ -582,10 +582,10 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 		if initialized.route.Provider != "" {
 			a.model.SetActiveRoute(initialized.route)
 		}
-		a.model.CanCancel = initialized.canCancel
-		a.model.CanApprove = initialized.canApprove
-		a.model.CanQuestion = initialized.canQuestion
-		a.model.CanStream = initialized.canStream
+		a.model.CanCancel = initialized.caps.Cancel
+		a.model.CanApprove = initialized.caps.Approval
+		a.model.CanQuestion = initialized.caps.Question
+		a.model.CanStream = initialized.caps.Stream
 		a.model.Detail = initialized.detail
 		a.model.Error = ""
 		a.model.ErrorDetail = ""
@@ -661,30 +661,17 @@ func (a *App) OpenLogs() {
 }
 
 type initializedSession struct {
-	canInspectSubagents bool
-	history             historySnapshot
-	canHistoryWindow    bool
-	canRelease          bool
-	sessionID           string
-	nextSeq             uint64
-	cwd                 string
-	transcript          *projection.Transcript
-	detail              string
-	canCancel           bool
-	canApprove          bool
-	canQuestion         bool
-	canStream           bool
-	canHistory          bool
-	canResync           bool
-	canStreamBaseline   bool
-	permissions         *view.PermissionSnapshot
-	restoreNotice       string
-	canRename           bool
-	canArchive          bool
-	canModels           bool
-	canConfigure        bool
-	route               view.ModelRoute
-	attachments         *attachment.Limits
+	caps          protocol.Capabilities
+	history       historySnapshot
+	sessionID     string
+	nextSeq       uint64
+	cwd           string
+	transcript    *projection.Transcript
+	detail        string
+	permissions   *view.PermissionSnapshot
+	restoreNotice string
+	route         view.ModelRoute
+	attachments   *attachment.Limits
 }
 
 func (a *App) initialize(ctx context.Context, client rpcClient, resumeID string) (initializedSession, error) {
@@ -724,7 +711,7 @@ func (a *App) initializeSession(ctx context.Context, client rpcClient, request s
 	result, err := client.Call(ctx, "initialize", map[string]any{
 		"protocolVersion": channel.ProtocolVersion,
 		"client":          map[string]string{"name": "dsh-mygo", "version": channel.ReleaseVersion, "platform": runtime.GOOS, "locale": a.currentLocale()},
-		"capabilities":    []string{"session.cancel", "approval", "question", "session.assistant-stream", "session.history", "session.history-window", "session.release", "session.resync", "session.assistant-stream-baseline", "session.assistant-stream-baseline-reasoning", "session.rename", "session.archive", "model.selection", "settings.configuration", "session.permissions", "attachments", "subagent.inspection"},
+		"capabilities":    protocol.ClientCapabilities(),
 	})
 	if err != nil {
 		return initializedSession{}, err
@@ -738,15 +725,14 @@ func (a *App) initializeSession(ctx context.Context, client rpcClient, request s
 	if err != nil {
 		return initializedSession{}, err
 	}
-	canConfigure := slices.Contains(initialized.Capabilities, "settings.configuration")
-	canHistory := slices.Contains(initialized.Capabilities, "session.history")
+	caps := protocol.ParseCapabilities(initialized.Capabilities)
 	restoreNotice := ""
-	if request.resumeID != "" && canHistory {
+	if request.resumeID != "" && caps.History {
 		route := request.route
 		if request.allowFallback {
 			route = view.ModelRoute{}
 		}
-		restored, err := a.resumeSession(ctx, client, request.resumeID, initialized, canConfigure, route)
+		restored, err := a.resumeSession(ctx, client, request.resumeID, initialized, caps, route)
 		if err == nil || !request.allowFallback {
 			return restored, err
 		}
@@ -754,7 +740,7 @@ func (a *App) initializeSession(ctx context.Context, client rpcClient, request s
 	} else if request.resumeID != "" && request.allowFallback {
 		restoreNotice = localRestoreNotice()
 	}
-	params := a.routeParams(canConfigure)
+	params := a.routeParams(caps.Configure)
 	params["cwd"] = a.options.CWD
 	result, err = client.Call(ctx, "session/create", params)
 	if err != nil {
@@ -775,7 +761,7 @@ func (a *App) initializeSession(ctx context.Context, client rpcClient, request s
 	}
 	var selected view.ModelRoute
 	var permissions *view.PermissionSnapshot
-	if slices.Contains(initialized.Capabilities, "session.permissions") {
+	if caps.Permissions {
 		snapshot, err := readPermissions(ctx, client, created.Session.ID)
 		if err != nil {
 			return initializedSession{}, err
@@ -785,7 +771,7 @@ func (a *App) initializeSession(ctx context.Context, client rpcClient, request s
 		}
 		permissions = &snapshot
 	}
-	if canConfigure {
+	if caps.Configure {
 		if created.Session.Provider == nil || created.Session.Model == nil || created.Session.Effort == nil || !validModelLabel(*created.Session.Provider, false) || !validModelLabel(*created.Session.Model, false) || !validModelLabel(*created.Session.Effort, true) {
 			return initializedSession{}, errors.New("Invalid created session route")
 		}
@@ -793,30 +779,18 @@ func (a *App) initializeSession(ctx context.Context, client rpcClient, request s
 	}
 	return initializedSession{
 		sessionID: created.Session.ID, nextSeq: *created.Session.NextSeq, cwd: a.options.CWD,
-		canHistoryWindow:    slices.Contains(initialized.Capabilities, "session.history-window"),
-		canRelease:          slices.Contains(initialized.Capabilities, "session.release"),
-		restoreNotice:       restoreNotice,
-		permissions:         permissions,
-		detail:              initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
-		canCancel:           slices.Contains(initialized.Capabilities, "session.cancel"),
-		canApprove:          slices.Contains(initialized.Capabilities, "approval"),
-		canQuestion:         slices.Contains(initialized.Capabilities, "question"),
-		canStream:           slices.Contains(initialized.Capabilities, "session.assistant-stream"),
-		canHistory:          slices.Contains(initialized.Capabilities, "session.history"),
-		canInspectSubagents: slices.Contains(initialized.Capabilities, "subagent.inspection"),
-		canResync:           slices.Contains(initialized.Capabilities, "session.resync"),
-		canStreamBaseline:   slices.Contains(initialized.Capabilities, "session.assistant-stream-baseline"),
-		canRename:           slices.Contains(initialized.Capabilities, "session.rename"),
-		canArchive:          slices.Contains(initialized.Capabilities, "session.archive"),
-		canModels:           slices.Contains(initialized.Capabilities, "model.selection"),
-		canConfigure:        canConfigure, route: selected,
-		attachments: attachmentLimitsOf(initialized),
+		caps:          caps,
+		restoreNotice: restoreNotice,
+		permissions:   permissions,
+		route:         selected,
+		detail:        initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
+		attachments:   attachmentLimitsOf(initialized),
 	}, nil
 }
 
 // resumeSession restores the previous session and replays its durable history
 // after a host restart. A failure leaves the previous projection untouched.
-func (a *App) resumeSession(ctx context.Context, client rpcClient, id string, initialized channel.InitializeResult, canConfigure bool, route view.ModelRoute) (initializedSession, error) {
+func (a *App) resumeSession(ctx context.Context, client rpcClient, id string, initialized channel.InitializeResult, caps protocol.Capabilities, route view.ModelRoute) (initializedSession, error) {
 	params := map[string]any{"sessionId": id}
 	if route.Provider != "" && route.Model != "" {
 		params["provider"] = route.Provider
@@ -825,7 +799,7 @@ func (a *App) resumeSession(ctx context.Context, client rpcClient, id string, in
 			params["effort"] = route.Effort
 		}
 	} else {
-		for key, value := range a.routeParams(canConfigure) {
+		for key, value := range a.routeParams(caps.Configure) {
 			params[key] = value
 		}
 	}
@@ -846,10 +820,10 @@ func (a *App) resumeSession(ctx context.Context, client rpcClient, id string, in
 	if summary.ID != id || summary.Status != "idle" || summary.NextSeq == nil {
 		return initializedSession{}, errors.New("invalid restored session identity or status")
 	}
-	if canConfigure && (summary.Provider == "" || summary.Model == "") {
+	if caps.Configure && (summary.Provider == "" || summary.Model == "") {
 		return initializedSession{}, errors.New("invalid restored session route")
 	}
-	history, err := readOpenHistory(ctx, client, summary.ID, *summary.NextSeq, slices.Contains(initialized.Capabilities, "session.history-window"))
+	history, err := readOpenHistory(ctx, client, summary.ID, *summary.NextSeq, caps.HistoryWindow)
 	transcript, nextSeq := history.Transcript, history.NextSeq
 	if err != nil {
 		return initializedSession{}, err
@@ -860,7 +834,7 @@ func (a *App) resumeSession(ctx context.Context, client rpcClient, id string, in
 	}
 	selected := view.ModelRoute{}
 	var permissions *view.PermissionSnapshot
-	if slices.Contains(initialized.Capabilities, "session.permissions") {
+	if caps.Permissions {
 		snapshot, err := readPermissions(ctx, client, id)
 		if err != nil {
 			return initializedSession{}, err
@@ -870,28 +844,16 @@ func (a *App) resumeSession(ctx context.Context, client rpcClient, id string, in
 		}
 		permissions = &snapshot
 	}
-	if canConfigure {
+	if caps.Configure {
 		selected = view.ModelRoute{Provider: summary.Provider, Model: summary.Model, Effort: summary.Effort}
 	}
 	return initializedSession{
 		sessionID: summary.ID, nextSeq: nextSeq, cwd: cwd, transcript: &transcript,
-		history:             history,
-		canHistoryWindow:    slices.Contains(initialized.Capabilities, "session.history-window"),
-		canRelease:          slices.Contains(initialized.Capabilities, "session.release"),
-		permissions:         permissions,
-		detail:              initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
-		canCancel:           slices.Contains(initialized.Capabilities, "session.cancel"),
-		canApprove:          slices.Contains(initialized.Capabilities, "approval"),
-		canQuestion:         slices.Contains(initialized.Capabilities, "question"),
-		canStream:           slices.Contains(initialized.Capabilities, "session.assistant-stream"),
-		canHistory:          true,
-		canInspectSubagents: slices.Contains(initialized.Capabilities, "subagent.inspection"),
-		canResync:           slices.Contains(initialized.Capabilities, "session.resync"),
-		canStreamBaseline:   slices.Contains(initialized.Capabilities, "session.assistant-stream-baseline"),
-		canRename:           slices.Contains(initialized.Capabilities, "session.rename"),
-		canArchive:          slices.Contains(initialized.Capabilities, "session.archive"),
-		canModels:           slices.Contains(initialized.Capabilities, "model.selection"),
-		canConfigure:        canConfigure, route: selected,
+		caps:        caps,
+		history:     history,
+		permissions: permissions,
+		route:       selected,
+		detail:      initialized.Server.Name + " " + initialized.Server.Version + " · DSH " + initialized.Server.DSHVersion,
 		attachments: attachmentLimitsOf(initialized),
 	}, nil
 }

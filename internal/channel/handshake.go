@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"dsh-mygo/internal/attachment"
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/version"
 )
 
@@ -81,7 +82,7 @@ func DecodeInitializeExpecting(data json.RawMessage, expected HostIdentity) (Ini
 			return result, fmt.Errorf("invalid host capability")
 		}
 	}
-	if advertised := slices.Contains(result.Capabilities, "attachments"); advertised != (result.Attachments != nil) {
+	if advertised := slices.Contains(result.Capabilities, string(protocol.CapabilityAttachments)); advertised != (result.Attachments != nil) {
 		return result, fmt.Errorf("inconsistent host attachment capabilities")
 	}
 	if result.Attachments != nil {

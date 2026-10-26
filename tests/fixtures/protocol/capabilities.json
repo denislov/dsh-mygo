@@ -1,0 +1,18 @@
+{
+  "clientCapabilities": [
+    "session.cancel", "approval", "question", "session.assistant-stream",
+    "session.history", "session.history-window", "session.release", "session.resync",
+    "session.assistant-stream-baseline", "session.assistant-stream-baseline-reasoning",
+    "session.rename", "session.archive", "model.selection", "settings.configuration",
+    "session.permissions", "attachments", "subagent.inspection"
+  ],
+  "basicHostCapabilities": [
+    "session.cancel", "approval", "question", "session.assistant-stream"
+  ],
+  "historyHostCapabilities": [
+    "session.cancel", "approval", "question", "session.assistant-stream",
+    "session.history", "session.history-window", "session.release", "session.resync",
+    "session.assistant-stream-baseline", "session.assistant-stream-baseline-reasoning"
+  ],
+  "unknownCapability": "future.test"
+}

@@ -45,6 +45,23 @@ const handshake = {
   capabilities: ['approval', 'session.history'],
 }
 
+test('shared client offer negotiates only supported capabilities, including independent reasoning baseline', async () => {
+  const fixture = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/capabilities.json', import.meta.url), 'utf8'))
+  for (const history of [false, true]) {
+    const { server, ctx } = runtime()
+    if (history) {
+      ctx.sessionPersistence = { list() {}, stat() {}, open() {}, flush() {} }
+      ctx.agents.resume = async () => {}
+    }
+    try {
+      const result = await server.handle('initialize', { ...handshake, capabilities: [...fixture.clientCapabilities, fixture.unknownCapability] })
+      assert.deepEqual(result.capabilities, history ? fixture.historyHostCapabilities : fixture.basicHostCapabilities)
+    } finally {
+      await server.shutdown()
+    }
+  }
+})
+
 test('handshake gates methods, rejects incompatible versions and never advertises planned capabilities', async () => {
   const { server } = runtime()
   await assert.rejects(server.handle('session/create', {}), { kind: 'protocol/not-initialized' })
