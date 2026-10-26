@@ -24,10 +24,7 @@ type resyncState struct {
 }
 
 func (a *App) cancelResync() {
-	if a.resync != nil {
-		a.resync.cancel()
-		a.resync = nil
-	}
+	a.historyComponent.cancelResync()
 }
 
 func (a *App) startResync() {
@@ -49,8 +46,7 @@ func (a *App) startResync() {
 	a.model.Permission.Confirm = false
 	a.clearStream()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	job := &resyncState{ctx: ctx, cancel: cancel, id: a.sessionID}
-	a.resync = job
+	job := a.historyComponent.startResync(ctx, cancel, a.sessionID)
 	a.logf("history resync started")
 	a.readResync(job)
 }
@@ -209,8 +205,7 @@ func (a *App) readResync(job *resyncState) {
 				a.stream = snapshot.Stream
 			}
 			a.nextSeq = snapshot.NextSeq
-			a.statusRevision = snapshot.StatusRevision
-			a.hostStatus = snapshot.Status
+			a.historyComponent.commitSnapshot(snapshot.Status, snapshot.StatusRevision)
 			a.model.CopiedMessageID = ""
 			a.model.CopiedMessageText = ""
 			a.model.Phase = view.PhaseRunning

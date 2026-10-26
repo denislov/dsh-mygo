@@ -111,6 +111,7 @@ type rpcClient interface {
 type App struct {
 	settingsComponent
 	sessionComponent
+	historyComponent
 	workspace  workspaceResources
 	hostLocale atomic.Value
 	options    Options
@@ -131,12 +132,6 @@ type App struct {
 	nextSeq           uint64
 	batchUpdating     bool
 	transcriptDirty   bool
-	resync            *resyncState
-	statusRevision    uint64
-	hostStatus        string
-	canStreamBaseline bool
-	canHistoryWindow  bool
-	canRelease        bool
 	attachmentLimits  *attachment.Limits
 	mentionSeq        atomic.Uint64
 	drafts            map[string]string
@@ -497,6 +492,7 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 		a.model.SessionCWD = initialized.cwd
 		a.syncWorkspace()
 		a.model.CanHistory = initialized.caps.History
+		a.historyComponent.hostChanged()
 		a.canHistoryWindow = initialized.caps.HistoryWindow
 		a.canRelease = initialized.caps.Release
 		a.model.History.Available = initialized.caps.HistoryWindow
@@ -511,8 +507,6 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 		}
 		a.canStreamBaseline = initialized.caps.StreamBaseline
 		a.acceptAttachments(initialized.attachments)
-		a.statusRevision = 0
-		a.hostStatus = ""
 		a.model.SessionPanel.CanRename = initialized.caps.Rename
 		a.model.SessionPanel.CanArchive = initialized.caps.Archive
 		a.model.SessionPanel.Uncertain = false

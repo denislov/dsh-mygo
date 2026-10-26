@@ -177,11 +177,12 @@ flowchart TD
 - **验收/回归**：搜索/归档过滤、重命名确认、切换失败保留旧投影、迟到目标通知隔离、草稿切回和 release 后冷恢复保持；不会累计无限 Agent 或把目录缓存当日志真相。
 - **完成记录（2026-10-26）**：新增 `sessionNavigator`（操作令牌、加载目标、有界通知缓冲）与 `sessionCatalog`（标题/dirty/历史需求/退休句柄）并嵌入 App；目录刷新改用 `Refreshing`，不再占用 `SessionBusy` 全局门禁；切换/元数据写入复用 Navigator 令牌并在完整历史/权限快照后一次提交。实际检查：`go test ./internal/app` 263 项通过；新增缓冲预算、失效与 catalog 换代用例。
 
-### 3.3 历史窗口、流式与 resync 组件（高）
+### 3.3 历史窗口、流式与 resync 组件（高，已完成）
 
 - **范围/依赖**：依赖 3.2、2.2/2.5；来源 `history_window.go`、`conversation_history.go`、`resync.go` 及投影发布接口。
 - **实施/交付**：窗口拥有读取边界/锚点；resync 拥有固定 cut、缓冲与重试预算；projection 仍负责纯事件投影。以明确的恢复结果整体提交，和 Navigator 约定切换、取消及 release 的先后关系。
 - **验收/回归**：完整回合前插、布局提交后的触顶检测、尾部返回、历史/实时去重、已提交预览清理及 reasoning baseline 保持；同代恢复不清版本高水位，新 Agent 才重建。真实缺帧与大会话读取通过。
+- **完成记录（2026-10-26）**：新增 `historyComponent`，拥有 resync 固定 cut、状态 revision/host status 与历史/流 baseline 能力；start/cancel/commit 都经组件，宿主换代显式重置，快照提交不降低同代高水位。窗口读取边界/锚点与 projection 仍由既有 flow/纯投影负责。实际检查：`go test ./internal/app` 265 项通过；新增 cut 取消、换代重置与 revision 单调用例。
 
 ### 3.4 本机编辑状态、草稿与退出协调（高）
 
