@@ -233,6 +233,8 @@ func (a *App) loadSessionInDirectory(id, cwd string) {
 			a.model.SessionID = summary.ID
 			a.subagents.sessionChanged(summary.ID)
 			a.model.Subagents = a.subagents.summariesView()
+			// Staged uploads are conversation-local and never follow a switch.
+			a.model.Attachments.Clear()
 			a.model.SessionCWD = summary.CWD
 			a.syncWorkspace()
 			a.model.Setup.WorkspaceRequired = workspaceRequired

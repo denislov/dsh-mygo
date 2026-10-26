@@ -38,7 +38,7 @@ func attachmentLimitsOf(initialized channel.InitializeResult) *attachment.Limits
 // acceptAttachments installs the negotiated image policy and drops staged
 // uploads: they never survive a session switch or a host restart.
 func (a *App) acceptAttachments(limit *attachment.Limits) {
-	a.attachmentLimits = limit
+	a.attachments.setLimits(limit)
 	a.model.Attachments.Supported = limit != nil
 	if limit != nil {
 		a.model.Attachments.Limits = *limit
@@ -52,36 +52,31 @@ func (a *App) acceptAttachments(limit *attachment.Limits) {
 // policy. Bytes are bounded by the clipboard or the file size the caller read.
 func (a *App) attachImage(name, mediaType string, data []byte) {
 	state := &a.model.Attachments
-	if !state.Supported || a.attachmentLimits == nil {
+	if !state.Supported {
 		state.Error = attachment.ErrUnsupported.Error()
-		return
-	}
-	if len(state.Pending) >= a.attachmentLimits.MaxImagesPerMessage {
-		state.Error = attachment.ErrTooMany.Error()
 		return
 	}
 	draft := attachment.Draft{Name: attachment.DisplayName(name), MediaType: mediaType, Data: data}
 	if width, height, ok := imageDimensions(data); ok {
 		draft.Width, draft.Height = width, height
 	}
-	batch := append(append([]attachment.Draft{}, state.Pending...), draft)
-	if err := a.attachmentLimits.Validate(batch); err != nil {
+	batch, err := a.attachments.stage(state.Pending, draft)
+	if err != nil {
 		state.Error = err.Error()
 		return
 	}
-	state.Pending = append(state.Pending, draft)
+	state.Pending = batch
 	state.Error = ""
-	state.NextPreviewID++
-	id := state.NextPreviewID
+	id := a.attachments.newPreview()
 	state.Previews = append(state.Previews, view.AttachmentPreview{ID: id})
-	sessionID := a.model.SessionID
+	sessionID := a.attachments.session()
 	go func() {
 		bitmap := attachmentThumbnail(data)
 		if bitmap == nil {
 			return
 		}
 		a.post(func() {
-			if a.shuttingDown.Load() || a.model.SessionID != sessionID {
+			if a.shuttingDown.Load() || !a.attachments.acceptPreview(sessionID) {
 				return
 			}
 			for index := range a.model.Attachments.Previews {
@@ -121,15 +116,12 @@ func (a *App) AttachFiles(paths []string) {
 	if len(paths) > maxDroppedPaths {
 		paths = paths[:maxDroppedPaths]
 	}
-	limits := attachment.Limits{}
-	if a.attachmentLimits != nil {
-		limits = *a.attachmentLimits
-	}
-	sessionID := a.model.SessionID
+	limits, _ := a.attachments.limitsValue()
+	sessionID := a.attachments.session()
 	go func() {
 		drafts, references, firstErr := readAttachments(paths, limits)
 		a.post(func() {
-			if a.shuttingDown.Load() || a.model.SessionID != sessionID {
+			if a.shuttingDown.Load() || !a.attachments.currentSession(sessionID) {
 				return
 			}
 			for _, draft := range drafts {
@@ -151,6 +143,7 @@ func (a *App) pickAttachment() {
 	if a.options.SDKProtocol {
 		return
 	}
+	sessionID := a.attachments.session()
 	go func() {
 		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
 			Title:    "Attach image",
@@ -160,7 +153,12 @@ func (a *App) pickAttachment() {
 		if err != nil || len(paths) == 0 {
 			return
 		}
-		a.post(func() { a.AttachFiles(paths) })
+		a.post(func() {
+			if a.shuttingDown.Load() || !a.attachments.currentSession(sessionID) {
+				return
+			}
+			a.AttachFiles(paths)
+		})
 	}()
 }
 
@@ -276,10 +274,11 @@ func (a *App) promptBlocks(text string) ([]protocol.ContentBlock, error) {
 	if a.options.SDKProtocol {
 		return nil, attachment.ErrUnsupported
 	}
-	if a.attachmentLimits == nil {
+	limits, ok := a.attachments.limitsValue()
+	if !ok {
 		return nil, attachment.ErrUnsupported
 	}
-	if err := a.attachmentLimits.Validate(pending); err != nil {
+	if err := limits.Validate(pending); err != nil {
 		return nil, err
 	}
 	blocks := make([]protocol.ContentBlock, 0, len(pending)+1)

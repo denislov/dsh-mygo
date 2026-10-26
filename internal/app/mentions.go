@@ -18,12 +18,12 @@ func (a *App) QueryMentions(prefix string) {
 		return
 	}
 	cwd := a.model.SessionCWD
-	sessionID := a.model.SessionID
-	seq := a.mentionSeq.Add(1)
+	sessionID := a.attachments.session()
+	seq := a.attachments.nextMention()
 	go func() {
 		candidates := listMentionCandidates(cwd, prefix)
 		a.post(func() {
-			if a.shuttingDown.Load() || a.model.SessionID != sessionID || a.mentionSeq.Load() != seq {
+			if a.shuttingDown.Load() || !a.attachments.acceptMention(seq, sessionID) {
 				return
 			}
 			a.model.Mention.Candidates = candidates

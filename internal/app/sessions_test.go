@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"dsh-mygo/internal/attachment"
 	"dsh-mygo/internal/projection"
 	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
@@ -52,6 +53,8 @@ func TestSessionSwitchPreservesDraftsAndRejectsDuplicateActions(t *testing.T) {
 		return json.RawMessage(`{"events":[{"seq":0,"time":1,"type":"assistant/message","data":{"message":{"content":[{"type":"text","text":"saved answer"}]}}}],"nextSeq":1,"hasMore":false}`), nil
 	}}
 	application, updates := sessionTestApp(client)
+	application.acceptAttachments(testLimits())
+	application.model.Attachments.Pending = []attachment.Draft{{Name: "staged.png", MediaType: attachment.MediaPNG, Data: []byte("png")}}
 	application.model.Draft = "original draft"
 	application.model.SessionsOpen = true
 	application.model.ToolCards = map[string]*view.ToolCardState{"tool": {Expanded: true}}
@@ -64,7 +67,7 @@ func TestSessionSwitchPreservesDraftsAndRejectsDuplicateActions(t *testing.T) {
 		t.Fatal("switching changed the old session before history finished")
 	}
 	completeSessionJob(t, application, updates)
-	if application.sessionID != "saved" || application.model.Draft != "" || len(application.model.Items) != 1 || application.model.Items[0].Text != "saved answer" || application.model.SessionsOpen || application.model.ToolCards != nil || application.model.CopiedMessageID != "" {
+	if application.sessionID != "saved" || application.model.Draft != "" || len(application.model.Items) != 1 || application.model.Items[0].Text != "saved answer" || application.model.SessionsOpen || application.model.ToolCards != nil || application.model.CopiedMessageID != "" || len(application.model.Attachments.Pending) != 0 {
 		t.Fatal("session was not replaced atomically or stale widget state survived")
 	}
 	application.model.Draft = "saved draft"

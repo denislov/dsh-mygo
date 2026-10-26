@@ -114,14 +114,15 @@ type App struct {
 	historyComponent
 	localComponent
 	runtimeComponent
-	workspace  workspaceComponent
-	hostLocale atomic.Value
-	options    Options
-	model      *view.Model
-	transcript projection.Transcript
-	approvals  interaction.ApprovalQueue
-	questions  interaction.QuestionQueue
-	stream     projection.AssistantStream
+	attachments attachmentComponent
+	workspace   workspaceComponent
+	hostLocale  atomic.Value
+	options     Options
+	model       *view.Model
+	transcript  projection.Transcript
+	approvals   interaction.ApprovalQueue
+	questions   interaction.QuestionQueue
+	stream      projection.AssistantStream
 
 	mu                sync.Mutex
 	host              *hostInstance
@@ -129,15 +130,13 @@ type App struct {
 	notificationInput chan hostNotification
 
 	// These fields belong to the main thread.
-	turn             turnTracker
-	sessionID        string
-	nextSeq          uint64
-	batchUpdating    bool
-	transcriptDirty  bool
-	attachmentLimits *attachment.Limits
-	mentionSeq       atomic.Uint64
-	subagents        subagentComponent
-	restarting       bool
+	turn            turnTracker
+	sessionID       string
+	nextSeq         uint64
+	batchUpdating   bool
+	transcriptDirty bool
+	subagents       subagentComponent
+	restarting      bool
 
 	hostGeneration atomic.Uint64
 	shuttingDown   atomic.Bool
@@ -158,6 +157,7 @@ func New(options Options) *App {
 	app := &App{options: options, sessionID: options.SessionID, stopped: make(chan struct{}), pendingUI: make(chan struct{}, maxPendingUIUpdates), diag: newDiagnostics(options.LogDir)}
 	app.model = view.NewModel()
 	app.subagents.sessionOf = func() string { return app.model.SessionID }
+	app.attachments.sessionOf = func() string { return app.model.SessionID }
 	app.configureWorkspace()
 	app.model.AppVersion = channel.ReleaseVersion
 	app.model.Setup.ChooseFolder = app.ChooseProjectFolder
