@@ -165,40 +165,34 @@ func (a *App) CloseSettings() {
 
 func (a *App) cancelSettingsOperation() {
 	a.model.ClearCredentialDraft()
-	a.settingsOperation++
-	if a.settingsCancel != nil {
-		a.settingsCancel()
-		a.settingsCancel = nil
-	}
+	a.settingsSlot.invalidate()
 	a.model.SettingsBusy = false
 	a.model.SettingsApplying = false
 	a.model.SettingsWritingConfiguration = false
 	a.model.Permission.Writing = false
 }
 
-func (a *App) beginSettingsOperation() (context.Context, uint64) {
+func (a *App) beginSettingsOperation() (context.Context, uint64, context.CancelFunc) {
 	return a.beginSettingsOperationTimeout(15 * time.Second)
 }
 
-func (a *App) beginSettingsOperationTimeout(timeout time.Duration) (context.Context, uint64) {
+func (a *App) beginSettingsOperationTimeout(timeout time.Duration) (context.Context, uint64, context.CancelFunc) {
 	a.cancelSettingsOperation()
 	a.model.SettingsBusy = true
 	a.model.SettingsError = ""
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	a.settingsCancel = cancel
-	return ctx, a.settingsOperation
+	return a.settingsSlot.begin(timeout)
 }
 
 func (a *App) currentSettingsOperation(operation uint64, id string) bool {
-	return operation == a.settingsOperation && a.sessionID == id && !a.shuttingDown.Load() && a.model.Phase != view.PhaseFailed
+	return a.settingsSlot.valid(operation) && a.sessionID == id && !a.shuttingDown.Load() && a.model.Phase != view.PhaseFailed
 }
 
 func (a *App) RefreshSettings() {
 	if !a.canEditSettings() || !a.model.SettingsOpen {
 		return
 	}
-	ctx, operation := a.beginSettingsOperation()
-	client, id, provider, cancel := a.currentClient(), a.sessionID, a.model.SettingsProvider, a.settingsCancel
+	ctx, operation, cancel := a.beginSettingsOperation()
+	client, id, provider := a.currentClient(), a.sessionID, a.model.SettingsProvider
 	canConfigure := a.model.CanConfigure
 	canModels, canPermissions := a.model.CanModels && !a.model.SettingsConnection, a.model.Permission.Available && !a.model.SettingsConnection
 	a.model.Permission.Confirm = false
@@ -269,9 +263,9 @@ func (a *App) ApplySettings() {
 		a.model.SettingsError = "Choose a valid provider, model ID and effort"
 		return
 	}
-	ctx, operation := a.beginSettingsOperation()
+	ctx, operation, cancel := a.beginSettingsOperation()
 	a.model.SettingsApplying = true
-	client, id, cancel, startSeq := a.currentClient(), a.sessionID, a.settingsCancel, a.nextSeq
+	client, id, startSeq := a.currentClient(), a.sessionID, a.nextSeq
 	go func() {
 		defer cancel()
 		raw, err := client.Call(ctx, protocol.MethodModelSelect, protocol.ModelSelectParams{

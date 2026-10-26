@@ -28,9 +28,9 @@ func TestHistoryReadKeepsShellInteractiveAndRejectsSupersededResults(t *testing.
 			a.model.History.Start, a.nextSeq = 64, 128
 			a.model.Draft = "keep editing"
 			a.LoadEarlierHistory()
-			operation := a.sessionOperation
+			operation := a.sessionSlot.id
 			a.LoadEarlierHistory()
-			if a.sessionOperation != operation {
+			if a.sessionSlot.id != operation {
 				t.Fatal("duplicate history request was not rejected")
 			}
 			if !a.model.History.Busy || a.model.SessionBusy || !a.model.CanChooseSession() || !a.model.CanEditSettings() || a.model.CanLoadHistory() {

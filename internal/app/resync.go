@@ -74,7 +74,7 @@ func (a *App) queueResync(notification hostNotification) {
 	job.bytes += len(notification.params)
 }
 
-func (a *App) bufferResyncNotification(method string, params json.RawMessage) bool {
+func (a *App) bufferResyncNotificationFrom(source *hostInstance, method string, params json.RawMessage) bool {
 	switch method {
 	case protocol.NotificationSessionEvent, protocol.NotificationSessionStatus, protocol.NotificationSessionAssistantStream,
 		protocol.NotificationApprovalRequest, protocol.NotificationApprovalClosed,
@@ -92,7 +92,7 @@ func (a *App) bufferResyncNotification(method string, params json.RawMessage) bo
 	if envelope.SessionID != a.sessionID && !(envelope.SessionID == "" && (method == protocol.NotificationQuestionRequest || method == protocol.NotificationQuestionClosed)) {
 		return true
 	}
-	a.queueResync(hostNotification{method: method, params: params})
+	a.queueResync(hostNotification{host: source, method: method, params: params})
 	return true
 }
 
@@ -219,11 +219,7 @@ func (a *App) readResync(job *resyncState) {
 			buffer := job.buffer
 			a.cancelResync()
 			for _, notification := range buffer {
-				if notification.apply != nil {
-					notification.apply()
-				} else {
-					a.handleNotification(notification.method, notification.params)
-				}
+				a.processNotification(notification)
 				if a.model.Phase == view.PhaseFailed || a.resync != nil {
 					break
 				}

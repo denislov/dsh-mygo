@@ -290,3 +290,30 @@
 - 教训：集中名称和已消费 kind 能消除拼写漂移，但外层信封类型化不应把嵌套事件/流帧也搬进 protocol；seq 的缺失与零值必须在解码边界保留，SDK 点分名称只能经显式模式转换。
 - 做法：protocol 集中方法/通知常量、外层 DTO 与三个错误 kind；projection 的 event 解码返回 seq 存在性，stream 帧保持原始对象；app 分发/缓冲/错误分支改用常量，未知事件、非法帧与自定义通道的 SDK 名称拒绝保持。双端 notifications fixture 固定外层，真实 Restart/resync/流式/交互回归通过。
 - 固化：未固化
+
+## L-030 回合布尔抽成纯追踪器，Phase 仍归 UI 生命周期
+
+- 出现次数：1
+- 来源：2026-10-26 阶段 2 回合转换
+- 现象：awaiting/sawActivity/cancelIdle/promptID/delivery 与 cancelPending、Phase 混在 App 主线程字段中，idle 认领、取消确认和早到 idle 的规则只能从调用点拼出。
+- 教训：prompt 身份与取消/认领布尔可以独立于 UI 与 I/O 表达，但展示 Phase 和审批/提问/流清理副作用不应塞进同一枚举。
+- 做法：turnTracker 提供提交、活动、idle 认领、取消开始/idle/完成/超时、reset、resync 恢复与失败转换；App 保留 Phase 与所有副作用；表驱动测试固定事件序列。
+- 固化：未固化
+
+## L-031 Host 资源不可复用，关闭与失败必须携带捕获实例
+
+- 出现次数：1
+- 来源：2026-10-26 阶段 2 Host 一代资源
+- 现象：client/supervisor/generation 分散在 App，异步 stop 与 watcher 重新读取“当前 Host”，慢 stop 或迟到失败可能作用于新 Host。
+- 教训：每次启动的资源应作为不可复用对象持有 generation/closed；关闭和失败只能作用于捕获对象，诊断只读停止后的 PID/stderr。
+- 做法：hostInstance 拥有 client/supervisor/closed 与幂等 stop；通知入口、读循环、watcher、初始化/失败发布绑定实例；Restart/切换先 detach；failHost 允许刚停止的当前代报告故障但拒绝被新代取代的迟到失败。
+- 固化：未固化
+
+## L-032 统一版本令牌/取消不等于统一领域身份与提交边界
+
+- 出现次数：1
+- 来源：2026-10-26 阶段 2 operation 与通知边界
+- 现象：会话、设置、子代理读取各自维护 operation+cancel；Runtime 只增 generation，工作区需要多路并行；通知队列混放 Host 帧与本机回调。
+- 教训：可以共用版本/取消原语，但会话 id、Host 代、父子/路径身份与写入不确定状态必须留在领域；Host 帧携带来源实例，本机回调不携带，不能随换代一起丢弃。
+- 做法：operationSlot 只做 id/cancel；各领域保留身份校验与策略；hostNotification 携带 host，processNotification 统一有序提交并过滤旧代，apply 回调无 host 继续执行；诊断组件集中日志/文件/锁/脱敏。
+- 固化：未固化

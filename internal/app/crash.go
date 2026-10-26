@@ -5,29 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 )
-
-var secretPatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)(^|[^A-Za-z0-9])(api[_-]?key|token|secret|password)\s*[:=]\s*["']?[A-Za-z0-9._~+/=-]{6,}["']?`),
-	regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._~+/-]{6,}=*`),
-	regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{6,}`),
-}
-
-// redactSecrets removes credential-shaped values before they reach a log or a
-// crash report. It deliberately does not attempt to classify ordinary text.
-func redactSecrets(text string) string {
-	for index, pattern := range secretPatterns {
-		if index == 0 {
-			text = pattern.ReplaceAllString(text, "${1}[REDACTED]")
-			continue
-		}
-		text = pattern.ReplaceAllString(text, "[REDACTED]")
-	}
-	return text
-}
 
 type crashReport struct {
 	Time     time.Time

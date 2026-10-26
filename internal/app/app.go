@@ -9,8 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
-	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -131,8 +129,7 @@ type App struct {
 	nextSeq             uint64
 	batchUpdating       bool
 	transcriptDirty     bool
-	sessionOperation    uint64
-	sessionCancel       context.CancelFunc
+	sessionSlot         operationSlot
 	loadingSession      string
 	sessionBuffer       []hostNotification
 	sessionBufferBytes  int
@@ -152,13 +149,12 @@ type App struct {
 	drafts              map[string]string
 	local               *localEditingState
 	quitReady           bool
-	settingsOperation   uint64
-	settingsCancel      context.CancelFunc
+	settingsSlot        operationSlot
 	runtimeGeneration   uint64
 	runtimeCancel       context.CancelFunc
 	switchMu            sync.Mutex
 	switchRuntime       *runtimeSwitch
-	inspectionRead      subagentReadState
+	inspectionRead      operationSlot
 	restarting          bool
 
 	hostGeneration atomic.Uint64
@@ -166,9 +162,7 @@ type App struct {
 	stopped        chan struct{}
 	pendingUI      chan struct{}
 
-	logMu   sync.Mutex
-	logger  *log.Logger
-	logFile *os.File
+	diag *diagnostics
 }
 
 // New creates an app. The caller starts it once the window exists.
@@ -179,7 +173,7 @@ func New(options Options) *App {
 	if options.Profile == "" {
 		options.Profile = "mygo"
 	}
-	app := &App{options: options, sessionID: options.SessionID, stopped: make(chan struct{}), pendingUI: make(chan struct{}, maxPendingUIUpdates)}
+	app := &App{options: options, sessionID: options.SessionID, stopped: make(chan struct{}), pendingUI: make(chan struct{}, maxPendingUIUpdates), diag: newDiagnostics(options.LogDir)}
 	app.model = view.NewModel()
 	app.configureWorkspace()
 	app.model.AppVersion = channel.ReleaseVersion
@@ -244,7 +238,6 @@ func New(options Options) *App {
 	app.model.Quit = options.Quit
 	app.model.CanOpenLogs = options.LogDir != ""
 	app.model.ActiveRoute = view.ModelRoute{Provider: options.Provider, Model: options.Model, Effort: options.ReasoningEffort}
-	app.openLog()
 	app.configureLocalState()
 	app.logf("app created: version=%s protocol=%d dsh=%s", channel.ReleaseVersion, channel.ProtocolVersion, channel.DSHVersion)
 	return app
@@ -972,23 +965,30 @@ func (a *App) DismissError() {
 	a.model.ErrorDetail = ""
 }
 
-// handleNotification runs on the main thread.
+// handleNotification runs on the main thread for tests and direct callers that
+// do not carry a Host generation.
 func (a *App) handleNotification(method string, params json.RawMessage) {
+	a.handleNotificationFrom(nil, method, params)
+}
+
+// handleNotificationFrom commits one notification. source is the Host instance
+// that emitted it, or nil for SDK/test callers and local state.
+func (a *App) handleNotificationFrom(source *hostInstance, method string, params json.RawMessage) {
 	if a.shuttingDown.Load() || a.model.Phase == view.PhaseFailed {
 		return
 	}
 	if a.model.Phase == view.PhaseResyncing {
-		if a.resync == nil || a.bufferResyncNotification(method, params) {
+		if a.resync == nil || a.bufferResyncNotificationFrom(source, method, params) {
 			return
 		}
 	}
 	if !a.options.SDKProtocol {
-		if a.bufferSessionNotification(method, params) {
+		if a.bufferSessionNotificationFrom(source, method, params) {
 			return
 		}
 		switch method {
 		case protocol.NotificationSessionAssistantStream:
-			a.handleStreamNotification(params)
+			a.handleStreamNotificationFrom(source, params)
 			return
 		case protocol.NotificationQuestionRequest, protocol.NotificationQuestionClosed:
 			a.handleQuestionNotification(method, params)
@@ -1018,104 +1018,116 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 	}
 	switch method {
 	case protocol.NotificationSDKSessionEvent:
-		var envelope protocol.SessionEventNotification
-		if json.Unmarshal(params, &envelope) != nil || envelope.SessionID == "" {
-			if !a.options.SDKProtocol {
-				a.setFailure("Invalid host event", errors.New("The host sent an invalid session event"))
-				go a.stopHost()
-			}
-			return
-		}
-		event, eventSeq, err := projection.DecodeEvent(envelope.Event)
-		if err != nil {
-			if !a.options.SDKProtocol {
-				a.setFailure("Invalid host event", errors.New("The host sent an invalid session event"))
-				go a.stopHost()
-			}
-			return
-		}
-		if envelope.SessionID != a.sessionID {
-			return
-		}
+		a.handleSessionEventNotification(source, params)
+	case protocol.NotificationSDKSessionStatus:
+		a.handleSessionStatusNotification(params)
+	}
+}
+
+// handleSessionEventNotification validates the durable envelope and commits one
+// event to the projection.
+func (a *App) handleSessionEventNotification(source *hostInstance, params json.RawMessage) {
+	var envelope protocol.SessionEventNotification
+	if json.Unmarshal(params, &envelope) != nil || envelope.SessionID == "" {
 		if !a.options.SDKProtocol {
-			if envelope.Seq == nil || eventSeq == nil || *envelope.Seq != event.Seq {
-				a.setFailure("Invalid session event sequence", errors.New("The host sent an inconsistent session event sequence"))
-				go a.stopHost()
-				return
+			a.setFailure("Invalid host event", errors.New("The host sent an invalid session event"))
+			go a.stopHost()
+		}
+		return
+	}
+	event, eventSeq, err := projection.DecodeEvent(envelope.Event)
+	if err != nil {
+		if !a.options.SDKProtocol {
+			a.setFailure("Invalid host event", errors.New("The host sent an invalid session event"))
+			go a.stopHost()
+		}
+		return
+	}
+	if envelope.SessionID != a.sessionID {
+		return
+	}
+	if !a.options.SDKProtocol {
+		if envelope.Seq == nil || eventSeq == nil || *envelope.Seq != event.Seq {
+			a.setFailure("Invalid session event sequence", errors.New("The host sent an inconsistent session event sequence"))
+			go a.stopHost()
+			return
+		}
+		if *envelope.Seq < a.nextSeq {
+			return
+		}
+		if *envelope.Seq > a.nextSeq {
+			a.requireResync(errors.New("The host event sequence skipped a frame"))
+			if a.resync != nil {
+				a.bufferResyncNotificationFrom(source, protocol.NotificationSessionEvent, params)
 			}
-			if *envelope.Seq < a.nextSeq {
-				return
+			return
+		}
+		a.nextSeq++
+		a.sessionCatalogDirty = true
+		if event.Type == "permission/preset" || event.Type == "sandbox/mode" || event.Type == "approval/policy" {
+			a.model.Permission.Ready = false
+			a.model.Permission.Confirm = false
+		}
+		if event.Type == "session/title" {
+			var data struct {
+				Title string `json:"title"`
 			}
-			if *envelope.Seq > a.nextSeq {
-				a.requireResync(errors.New("The host event sequence skipped a frame"))
-				if a.resync != nil {
-					a.bufferResyncNotification(protocol.NotificationSessionEvent, params)
-				}
-				return
-			}
-			a.nextSeq++
-			a.sessionCatalogDirty = true
-			if event.Type == "permission/preset" || event.Type == "sandbox/mode" || event.Type == "approval/policy" {
-				a.model.Permission.Ready = false
-				a.model.Permission.Confirm = false
-			}
-			if event.Type == "session/title" {
-				var data struct {
-					Title string `json:"title"`
-				}
-				if json.Unmarshal(event.Data, &data) == nil {
-					a.sessionTitleSeq = a.nextSeq
-					a.sessionTitle = data.Title
-					for index, summary := range a.model.Sessions {
-						if summary.ID == a.sessionID {
-							a.model.Sessions[index].Title = data.Title
-						}
+			if json.Unmarshal(event.Data, &data) == nil {
+				a.sessionTitleSeq = a.nextSeq
+				a.sessionTitle = data.Title
+				for index, summary := range a.model.Sessions {
+					if summary.ID == a.sessionID {
+						a.model.Sessions[index].Title = data.Title
 					}
 				}
 			}
 		}
-		if isTurnActivity(event.Type) {
-			a.turn.noteActivity()
+	}
+	if isTurnActivity(event.Type) {
+		a.turn.noteActivity()
+	}
+	a.stream.Commit(event)
+	a.transcript.Apply(event)
+	if a.canHistoryWindow {
+		if start, trimmed := a.transcript.TrimRecent(); trimmed {
+			a.model.History.Start = start
 		}
-		a.stream.Commit(event)
-		a.transcript.Apply(event)
-		if a.canHistoryWindow {
-			if start, trimmed := a.transcript.TrimRecent(); trimmed {
-				a.model.History.Start = start
-			}
+	}
+	a.publishTranscript()
+}
+
+// handleSessionStatusNotification validates status identity and revision before
+// applying the lifecycle transition.
+func (a *App) handleSessionStatusNotification(params json.RawMessage) {
+	var notification protocol.SessionStatusNotification
+	if json.Unmarshal(params, &notification) != nil {
+		if !a.options.SDKProtocol {
+			a.setFailure("Invalid host status", errors.New("The host sent an invalid session status"))
+			go a.stopHost()
 		}
-		a.publishTranscript()
-	case protocol.NotificationSDKSessionStatus:
-		var notification protocol.SessionStatusNotification
-		if json.Unmarshal(params, &notification) != nil {
-			if !a.options.SDKProtocol {
-				a.setFailure("Invalid host status", errors.New("The host sent an invalid session status"))
-				go a.stopHost()
-			}
-			return
-		}
-		if notification.SessionID != a.sessionID {
-			return
-		}
-		if !a.options.SDKProtocol && notification.Status != "idle" && notification.Status != "running" {
-			a.setFailure("Invalid host status", errors.New("The host sent an unknown session status"))
+		return
+	}
+	if notification.SessionID != a.sessionID {
+		return
+	}
+	if !a.options.SDKProtocol && notification.Status != "idle" && notification.Status != "running" {
+		a.setFailure("Invalid host status", errors.New("The host sent an unknown session status"))
+		go a.stopHost()
+		return
+	}
+	if a.model.CanResync {
+		if notification.StatusRevision == nil || *notification.StatusRevision > maxSafeInteger {
+			a.setFailure("Invalid host status revision", errors.New("The host sent an invalid status revision"))
 			go a.stopHost()
 			return
 		}
-		if a.model.CanResync {
-			if notification.StatusRevision == nil || *notification.StatusRevision > maxSafeInteger {
-				a.setFailure("Invalid host status revision", errors.New("The host sent an invalid status revision"))
-				go a.stopHost()
-				return
-			}
-			if *notification.StatusRevision <= a.statusRevision {
-				return
-			}
-			a.statusRevision = *notification.StatusRevision
+		if *notification.StatusRevision <= a.statusRevision {
+			return
 		}
-		a.hostStatus = notification.Status
-		a.applyStatus(notification.Status)
+		a.statusRevision = *notification.StatusRevision
 	}
+	a.hostStatus = notification.Status
+	a.applyStatus(notification.Status)
 }
 
 func (a *App) applyStatus(status string) {
@@ -1312,44 +1324,12 @@ func (a *App) post(fn func()) {
 	}
 }
 
-func (a *App) openLog() {
-	a.logMu.Lock()
-	defer a.logMu.Unlock()
-	if a.options.LogDir == "" {
-		return
-	}
-	if err := os.MkdirAll(a.options.LogDir, 0o755); err != nil {
-		a.logger = log.New(os.Stderr, "", log.LstdFlags|log.LUTC)
-		a.logger.Printf("create log directory %s: %v", a.options.LogDir, err)
-		return
-	}
-	path := filepath.Join(a.options.LogDir, "dsh-mygo.log")
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		a.logger = log.New(os.Stderr, "", log.LstdFlags|log.LUTC)
-		a.logger.Printf("open log %s: %v", path, err)
-		return
-	}
-	a.logFile = file
-	a.logger = log.New(file, "", log.LstdFlags|log.LUTC)
-}
-
 func (a *App) logf(format string, args ...any) {
-	a.logMu.Lock()
-	defer a.logMu.Unlock()
-	if a.logger != nil {
-		a.logger.Printf(format, args...)
-	}
+	a.diag.logf(format, args...)
 }
 
 func (a *App) closeLog() {
-	a.logMu.Lock()
-	defer a.logMu.Unlock()
-	if a.logFile != nil {
-		_ = a.logFile.Close()
-		a.logFile = nil
-	}
-	a.logger = nil
+	a.diag.close()
 }
 
 // captureCrash snapshots the failure and writes it off the main thread.
@@ -1379,18 +1359,7 @@ func (a *App) captureCrash(summary string, err error) {
 		PID:      pid,
 		Stderr:   a.stderrTail(),
 	}
-	go func() {
-		a.logf("failure: %s", summary)
-		if detail != "" {
-			a.logf("detail: %s", redactSecrets(detail))
-		}
-		path, writeErr := writeCrashReport(a.options.LogDir, report)
-		if writeErr != nil {
-			a.logf("crash report failed: %v", writeErr)
-			return
-		}
-		a.logf("crash report: %s", path)
-	}()
+	a.diag.capture(report)
 }
 
 func (a *App) supervisorPID() int {

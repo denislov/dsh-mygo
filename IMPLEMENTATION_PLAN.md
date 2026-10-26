@@ -119,13 +119,14 @@ flowchart TD
 **目标**: 将回合转换、Host 一代资源、异步结果有效性与故障处理建立成可测试边界。
 **成功标准**: worker 不读取可变 UI 状态；旧 Host 的已排队通知、失败和关闭不会作用于新 Host；取消与 resync 的既有屏障不丢失。
 **测试**: 受控 RPC/队列屏障、表驱动事件序列、Host 进程回收、race、真实 Restart/resync/取消与退出。
-**状态**: 未开始
+**状态**: 已完成（2.1–2.5）
 
-### 2.1 回合与生命周期时序基线（中）
+### 2.1 回合与生命周期时序基线（中，已完成）
 
 - **范围/依赖**：依赖 1.2/1.3/1.7；梳理 `awaitingTurn/sawActivity/cancelIdle/promptID/promptDone`、Phase、CancelPending 和 resync 的转换。
 - **实施/交付**：形成事件/状态/副作用表，补足当前测试缺口；枚举提交、活动、idle、取消确认、失败、换会话、resync、Host 换代。先区分同代展示清空与新 Agent 版本重建。
 - **验收/回归**：覆盖 idle 早于 claim、取消等投递、idle 早于 cancel 响应、取消超时后迟到 idle、旧投递失败、resync 中取消确认；测试不能通过并发调用仅允许主线程的 setter 制造假 race。
+- **完成记录（2026-10-26）**：在 `docs/subsystem/session-projection.md` 固化回合生命周期事件/状态/副作用表，覆盖提交、认领、idle、取消确认、初始化/换会话、Restart、失败与 resync；补 prompt 投递失败恢复草稿用例。既有 idle/cancel/resync 屏障测试保持。实际检查：`go test ./internal/app -run TestPromptDeliveryFailureRestoresDraftAndClearsTurn` 通过。
 
 ### 2.2 提取回合转换组件（高，已完成）
 
@@ -141,17 +142,19 @@ flowchart TD
 - **验收/回归**：旧 watcher、读循环错误、慢 stop 和重复 Close 不关闭或覆盖新 Host；启动中退出、失败候选/回滚、排队旧事件、UI 背压停止与进程树回收都有用例。保持 stdout 纯净、stderr 有界和 Windows Job Object 行为。
 - **完成记录（2026-10-26）**：新增 `internal/app/host.go` 的不可复用 Host 实例，持有 client/supervisor/generation/closed 与幂等 stop；App 改为 currentHost/installHost/detachHost/stopHostInstance，通知入口、读循环、watcher、初始化发布与失败发布都绑定捕获实例。Restart 与 Runtime 切换先 detach 再异步停止旧实例；关闭后的实例仅保留只读 PID/stderr 诊断。实际检查：`go test ./internal/app` 256 项、`go test ./...` 735 项通过；新增旧通知/旧失败/重复 stop/关闭后安装用例。
 
-### 2.4 按语义收拢异步 operation/cancel（高）
+### 2.4 按语义收拢异步 operation/cancel（高，已完成）
 
 - **范围/依赖**：依赖 2.3；逐项核查 session/settings/runtime/inspection/workspace/mention，而非统一替换七处。
 - **实施/交付**：先抽完全相同的版本令牌/取消基础；每个领域继续持有会话、Host、路径或子任务身份。读取、持久写入、Runtime 事务、工作区多路并行使用不同策略。
 - **验收/回归**：旧结果在取消、换会话/目录、Host 换代、关闭面板后失效；写入超时仍保留不确定状态，不能因为丢弃响应就允许下一次写入。相互独立的工作区目录读取不被一个全局 Slot 错误串行化/取消。
+- **完成记录（2026-10-26）**：新增 `internal/app/operation.go` 的 operationSlot（版本 id + 取消），用于会话、设置和子代理读取；每个领域继续独立校验 session id、Host generation、父/子身份、路径或目录。Runtime 保留 generation/cancel 事务，工作区保留 generation、preview/diff 请求号与按路径加载状态。实际检查：`go test ./internal/app` 257 项、`go test ./...` 737 项通过；新增 slot 失效/取消与独立目录读取用例。
 
-### 2.5 通知路由、故障与诊断边界（高）
+### 2.5 通知路由、故障与诊断边界（高，已完成）
 
 - **范围/依赖**：依赖 1.7、2.2–2.4；涉及 `stream.go` 的有界批次、`handleNotification`、`setFailure` 和 `crash.go`。
 - **实施/交付**：先保留原队列顺序，再按通知类型拆 handler；Host 相关消息在发布时校验所属代，RPC 回调与通知仍经过同一有序提交边界。本机保存/设备偏好回调按各自生命周期判定，不能随 Host 换代全部丢弃。failure helper 显式携带目标 Host；诊断组件拥有 logger/文件/锁与脱敏策略。
 - **验收/回归**：seq 去重、缺口、状态 revision、resync 缓冲与 batch 单次投影发布保持；通知与回调不能因新 dispatcher 重排。第一次故障原因不被迟到失败覆盖，自定义模式不展示原始 stderr，SDK 有界诊断兼容，秘密不进入日志/报告。
+- **完成记录（2026-10-26）**：`hostNotification` 携带来源 Host 实例，`processNotification` 作为通知/RPC 回调和本机回调的统一有序提交边界；event/status handler 单独拆出。`failHost` 绑定目标 Host，首次失败保持。日志、文件、锁、崩溃报告捕获与 secret 脱敏集中到 `diagnostics`，App 仅构造已定界报告。实际检查：`go test ./internal/app` 260 项、`go test ./...` 737 项通过；新增旧代状态丢弃/本机回调保留、首次失败不被覆盖用例。
 
 ## 阶段 3: 收拢领域所有权并缩小 App 装配职责
 

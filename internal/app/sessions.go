@@ -34,11 +34,7 @@ func (a *App) CloseSessions() {
 }
 
 func (a *App) cancelSessionOperation() {
-	a.sessionOperation++
-	if a.sessionCancel != nil {
-		a.sessionCancel()
-		a.sessionCancel = nil
-	}
+	a.sessionSlot.invalidate()
 	a.model.SessionBusy = false
 	a.model.SessionSwitching = false
 	a.model.SessionPanel.Refreshing = false
@@ -49,18 +45,16 @@ func (a *App) cancelSessionOperation() {
 	a.sessionBufferBytes = 0
 }
 
-func (a *App) beginSessionOperation() (context.Context, uint64) {
+func (a *App) beginSessionOperation() (context.Context, uint64, context.CancelFunc) {
 	a.CloseSubagents()
 	a.cancelSessionOperation()
 	a.model.SessionBusy = true
 	a.model.SessionsError = ""
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	a.sessionCancel = cancel
-	return ctx, a.sessionOperation
+	return a.sessionSlot.begin(60 * time.Second)
 }
 
 func (a *App) currentSessionOperation(operation uint64) bool {
-	return operation == a.sessionOperation && !a.shuttingDown.Load() && a.model.Phase != view.PhaseFailed
+	return a.sessionSlot.valid(operation) && !a.shuttingDown.Load() && a.model.Phase != view.PhaseFailed
 }
 
 func (a *App) RefreshSessions() {
@@ -71,13 +65,12 @@ func (a *App) refreshSessions(background bool) {
 	if a.options.SDKProtocol || a.shuttingDown.Load() || !a.model.CanRefreshSessions() || a.currentClient() == nil {
 		return
 	}
-	ctx, operation := a.beginSessionOperation()
+	ctx, operation, cancel := a.beginSessionOperation()
 	if background {
 		a.model.SessionBusy = false
 		a.model.SessionPanel.Refreshing = true
 	}
 	client := a.currentClient()
-	cancel := a.sessionCancel
 	includeArchived := a.model.SessionPanel.CanArchive
 	needsHistory, id, minimumSeq, window := a.sessionNeedsHistory, a.sessionID, a.nextSeq, a.canHistoryWindow
 	go func() {
@@ -149,11 +142,10 @@ func (a *App) loadSessionInDirectory(id, cwd string) {
 		return
 	}
 	workspaceRequired := a.model.Setup.WorkspaceRequired && id == "" && cwd == a.model.SessionCWD
-	ctx, operation := a.beginSessionOperation()
+	ctx, operation, cancel := a.beginSessionOperation()
 	a.model.SessionSwitching = true
 	a.loadingSession = id
 	client := a.currentClient()
-	cancel := a.sessionCancel
 	route := a.sessionRoute(a.model.CanConfigure)
 	method := protocol.MethodSessionResume
 	var params any
@@ -277,7 +269,7 @@ func (a *App) loadSessionInDirectory(id, cwd string) {
 			a.model.SessionsOpen = false
 			for _, notification := range buffer {
 				if notification.method != protocol.NotificationSessionAssistantStream {
-					a.handleNotification(notification.method, notification.params)
+					a.processNotification(notification)
 				}
 			}
 			a.publishTranscript()
@@ -285,7 +277,7 @@ func (a *App) loadSessionInDirectory(id, cwd string) {
 	}()
 }
 
-func (a *App) bufferSessionNotification(method string, params json.RawMessage) bool {
+func (a *App) bufferSessionNotificationFrom(source *hostInstance, method string, params json.RawMessage) bool {
 	if !a.model.SessionSwitching || a.loadingSession == "" {
 		return false
 	}
@@ -310,7 +302,7 @@ func (a *App) bufferSessionNotification(method string, params json.RawMessage) b
 		go a.stopHost()
 		return true
 	}
-	a.sessionBuffer = append(a.sessionBuffer, hostNotification{method: method, params: params})
+	a.sessionBuffer = append(a.sessionBuffer, hostNotification{host: source, method: method, params: params})
 	a.sessionBufferBytes += len(params)
 	return true
 }

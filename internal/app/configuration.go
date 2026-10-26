@@ -134,8 +134,8 @@ func (a *App) ClearCredential() {
 }
 
 func (a *App) writeConfiguration(method string, params any, confirm func(view.Configuration) error) {
-	ctx, operation := a.beginSettingsOperationTimeout(60 * time.Second)
-	cancel, client, id := a.settingsCancel, a.currentClient(), a.sessionID
+	ctx, operation, cancel := a.beginSettingsOperationTimeout(60 * time.Second)
+	client, id := a.currentClient(), a.sessionID
 	a.model.SettingsApplying = true
 	a.model.SettingsWritingConfiguration = true
 	a.model.SettingsNotice = ""

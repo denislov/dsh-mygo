@@ -147,7 +147,7 @@ Ready/Failed → SwitchRequested → Stopping → Starting(candidate) → Initia
 | 协议错误 | 日志 + UI 技术详情 |
 | 崩溃报告 | `PathLogs/crash-<UTC>-<source>.log` |
 
-崩溃报告包含：版本、平台、Host 进程 id、stderr 尾部、当前会话 id、失败摘要与详情。写入前把 API key、Bearer token、password/secret 形状的值替换为 `[REDACTED]`；不写环境变量、cookie 或附件内容。
+崩溃报告包含：版本、平台、Host 进程 id、stderr 尾部、当前会话 id、失败摘要与详情。写入前把 API key、Bearer token、password/secret 形状的值替换为 `[REDACTED]`；不写环境变量、cookie 或附件内容。日志文件、写锁、报告命名与脱敏策略由诊断组件持有，App 只提供已定界的摘要、详情和目标 Host 诊断；自定义模式不把 stderr 原文放进错误横幅，SDK 回归模式保留有界诊断。
 
 ## 失败模式
 

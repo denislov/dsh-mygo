@@ -72,9 +72,9 @@ func decodeManagedSession(raw json.RawMessage, id string) (protocol.SessionSumma
 }
 
 func (a *App) writeSession(id, title string, archived *bool) {
-	ctx, operation := a.beginSessionOperation()
+	ctx, operation, cancel := a.beginSessionOperation()
 	a.model.SessionPanel.Writing = true
-	client, cancel, currentID, startSeq := a.currentClient(), a.sessionCancel, a.sessionID, a.nextSeq
+	client, currentID, startSeq := a.currentClient(), a.sessionID, a.nextSeq
 	canArchive := a.model.SessionPanel.CanArchive
 	route := a.sessionRoute(a.model.CanConfigure)
 	retired := a.retiredSessionIDs(id)

@@ -2,8 +2,10 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -67,6 +69,52 @@ func TestOldHostNotificationsAndFailuresCannotTouchNewGeneration(t *testing.T) {
 	(<-updates)()
 	if application.model.Phase != view.PhaseFailed {
 		t.Fatal("current host failure was suppressed")
+	}
+}
+
+func TestNotificationCommitBoundaryRejectsOldHostAndKeepsLocalCallbacks(t *testing.T) {
+	application := New(Options{Post: func(fn func()) { fn() }})
+	application.sessionID = "s1"
+	application.model.SessionID = "s1"
+	application.model.Phase = view.PhaseIdle
+	application.hostGeneration.Store(2)
+	old := &hostInstance{generation: 1, client: &fakeClient{}}
+	newer := &hostInstance{generation: 2, client: &fakeClient{}}
+	if !application.installHost(newer) {
+		t.Fatal("new host was not installed")
+	}
+	status := json.RawMessage(`{"sessionId":"s1","status":"running"}`)
+	application.processNotification(hostNotification{host: old, method: protocol.NotificationSessionStatus, params: status})
+	if application.hostStatus != "" || application.model.Phase != view.PhaseIdle {
+		t.Fatal("old host status was committed")
+	}
+	application.processNotification(hostNotification{host: newer, method: protocol.NotificationSessionStatus, params: status})
+	if application.hostStatus != "running" || application.model.Phase != view.PhaseRunning {
+		t.Fatal("current host status was not committed")
+	}
+	application.stopHost()
+	applied := 0
+	application.processNotification(hostNotification{apply: func() { applied++ }})
+	if applied != 1 {
+		t.Fatal("local callback was dropped with the host generation")
+	}
+}
+
+func TestFirstHostFailureReasonWins(t *testing.T) {
+	updates := make(chan func(), 4)
+	application := New(Options{Post: func(fn func()) { updates <- fn }})
+	application.model.Phase = view.PhaseIdle
+	application.hostGeneration.Store(1)
+	instance := &hostInstance{generation: 1, client: &fakeClient{}}
+	if !application.installHost(instance) {
+		t.Fatal("host was not installed")
+	}
+	application.failHost(instance, "first failure", errors.New("one"))
+	(<-updates)()
+	application.failHost(instance, "late failure", errors.New("two"))
+	(<-updates)()
+	if application.model.Error != "first failure" || application.model.ErrorDetail != "one" {
+		t.Fatalf("failure was overwritten: %+v", application.model)
 	}
 }
 

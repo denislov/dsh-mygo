@@ -122,7 +122,21 @@ func (a *App) forwardHostNotification(instance *hostInstance, incoming chan host
 		return
 	}
 	select {
-	case incoming <- hostNotification{method: method, params: params}:
+	case incoming <- hostNotification{host: instance, method: method, params: params}:
 	case <-a.stopped:
 	}
+}
+
+// processNotification is the single ordered commit boundary for host frames and
+// main-thread callbacks. Host frames carry their generation; local callbacks
+// have no host and survive a generation change.
+func (a *App) processNotification(notification hostNotification) {
+	if notification.host != nil && !a.isCurrentHost(notification.host) {
+		return
+	}
+	if notification.apply != nil {
+		notification.apply()
+		return
+	}
+	a.handleNotificationFrom(notification.host, notification.method, notification.params)
 }

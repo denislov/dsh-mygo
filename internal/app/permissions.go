@@ -87,10 +87,10 @@ func (a *App) ApplyPermission() {
 		SessionID: a.sessionID, Preset: option.ID, ExpectedNextSeq: a.nextSeq, ConfirmDangerous: state.Confirm,
 	}
 	state.Confirm = false
-	ctx, operation := a.beginSettingsOperationTimeout(60 * time.Second)
+	ctx, operation, cancel := a.beginSettingsOperationTimeout(60 * time.Second)
 	a.model.SettingsApplying = true
 	a.model.Permission.Writing = true
-	client, id, cancel, startSeq := a.currentClient(), a.sessionID, a.settingsCancel, a.nextSeq
+	client, id, startSeq := a.currentClient(), a.sessionID, a.nextSeq
 	go func() {
 		defer cancel()
 		raw, err := client.Call(ctx, protocol.MethodPermissionSelect, params)

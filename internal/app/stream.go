@@ -14,6 +14,7 @@ const notificationBatchBytes = 256 * 1024
 const notificationBatchInterval = 16 * time.Millisecond
 
 type hostNotification struct {
+	host   *hostInstance
 	method string
 	params json.RawMessage
 	apply  func()
@@ -62,11 +63,7 @@ func (a *App) runNotifications(incoming <-chan hostNotification) {
 			defer func() { <-a.pendingUI }()
 			a.batchUpdating = true
 			for _, notification := range batch {
-				if notification.apply != nil {
-					notification.apply()
-				} else {
-					a.handleNotification(notification.method, notification.params)
-				}
+				a.processNotification(notification)
 			}
 			a.batchUpdating = false
 			if a.transcriptDirty {
@@ -103,7 +100,7 @@ func (a *App) clearStream() {
 	a.publishTranscript()
 }
 
-func (a *App) handleStreamNotification(params json.RawMessage) {
+func (a *App) handleStreamNotificationFrom(source *hostInstance, params json.RawMessage) {
 	var notification protocol.AssistantStreamNotification
 	if json.Unmarshal(params, &notification) != nil || !validSessionID(notification.SessionID) {
 		a.setFailure("Invalid stream notification", errors.New("Invalid stream envelope"))
@@ -125,7 +122,7 @@ func (a *App) handleStreamNotification(params json.RawMessage) {
 	}
 	if a.canStreamBaseline && a.stream.NeedsResync() {
 		a.requireResync(errors.New("Assistant stream sequence gap"))
-		a.bufferResyncNotification(protocol.NotificationSessionAssistantStream, params)
+		a.bufferResyncNotificationFrom(source, protocol.NotificationSessionAssistantStream, params)
 		return
 	}
 	// A resync can already contain this attempt's commit before its buffered

@@ -65,6 +65,38 @@ func TestWorkspaceFilePreviewAndProjectSwitchRejectLateResults(t *testing.T) {
 	}
 }
 
+func TestWorkspaceDirectoryReadsRunIndependently(t *testing.T) {
+	a, updates := sessionTestApp(&fakeClient{})
+	root := t.TempDir()
+	for _, child := range []string{"one", "two"} {
+		if err := os.Mkdir(filepath.Join(root, child), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, child, child+".txt"), []byte(child), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.model.SessionCWD = root
+	a.syncWorkspace()
+	a.readWorkspaceDirectory("one")
+	a.readWorkspaceDirectory("two")
+	deadline := time.Now().Add(5 * time.Second)
+	for len(a.model.Workspace.Directories["one"]) == 0 || len(a.model.Workspace.Directories["two"]) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("independent reads did not both finish: %+v", a.model.Workspace.Directories)
+		}
+		workspaceUpdate(t, updates)()
+	}
+	if a.model.Workspace.Loading["one"] || a.model.Workspace.Loading["two"] {
+		t.Fatal("finished directory stayed loading")
+	}
+	a.readWorkspaceDirectory("missing")
+	workspaceUpdate(t, updates)()
+	if a.model.Workspace.FileError == "" || len(a.model.Workspace.Directories["one"]) != 1 || len(a.model.Workspace.Directories["two"]) != 1 {
+		t.Fatal("one failed directory read discarded another directory")
+	}
+}
+
 func TestWorkspacePreviewUsesReadonlyNativeCodeAndDoesNotChangeDraft(t *testing.T) {
 	a, updates := sessionTestApp(&fakeClient{})
 	root := t.TempDir()

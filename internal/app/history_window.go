@@ -106,12 +106,12 @@ func (a *App) loadHistoryPage(latest bool) {
 	if !a.canHistoryWindow || !a.model.CanLoadHistory() || !latest && a.model.History.Start == 0 {
 		return
 	}
-	ctx, operation := a.beginSessionOperation()
+	ctx, operation, cancel := a.beginSessionOperation()
 	// A background read must not dim the shell's navigation and composer.
 	// Keep the operation token so foreground actions can supersede its result.
 	a.model.SessionBusy = false
 	a.model.History.Busy = true
-	client, cancel, id, minimum := a.currentClient(), a.sessionCancel, a.sessionID, a.nextSeq
+	client, id, minimum := a.currentClient(), a.sessionID, a.nextSeq
 	start := a.model.History.Start
 	go func() {
 		defer cancel()

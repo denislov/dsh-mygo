@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"github.com/egoist/mygo/ui"
@@ -15,11 +14,6 @@ import (
 )
 
 const maxSubagentPageBytes = 256 * 1024
-
-type subagentReadState struct {
-	operation uint64
-	cancel    context.CancelFunc
-}
 
 type subagentHistoryPage struct {
 	Start, End, Next, Inherited uint64
@@ -99,11 +93,7 @@ func decodeSubagentHistory(raw json.RawMessage, parent, child string, before *ui
 }
 
 func (a *App) cancelSubagentRead() {
-	a.inspectionRead.operation++
-	if a.inspectionRead.cancel != nil {
-		a.inspectionRead.cancel()
-		a.inspectionRead.cancel = nil
-	}
+	a.inspectionRead.invalidate()
 	a.model.Inspection.Busy = false
 }
 
@@ -167,9 +157,8 @@ func (a *App) readSubagents(before *uint64) {
 		return
 	}
 	a.cancelSubagentRead()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	a.inspectionRead.cancel = cancel
-	operation, generation, parent, child := a.inspectionRead.operation, a.hostGeneration.Load(), p.ParentID, p.Selected
+	ctx, operation, cancel := a.inspectionRead.begin(20 * time.Second)
+	generation, parent, child := a.hostGeneration.Load(), p.ParentID, p.Selected
 	p.Busy, p.Error = true, ""
 	go func() {
 		defer cancel()
@@ -192,7 +181,7 @@ func (a *App) readSubagents(before *uint64) {
 		}
 		a.post(func() {
 			p := &a.model.Inspection
-			if a.shuttingDown.Load() || operation != a.inspectionRead.operation || generation != a.hostGeneration.Load() || !p.Open || parent != a.model.SessionID || child != p.Selected {
+			if a.shuttingDown.Load() || !a.inspectionRead.valid(operation) || generation != a.hostGeneration.Load() || !p.Open || parent != a.model.SessionID || child != p.Selected {
 				return
 			}
 			a.cancelSubagentRead()
