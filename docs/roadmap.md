@@ -142,6 +142,10 @@ node scripts/smoke-installer.mjs                # 未运行：本机已安装 ds
 
 本批验证：`go test ./...`、`CGO_ENABLED=0 go test ./...`、`go test -race ./...` 各 750 项通过；Node Host 96 项、scripts 10 项通过；`TestAgainstMygoRealComposition` 与 `node scripts/test-real-host.mjs --runtime` 通过（mock provider）；MyGo vet、Go vet、gofmt、`git diff --check` 通过。wire、protocolVersion、能力与 Node handlers 不变；原生窗口、安装器、macOS 与显式原生终端 smoke 未重验。阶段 3 的 3.1–3.9 全部完成，后续按计划进入阶段 4；发布阻塞与产品体验缺口不变。
 
+2026-10-26 阶段 4 View 子状态与动作边界：`view.Model` 按 Chat/Composer/Sessions/Settings/ModelRoute/Interaction/Recovery 区域组合，字段地址与控件 key 保持；各区域只消费自己的动作结构，能力门禁与回调缺席分离。菜单导航与建议持久化移到构建结束后的有界队列，普通 render 不执行发送/取消/切换/保存；Markdown 主题与安全链接集中配置且不保存帧作用域值。应用自有提示改用 i18n 具名 key 与参数，技术详情保持原文；composer 与 session 面板按语义拆分，重复控制/图标/header/缩略图尺寸进入 token。
+
+本批验证：`go test ./...`、`CGO_ENABLED=0 go test ./...`、`go test -race ./...` 各 758 项通过；Node Host 96 项、scripts 10 项通过；`TestAgainstMygoRealComposition`/`TestAgainstMygoFirstUse` 与 `node scripts/test-real-host.mjs --runtime` 通过（mock provider）；MyGo vet、Go vet、gofmt、`git diff --check` 通过。wire、protocolVersion、能力与 Node handlers 不变；Windows 原生窗口/UI Automation、安装器与 macOS 未重验。阶段 4 的 4.1–4.5 全部完成，后续按计划进入阶段 5；发布阻塞与产品体验缺口不变。
+
 ## 4. 缺口
 
 ### 4.1 发布阻塞（没有它不能称为产品）

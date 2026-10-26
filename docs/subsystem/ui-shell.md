@@ -15,7 +15,7 @@ UI 壳层是 MyGo 进程里的原生界面：
 
 | 文件 | 责任 |
 | --- | --- |
-| `internal/view/view.go`、`chrome.go`、`shell.go`、`style.go`、`tokens.go` | `Model`、页面布局、原生标题栏与菜单、会话详情、transcript 行、语义主题/尺寸 token 与 SVG 图标 |
+| `internal/view/view.go`、`model_regions.go`、`model_actions.go`、`chrome.go`、`shell.go`、`style.go`、`tokens.go` | `Model` 区域组合、页面布局、原生标题栏与菜单、会话详情、transcript 行、语义主题/尺寸 token 与 SVG 图标 |
 | `internal/view/composer.go`、`composer_toolbar.go`、`quick_select.go`、`attachments.go` | 一体化输入区、发送/停止、附件暂存与原生图片预览 |
 | `internal/view/preferences.go`、`internal/i18n/` | 设备级偏好、受门禁约束的命令、集中双语文案 |
 | `internal/app/app.go` | Host 启动/停止、版本握手、`session/create` / `session/prompt`、有界通知分发、`Window.Update` |
@@ -86,6 +86,10 @@ App
 - 会话真相在 Host；`Projection` 是可重建的缓存。
 - UI 偏好（滚动、折叠、草稿）可以本地持久化，但不进入 session log。
 - 所有 Host 事件的写入都在主线程完成，或先进入队列再由主线程合并。
+
+`Model` 按交互区域组合：`ChatState`（投影与历史窗口）、`ComposerState`（草稿、附件、提及与发送门禁）、`SessionsState`（导航、目录与管理表单）、`SettingsState`（设置、配置、权限与凭据）、`ModelRouteState`（当前路由与目录）、`InteractionState`（审批/提问队列）、`RecoveryState`（生命周期与恢复），以及具名的 `Workspace`、`Shell`、`Prefs`、`LocalState`、`Runtime` 资源。区域以匿名嵌入保持既有字段地址，迁移字段不改变控件 key、列表状态或滚动位置。
+
+每个区域只消费自己的动作结构（`ComposerActions`、`SessionActions`、`SettingsActions`、`InteractionActions`、`RecoveryActions`），不建立一个包揽全部回调的大接口；回调缺席表示动作不可用，能力字段（`CanCancel`、`CanApprove`、`CanModels`、`CanConfigure` 等）独立表达协商结果，不能把读取成功当成写入确认。普通构建只读取状态和处理显式输入事件；会话导航等需要等整棵视图构建结束后才能安全提交的业务动作进入有界队列，在 `View` 末尾执行并请求下一帧。应用自有提示使用 `i18n` 的具名 key 与 `T`/`Tf`；用户正文、工具输出、提问选项、模型 ID 与技术错误详情不经过词表。布局只把重复且具设计语义的尺寸放进 `tokens.go`，其余数值留在所属布局函数。
 
 ## 页面
 

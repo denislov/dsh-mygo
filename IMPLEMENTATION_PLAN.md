@@ -1,7 +1,7 @@
 # 后续重构完整实施计划（审阅稿）
 
 > 制定日期：2026-10-26。代码基线：`3d07c0e`。
-> 当前状态：已审阅并按阶段实施。阶段 1–3 已完成，阶段 4–5 未开始。
+> 当前状态：已审阅并按阶段实施。阶段 1–4 已完成，阶段 5 未开始。
 > 本文件覆盖代码审查方案的全部剩余重构，不再每完成一个小批次就重建或删除。整个计划完成后删除本文件及 AGENTS 中的临时入口，完成记录保留在 git 与路线图。
 
 ## 一、范围、基线与执行约定
@@ -231,37 +231,42 @@ flowchart TD
 **目标**: ViewModel 按交互区域组合，输入绑定与 UI 身份稳定，展示不拥有 Host 业务转换。
 **成功标准**: 不复制持久会话真相；业务门禁与 app 一致；字段移动不丢输入、焦点、滚动或展开状态；没有跨帧保存 Element/Context。
 **测试**: Tester 多帧/隐藏返回/焦点/键盘、宽窄最小窗口、Windows 原生输入与截图，必要时真实 Host 回归。
-**状态**: 未开始
+**状态**: 已完成
 
-### 4.1 按区域组合 Model（高）
+### 4.1 按区域组合 Model（高，已完成）
 
 - **范围/依赖**：依赖阶段 3；来源 `view.go`、sessions/settings/composer/recovery 与现有子状态。
 - **实施/交付**：按 Chat、Composer、Sessions、Settings、Recovery 等区域逐个迁移，复用现有 Runtime/Permission/History/Inspection/Workspace 状态。先固定控件 key 和绑定地址，再移动字段，避免整份 Model 替换。
 - **验收/回归**：输入法/多行草稿、列表阅读位置、展开与复制反馈、弹层关闭焦点、重复显示控件的状态都保持。Capabilities 与“Ready/Busy/Uncertain”等运行状态分开，不能把协商成功当作可写确认。
+- **完成记录（2026-10-26）**：新增 `model_regions.go`，Chat/Composer/Sessions/Settings/ModelRoute/Interaction/Recovery 区域以匿名嵌入组合，Workspace/Shell/Prefs/LocalState/Runtime 保持具名资源；控件 key、绑定地址、列表状态与字段选择器保持兼容。Composer/Session/Settings 动作结构独立，能力字段不随回调存在而变成可写。实际检查：`go test ./internal/view` 与 `go test ./internal/app` 通过；新增区域动作独立性用例。
 
-### 4.2 分区域动作接口（中）
+### 4.2 分区域动作接口（中，已完成）
 
 - **范围/依赖**：依赖 4.1；涉及 app 装配回调和 View 测试 fake。
 - **实施/交付**：按 Chat/Session/Settings/Runtime/Workspace 等区域收敛动作；接口或函数结构以实际使用者为准，不建立一个包揽全部回调的大接口。保留可选动作缺席与能力门禁表达。
 - **验收/回归**：View 不 import app/channel/host/runtimes；fake 不必实现无关动作。相同按钮、快捷键、菜单和程序入口仍使用相同业务门禁，无外部副作用发生在无条件 render 中。
+- **完成记录（2026-10-26）**：动作收敛为 `ComposerActions`、`SessionActions`、`SettingsActions`、`InteractionActions`、`RecoveryActions`，各区域只消费自己的回调；View 仍不 import app/channel/host/runtimes。动作缺席与能力门禁保持分离，区域可独立 fake。实际检查：`go test ./internal/view` 181 项、`go test ./internal/app` 271 项通过。
 
-### 4.3 构建期动作、Markdown 配置与导航顺序（中）
+### 4.3 构建期动作、Markdown 配置与导航顺序（中，已完成）
 
 - **范围/依赖**：依赖 4.1/4.2；涉及 View、composer、菜单、Markdown/code block。
 - **实施/交付**：区分 MyGo 输入处理/展示状态更新与业务副作用；菜单导航保留构建结束后的提交点。Markdown 主题/回调仅在有明确收益时改为局部配置，持久回调捕获 Services。
 - **验收/回归**：当前 MyGo v0.6.2 API 可用，不使用不存在的 c.Memo；不保存帧作用域值。反复构建、隐藏/返回、流式提交、链接/代码复制、切换主题与弹层导航没有额外 I/O、重复动作或身份冲突。
+- **完成记录（2026-10-26）**：`ShellState` 用有界队列把菜单导航与建议持久化提交到整棵视图构建结束后；纯构建测试确认发送/取消/切换/保存不会在 render 中执行。Markdown 主题与安全链接收敛到 `configureMarkdown`，每帧捕获窗口 Services，不保存帧作用域值；源码守卫禁止 `Context.Memo`。实际检查：`go test ./internal/view` 184 项通过。
 
-### 4.4 统一自有提示与本地化入口（中，按区域分提交）
+### 4.4 统一自有提示与本地化入口（中，按区域分提交，已完成）
 
 - **范围/依赖**：依赖 2.5、3.9、4.2；涉及 `internal/i18n`、app 的系统提示与 View 展示。
 - **实施/交付**：先迁移恢复/发送/设置错误，再迁移会话/Runtime/工作区提示；用具名消息 key 与参数表达应用自有文案。技术详情与用户/工具/Host 内容保持独立通道，保留必要英文诊断回退。
 - **验收/回归**：改标点不再破坏消息标识，参数在中英文中完整匹配；不翻译用户正文、工具输出、提问选项或模型 ID，不把秘密拼进参数/日志。错误摘要、重试动作与失败屏障不变。
+- **完成记录（2026-10-26）**：`internal/i18n` 新增具名应用消息目录与 `Text/Textf`；恢复、发送、设置、权限、会话、历史、子代理、Runtime、工作区与首次使用提示改用稳定 key，中文复用现有词表。技术错误详情、用户/工具/Host 内容保持原文；Runtime 对话框标题与状态也使用本地化 key。实际检查：i18n/view/app 合计 460 项通过；新增具名消息中英文/参数覆盖与渲染用例。
 
-### 4.5 布局函数与语义 token 整理（中）
+### 4.5 布局函数与语义 token 整理（中，已完成）
 
 - **范围/依赖**：依赖 4.1–4.3；来源 sessionPanel/composer/settings/活动卡片及 tokens。
 - **实施/交付**：按 header/search/list/row/form 和 attachments/mentions/input/toolbar 等语义拆函数；只有重复且具有设计语义的尺寸进入 tokens，不把每个数值机械命名。
 - **验收/回归**：不借重构改变外观或默认交互；消息/活动/输入共享阅读边界，最小窗口操作可达，标题栏系统按钮不被覆盖。Tester 校验真实回调与布局边界，Windows 核对宽/窄/最小客户区及主题/语言。
+- **完成记录（2026-10-26）**：composer 拆为附件、输入行、surface 与状态函数；sessionPanel 拆为状态、项目头、会话行与管理表单；控制/图标/header/附件缩略图使用语义 token，未机械命名全部数值。控件 key 与默认交互不变。实际检查：`go test ./internal/view` 186 项、`go test ./internal/app` 271 项通过；新增 token 基线用例。Windows 原生窗口本轮未重验。
 
 ## 阶段 5: 入口、Node、共用工具与工程验收
 
