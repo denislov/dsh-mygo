@@ -844,6 +844,9 @@ func prettyJSON(text string, limit int) string {
 	return clip(buffer.String(), limit)
 }
 
+// clip is the display-summary budget: it trims surrounding whitespace, counts
+// runes and appends a trailing ellipsis. It is intentionally not shared with
+// clipMarkdown (source-preserving, no trim) or app.clipDetail (tail-preserving).
 func clip(text string, limit int) string {
 	text = strings.TrimSpace(text)
 	if utf8.RuneCountInString(text) <= limit {

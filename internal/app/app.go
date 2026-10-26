@@ -20,6 +20,7 @@ import (
 	"dsh-mygo/internal/attachment"
 	"dsh-mygo/internal/channel"
 	"dsh-mygo/internal/host"
+	"dsh-mygo/internal/ids"
 	"dsh-mygo/internal/interaction"
 	"dsh-mygo/internal/platform"
 	"dsh-mygo/internal/projection"
@@ -791,17 +792,7 @@ func (a *App) resumeSession(ctx context.Context, client rpcClient, id string, in
 	}, nil
 }
 
-func validSessionID(value string) bool {
-	if len(value) == 0 || len(value) > 128 {
-		return false
-	}
-	for _, character := range value {
-		if character != '-' && character != '_' && !(character >= 'a' && character <= 'z') && !(character >= 'A' && character <= 'Z') && !(character >= '0' && character <= '9') {
-			return false
-		}
-	}
-	return true
-}
+func validSessionID(value string) bool { return ids.ValidIdentifier(value) }
 
 // Send queues one user prompt. It runs on the main thread and ignores calls
 // while the host is busy or not ready.
@@ -1360,6 +1351,9 @@ func isTurnActivity(eventType string) bool {
 	}
 }
 
+// clipDetail keeps the tail of a diagnostic, because the actionable part of a
+// failure usually follows the head. It is intentionally distinct from the
+// projection's head-preserving summary and Markdown source clips.
 func clipDetail(text string, limit int) string {
 	text = strings.TrimSpace(text)
 	if utf8.RuneCountInString(text) <= limit {

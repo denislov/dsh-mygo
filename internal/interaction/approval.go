@@ -2,6 +2,7 @@ package interaction
 
 import (
 	"bytes"
+	"dsh-mygo/internal/ids"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -25,17 +26,7 @@ type Approval struct {
 	Error      string `json:"-"`
 }
 
-func validID(value string) bool {
-	if len(value) == 0 || len(value) > 128 {
-		return false
-	}
-	for _, character := range value {
-		if character != '-' && character != '_' && !(character >= 'a' && character <= 'z') && !(character >= 'A' && character <= 'Z') && !(character >= '0' && character <= '9') {
-			return false
-		}
-	}
-	return true
-}
+func validID(value string) bool { return ids.ValidIdentifier(value) }
 
 func DecodeApproval(params json.RawMessage) (Approval, error) {
 	var request Approval

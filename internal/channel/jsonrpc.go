@@ -339,6 +339,8 @@ func readMessage(r *bufio.Reader, maxFrame int) (message, error) {
 	}
 }
 
+// validID is the JSON-RPC request-id rule only: bounded strings or safe
+// integers. Session-like identifiers use internal/ids instead.
 func validID(raw json.RawMessage) bool {
 	var value any
 	if json.Unmarshal(raw, &value) != nil {

@@ -2,6 +2,9 @@ package projection
 
 import "strings"
 
+// clipMarkdown preserves source whitespace and returns a truncation marker so
+// streaming copy never edits the visible prefix. Do not replace it with the
+// whitespace-trimming summary clip.
 func clipMarkdown(source string, limit int) (string, bool) {
 	count := 0
 	for offset := range source {

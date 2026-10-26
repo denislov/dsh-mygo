@@ -4,6 +4,7 @@ package preferences
 import (
 	"bytes"
 	"crypto/sha256"
+	"dsh-mygo/internal/ids"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -43,17 +44,7 @@ func Clone(state Snapshot) Snapshot {
 	}
 	return result
 }
-func validID(id string) bool {
-	if len(id) == 0 || len(id) > 128 {
-		return false
-	}
-	for _, c := range id {
-		if c != '_' && c != '-' && !(c >= 'a' && c <= 'z') && !(c >= 'A' && c <= 'Z') && !(c >= '0' && c <= '9') {
-			return false
-		}
-	}
-	return true
-}
+func validID(id string) bool { return ids.ValidIdentifier(id) }
 func Validate(state Snapshot) error {
 	if state.Version != 1 && state.Version != 2 || state.Drafts == nil || state.LastSessionID != "" && !validID(state.LastSessionID) {
 		return errInvalid
