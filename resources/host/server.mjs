@@ -68,6 +68,58 @@ function text(value, field, limit = 256) {
   return value
 }
 
+const CONFIGURATION_BLOCKING_METHODS = new Set([
+  'session/create', 'session/resume', 'session/prompt', 'session/rename', 'session/archive', 'model/select', 'permission/select',
+])
+const PERMISSION_SENSITIVE_METHODS = new Set([
+  'session/resume', 'session/prompt', 'session/rename', 'session/archive', 'model/select',
+])
+
+function requireCapability(server, capability, message, invoke) {
+  if (!server.capabilities.includes(capability)) throw fault('protocol/capability-unavailable', message)
+  return invoke()
+}
+
+function historyRoute(server, method, params) {
+  return requireCapability(server, 'session.history', 'Session history was not negotiated', () => {
+    if (method === 'session/history') {
+      if (params.direction === 'backward' && !server.capabilities.includes('session.history-window')) throw fault('protocol/invalid-params', 'Backward history was not negotiated', -32602)
+      if (params.live !== undefined && typeof params.live !== 'boolean') throw fault('protocol/invalid-params', 'Invalid live history flag', -32602)
+      if (params.live && !server.capabilities.includes('session.resync')) throw fault('protocol/capability-unavailable', 'Live history was not negotiated')
+      if (params.assistantStream !== undefined && typeof params.assistantStream !== 'boolean') throw fault('protocol/invalid-params', 'Invalid stream baseline flag', -32602)
+      if (params.assistantStream && (!params.live || !server.capabilities.includes('session.assistant-stream-baseline'))) throw fault('protocol/capability-unavailable', 'Stream baseline was not negotiated for live history')
+    }
+    if (method === 'session/list') return server.history.list(params)
+    return method === 'session/resume' ? server.resume(params) : server.history.history(params)
+  })
+}
+
+// One explicit table keeps method -> capability -> handler order visible. The
+// lifecycle handlers stay on MygoServer; this table only routes and gates.
+const routes = {
+  'subagent/list': (server, params) => requireCapability(server, 'subagent.inspection', 'Subagent inspection was not negotiated', () => server.subagentInspection.list(params)),
+  'subagent/history': (server, params) => requireCapability(server, 'subagent.inspection', 'Subagent inspection was not negotiated', () => server.subagentInspection.history(params)),
+  'session/release': (server, params) => requireCapability(server, 'session.release', 'Session release was not negotiated', () => server.release(params)),
+  'permission/get': (server, params) => requireCapability(server, 'session.permissions', 'Session permissions were not negotiated', () => server.permissions.get(params)),
+  'permission/select': (server, params) => requireCapability(server, 'session.permissions', 'Session permissions were not negotiated', () => server.permissions.select(params)),
+  'session/rename': (server, params) => requireCapability(server, 'session.rename', 'Session management was not negotiated', () => server.management.rename(params)),
+  'session/archive': (server, params) => requireCapability(server, 'session.archive', 'Session management was not negotiated', () => server.management.archive(params)),
+  'configuration/get': (server) => requireCapability(server, 'settings.configuration', 'Configuration was not negotiated', () => server.configuration.get()),
+  'configuration/default-model': (server, params) => requireCapability(server, 'settings.configuration', 'Configuration was not negotiated', () => server.configuration.saveDefaults(params)),
+  'configuration/credential': (server, params) => requireCapability(server, 'settings.configuration', 'Configuration was not negotiated', () => server.configuration.saveCredential(params)),
+  'session/create': (server, params) => server.create(params),
+  'model/list': (server, params) => requireCapability(server, 'model.selection', 'Model selection was not negotiated', () => server.models.list(params)),
+  'model/select': (server, params) => requireCapability(server, 'model.selection', 'Model selection was not negotiated', () => server.models.select(params)),
+  'session/list': (server, params, method) => historyRoute(server, method, params),
+  'session/resume': (server, params, method) => historyRoute(server, method, params),
+  'session/history': (server, params, method) => historyRoute(server, method, params),
+  'session/prompt': (server, params) => server.prompt(params),
+  'session/cancel': (server, params) => server.cancel(params),
+  'approval/respond': (server, params) => requireCapability(server, 'approval', 'Approval was not negotiated', () => server.approvals.respond(params)),
+  'question/respond': (server, params) => requireCapability(server, 'question', 'Questions were not negotiated', () => server.questions.respond(params)),
+  'question/cancel': (server, params) => requireCapability(server, 'question', 'Questions were not negotiated', () => server.questions.cancel(params)),
+}
+
 export class MygoServer {
   constructor(ctx, { notify, createUserMessage, reasoningEffort, ensureProvider, installModelSelection, credentialRef, dshVersion, maxSessions = 8, cancelTimeoutMs = 5000, maxPendingApprovals = 32, maxPendingQuestions = 32, maxFrameBytes = 16 * 1024 * 1024 }) {
     this.ctx = ctx
@@ -166,61 +218,11 @@ export class MygoServer {
     if (this.stopping) throw fault('host/stopping', 'Host is stopping')
     if (method === 'initialize') return this.initialize(params)
     if (!this.initialized) throw fault('protocol/not-initialized', 'Initialize the host first')
-    if (this.configuration.pending && ['session/create', 'session/resume', 'session/prompt', 'session/rename', 'session/archive', 'model/select', 'permission/select'].includes(method)) throw fault('settings/busy', 'A configuration write is still pending')
-    if (['session/resume', 'session/prompt', 'session/rename', 'session/archive', 'model/select'].includes(method) && this.sessions.get(params.sessionId)?.permissionUncertain) throw fault('permission/refresh-required', 'Refresh permissions before continuing')
-    switch (method) {
-      case 'subagent/list':
-      case 'subagent/history':
-        if (!this.capabilities.includes('subagent.inspection')) throw fault('protocol/capability-unavailable', 'Subagent inspection was not negotiated')
-        return method === 'subagent/list' ? this.subagentInspection.list(params) : this.subagentInspection.history(params)
-      case 'session/release':
-        if (!this.capabilities.includes('session.release')) throw fault('protocol/capability-unavailable', 'Session release was not negotiated')
-        return this.release(params)
-      case 'permission/get':
-      case 'permission/select':
-        if (!this.capabilities.includes('session.permissions')) throw fault('protocol/capability-unavailable', 'Session permissions were not negotiated')
-        return method === 'permission/get' ? this.permissions.get(params) : this.permissions.select(params)
-      case 'session/rename':
-      case 'session/archive': {
-        const operation = method.slice('session/'.length)
-        if (!this.capabilities.includes(`session.${operation}`)) throw fault('protocol/capability-unavailable', 'Session management was not negotiated')
-        return this.management[operation](params)
-      }
-      case 'configuration/get':
-      case 'configuration/default-model':
-      case 'configuration/credential':
-        if (!this.capabilities.includes('settings.configuration')) throw fault('protocol/capability-unavailable', 'Configuration was not negotiated')
-        if (method === 'configuration/get') return this.configuration.get()
-        return method === 'configuration/default-model' ? this.configuration.saveDefaults(params) : this.configuration.saveCredential(params)
-      case 'session/create': return this.create(params)
-      case 'model/list':
-      case 'model/select':
-        if (!this.capabilities.includes('model.selection')) throw fault('protocol/capability-unavailable', 'Model selection was not negotiated')
-        return method === 'model/list' ? this.models.list(params) : this.models.select(params)
-      case 'session/list':
-      case 'session/resume':
-      case 'session/history':
-        if (!this.capabilities.includes('session.history')) throw fault('protocol/capability-unavailable', 'Session history was not negotiated')
-        if (method === 'session/history') {
-          if (params.direction === 'backward' && !this.capabilities.includes('session.history-window')) throw fault('protocol/invalid-params', 'Backward history was not negotiated', -32602)
-          if (params.live !== undefined && typeof params.live !== 'boolean') throw fault('protocol/invalid-params', 'Invalid live history flag', -32602)
-          if (params.live && !this.capabilities.includes('session.resync')) throw fault('protocol/capability-unavailable', 'Live history was not negotiated')
-          if (params.assistantStream !== undefined && typeof params.assistantStream !== 'boolean') throw fault('protocol/invalid-params', 'Invalid stream baseline flag', -32602)
-          if (params.assistantStream && (!params.live || !this.capabilities.includes('session.assistant-stream-baseline'))) throw fault('protocol/capability-unavailable', 'Stream baseline was not negotiated for live history')
-        }
-        if (method === 'session/list') return this.history.list(params)
-        return method === 'session/resume' ? this.resume(params) : this.history.history(params)
-      case 'session/prompt': return this.prompt(params)
-      case 'session/cancel': return this.cancel(params)
-      case 'approval/respond':
-        if (!this.capabilities.includes('approval')) throw fault('protocol/capability-unavailable', 'Approval was not negotiated')
-        return this.approvals.respond(params)
-      case 'question/respond':
-      case 'question/cancel':
-        if (!this.capabilities.includes('question')) throw fault('protocol/capability-unavailable', 'Questions were not negotiated')
-        return method === 'question/respond' ? this.questions.respond(params) : this.questions.cancel(params)
-      default: throw fault('protocol/method-not-found', 'Unknown channel method', -32601)
-    }
+    if (this.configuration.pending && CONFIGURATION_BLOCKING_METHODS.has(method)) throw fault('settings/busy', 'A configuration write is still pending')
+    if (PERMISSION_SENSITIVE_METHODS.has(method) && this.sessions.get(params.sessionId)?.permissionUncertain) throw fault('permission/refresh-required', 'Refresh permissions before continuing')
+    const route = routes[method]
+    if (route === undefined) throw fault('protocol/method-not-found', 'Unknown channel method', -32601)
+    return route(this, params, method)
   }
 
   initialize(params) {
