@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -51,8 +52,12 @@ func TestModelSettingsOnlyUpdatesAfterHostAcknowledgment(t *testing.T) {
 		if method == "model/list" {
 			return json.RawMessage(modelCatalogJSON), nil
 		}
-		if method != "model/select" || params.(map[string]any)["model"] != "other" {
-			t.Fatal("unexpected model request")
+		request, ok := params.(protocol.ModelSelectParams)
+		if method != "model/select" || !ok || request.Model != "other" || request.Effort != "" {
+			t.Fatalf("unexpected model request: %T %+v", params, params)
+		}
+		if field, present := requestFields(t, params)["effort"]; !present || field != "" {
+			t.Fatal("empty effort must be sent to clear the override")
 		}
 		application.post(func() {
 			application.handleNotification("session/event", json.RawMessage(`{"sessionId":"original","seq":0,"event":{"seq":0,"time":1,"type":"model/selection","data":{"provider":"test","model":"other"}}}`))

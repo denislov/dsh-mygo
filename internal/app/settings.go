@@ -24,14 +24,11 @@ func validModelLabel(value string, empty bool) bool {
 }
 
 func readModelCatalog(ctx context.Context, client rpcClient, id, provider string) (view.ModelCatalog, error) {
-	var catalog view.ModelCatalog
-	params := map[string]any{"sessionId": id}
-	if provider != "" {
-		params["provider"] = provider
-	}
-	raw, err := client.Call(ctx, "model/list", params)
+	var catalog protocol.ModelCatalog
+	params := protocol.ModelListParams{SessionID: id, Provider: provider}
+	raw, err := client.Call(ctx, protocol.MethodModelList, params)
 	if err != nil {
-		return catalog, errors.New("Could not load model catalog. Refresh to retry")
+		return view.ModelCatalog{}, errors.New("Could not load model catalog. Refresh to retry")
 	}
 	var required struct {
 		Provider  *string `json:"provider"`
@@ -73,7 +70,34 @@ func readModelCatalog(ctx context.Context, client rpcClient, id, provider string
 			efforts[effort.ID] = true
 		}
 	}
-	return catalog, nil
+	return modelCatalogView(catalog), nil
+}
+
+// modelCatalogView maps the validated wire catalog into UI data. Input
+// modalities stay on the wire because the settings UI does not consume them.
+func modelCatalogView(catalog protocol.ModelCatalog) view.ModelCatalog {
+	result := view.ModelCatalog{
+		Providers: make([]view.CatalogName, 0, len(catalog.Providers)),
+		Provider:  catalog.Provider,
+		Models:    make([]view.CatalogModel, 0, len(catalog.Models)),
+		Selection: view.ModelRoute{Provider: catalog.Selection.Provider, Model: catalog.Selection.Model, Effort: catalog.Selection.Effort},
+		Available: catalog.Available,
+		Reason:    catalog.Reason,
+	}
+	for _, provider := range catalog.Providers {
+		result.Providers = append(result.Providers, view.CatalogName{ID: provider.ID, Name: provider.Name})
+	}
+	for _, model := range catalog.Models {
+		entry := view.CatalogModel{
+			ID: model.ID, Name: model.Name, Available: model.Available, Reason: model.Reason,
+			Efforts: make([]view.CatalogName, 0, len(model.Efforts)),
+		}
+		for _, effort := range model.Efforts {
+			entry.Efforts = append(entry.Efforts, view.CatalogName{ID: effort.ID, Name: effort.Name})
+		}
+		result.Models = append(result.Models, entry)
+	}
+	return result
 }
 
 func (a *App) canEditSettings() bool {
@@ -250,12 +274,12 @@ func (a *App) ApplySettings() {
 	client, id, cancel, startSeq := a.currentClient(), a.sessionID, a.settingsCancel, a.nextSeq
 	go func() {
 		defer cancel()
-		raw, err := client.Call(ctx, "model/select", map[string]any{"sessionId": id, "provider": route.Provider, "model": route.Model, "effort": route.Effort})
+		raw, err := client.Call(ctx, protocol.MethodModelSelect, protocol.ModelSelectParams{
+			SessionID: id, Provider: route.Provider, Model: route.Model, Effort: route.Effort,
+		})
 		var summary protocol.SessionSummary
 		if err == nil {
-			var response struct {
-				Session json.RawMessage `json:"session"`
-			}
+			var response protocol.SessionResult
 			if json.Unmarshal(raw, &response) != nil {
 				err = errors.New("Invalid model response")
 			} else {

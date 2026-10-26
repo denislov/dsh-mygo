@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { test } from 'node:test'
 import { MygoServer } from '../server.mjs'
 
@@ -46,6 +47,20 @@ test('model capability gates methods and catalog only returns display metadata',
   assert.deepEqual(catalog.selection, { provider: 'test', model: 'echo', effort: '' })
   assert.ok(!JSON.stringify(catalog).includes('private-token'))
   await assert.rejects(server.handle('model/list', { sessionId: 'foreign' }), { kind: 'session/not-found' })
+  await server.shutdown()
+})
+
+test('shared model fixture drives list and select payloads including empty effort', async () => {
+  const fixture = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/model.json', import.meta.url), 'utf8'))
+  const { server, session, selection } = await runtime()
+  const catalog = await server.handle('model/list', { ...fixture.list, sessionId: session.id })
+  assert.equal(catalog.provider, fixture.catalog.provider)
+  assert.deepEqual(catalog.selection, fixture.catalog.selection)
+  const selected = await server.handle('model/select', { ...fixture.selectEffort, sessionId: session.id, model: 'other' })
+  assert.equal(selected.session.model, 'other')
+  assert.equal(selection().current.reasoningEffort, 'high')
+  await server.handle('model/select', { ...fixture.select, sessionId: session.id, model: 'other' })
+  assert.equal(selection().current.reasoningEffort, undefined)
   await server.shutdown()
 })
 

@@ -1,0 +1,46 @@
+{
+  "listDefault": {
+    "sessionId": "s1"
+  },
+  "list": {
+    "sessionId": "s1",
+    "provider": "test"
+  },
+  "select": {
+    "sessionId": "s1",
+    "provider": "test",
+    "model": "echo",
+    "effort": ""
+  },
+  "selectEffort": {
+    "sessionId": "s1",
+    "provider": "test",
+    "model": "echo",
+    "effort": "high"
+  },
+  "catalog": {
+    "providers": [
+      { "id": "test", "name": "Test" }
+    ],
+    "provider": "test",
+    "models": [
+      {
+        "id": "echo",
+        "name": "Echo",
+        "efforts": [
+          { "id": "low", "name": "Low" }
+        ],
+        "available": true,
+        "reason": "",
+        "inputModalities": ["text", "image"]
+      }
+    ],
+    "selection": {
+      "provider": "test",
+      "model": "echo",
+      "effort": ""
+    },
+    "available": true,
+    "reason": ""
+  }
+}
