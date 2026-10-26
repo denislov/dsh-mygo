@@ -1,0 +1,31 @@
+{
+  "approvalRespond": {
+    "requestId": "a1",
+    "decision": "allow"
+  },
+  "approvalClosed": {
+    "requestId": "a1",
+    "sessionId": "s1"
+  },
+  "questionRespond": {
+    "requestId": "q1",
+    "answers": [
+      {
+        "id": "q",
+        "selected": [],
+        "custom": "hello"
+      }
+    ]
+  },
+  "questionCancel": {
+    "requestId": "q1"
+  },
+  "questionClosed": {
+    "requestId": "q1",
+    "sessionId": "s1"
+  },
+  "questionClosedGlobal": {
+    "requestId": "q1",
+    "sessionId": ""
+  }
+}

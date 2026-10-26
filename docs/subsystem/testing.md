@@ -76,6 +76,7 @@ tests/fixtures/protocol/
   model.json
   configuration.json
   permission.json
+  interaction.json
 ```
 
 Go channel 与 Node transport 共用非法帧 fixture。Go protocol 与 Node server 共用能力 fixture，固定客户端声明的名称/顺序以及基础服务、历史服务的协商子集；单项能力、独立 reasoning baseline、未知名称与重复声明分别验证，解析不能代替握手载荷校验。
@@ -89,6 +90,8 @@ prompt fixture 固定 custom 文本、文本与图片、仅图片、SDK `content
 history fixture 固定目录分页、forward、live、backward `beforeSeq`/cursor、stream baseline 与 release 请求，以及 list/history 结果信封。Go 按读取流程比较字段子集并校验结果指针；Node 用同一 fixture 驱动 list、forward history 与 release。方向、固定 cut、跨页 cursor、单页预算和跨会话拒绝仍由各 flow/Host 边界测试覆盖。
 
 model/configuration/permission fixture 固定模型目录与选择、默认模型、凭据 set/unset、权限快照与 select 请求。Go 校验空/显式 effort、revision、凭据 value 仅 set 以及 expectedNextSeq/confirmDangerous；Node 用同一 fixture 驱动 list/select、默认/凭据写入与权限读取/危险确认。凭据 secret 只出现在 set 请求，RPC 返回后由请求对象清空。
+
+interaction fixture 固定 approval respond/closed、question respond/cancel/closed 与空 sessionId 的全局关闭。Go 校验 decision、答案空 selected/custom 与 closed sessionId 存在性；Node 用同一 fixture 驱动审批回答、提问回答与取消。FIFO、重复/迟到回答和表单草稿仍由 interaction/app 回归覆盖。
 
 `resources/host/tests/protocol.test.mjs` 覆盖握手门槛、版本/能力协商、非法 JSON/帧、超长输入、未终止 EOF、输出背压、请求串行、shutdown 与错误信息隔离；`history.test.mjs`、`models.test.mjs`、`configuration.test.mjs`、`approval.test.mjs`、`question.test.mjs` 分别覆盖对应子系统的边界与预算。目标态还需覆盖 `$/cancel`、`subagent/*`、附件帧、`session/rename|archive|delete|fork` 与 resync。
 

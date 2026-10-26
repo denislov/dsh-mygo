@@ -7,6 +7,7 @@ import (
 
 	"dsh-mygo/internal/channel"
 	"dsh-mygo/internal/interaction"
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -55,7 +56,7 @@ func (a *App) handleApprovalNotification(method string, params json.RawMessage) 
 }
 
 func (a *App) RespondApproval(requestID, decision string) {
-	if a.shuttingDown.Load() || a.options.SDKProtocol || !a.model.CanApprove || a.model.CancelPending || a.model.Phase != view.PhaseRunning || decision != "allow" && decision != "deny" {
+	if a.shuttingDown.Load() || a.options.SDKProtocol || !a.model.CanApprove || a.model.CancelPending || a.model.Phase != view.PhaseRunning || decision != protocol.ApprovalDecisionAllow && decision != protocol.ApprovalDecisionDeny {
 		return
 	}
 	client := a.currentClient()
@@ -67,7 +68,7 @@ func (a *App) RespondApproval(requestID, decision string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), cancelTimeout)
 		defer cancel()
-		result, err := client.Call(ctx, "approval/respond", map[string]any{"requestId": requestID, "decision": decision})
+		result, err := client.Call(ctx, protocol.MethodApprovalRespond, protocol.ApprovalRespondParams{RequestID: requestID, Decision: decision})
 		a.post(func() {
 			if a.shuttingDown.Load() || a.model.Phase == view.PhaseFailed {
 				return

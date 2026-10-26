@@ -1,7 +1,7 @@
 # 后续重构完整实施计划（审阅稿）
 
 > 制定日期：2026-10-26。代码基线：`3d07c0e`。
-> 当前状态：已审阅并按阶段实施。阶段 1 任务 1.1–1.4 已完成，其余任务未开始。
+> 当前状态：已审阅并按阶段实施。阶段 1 任务 1.1–1.5 已完成，其余任务未开始。
 > 本文件覆盖代码审查方案的全部剩余重构，不再每完成一个小批次就重建或删除。整个计划完成后删除本文件及 AGENTS 中的临时入口，完成记录保留在 git 与路线图。
 
 ## 一、范围、基线与执行约定
@@ -63,7 +63,7 @@ flowchart TD
 **目标**: 核心请求、响应、通知信封与错误 kind 有清晰的具名表达，app 不再重复翻译相同 schema。
 **成功标准**: 相同 wire 在迁移前后编码语义一致，原有缺失/null/空字符串、必填布尔、安全整数、身份与预算校验保持；未知能力/字段仍按各方法原契约处理，SDK 兼容保持。
 **测试**: 每任务的编码/非法载荷表、双端 fixture、相关 Go/Node 单元与 fake/真实 Host；详见第三部分验证分组。
-**状态**: 进行中（1.1–1.4 已完成）
+**状态**: 进行中（1.1–1.5 已完成）
 
 ### 1.1 session/create、session/resume 与摘要（中，已完成）
 
@@ -93,11 +93,12 @@ flowchart TD
 - **验收/回归**：revision/expectedNextSeq、已提交事件确认、固定字段白名单与失败后不确定屏障保持；空 effort 可清除旧值。持久默认不改当前会话，凭据只写不读，危险权限按实际 sandbox/approval 确认，未协商不调用。真实模型、配置、权限持久化与策略执行通过。
 - **完成记录（2026-10-26）**：按模型（`5f791a4`）、配置（`7c56040`）、权限三个连续提交完成。`internal/protocol` 增加 model/configuration/permission 请求与快照 DTO，`tests/fixtures/protocol/{model,configuration,permission}.json` 由 Go/Node 共用；App 读取/写入路径转换到 view 类型，凭据 value 在 RPC 返回后清空。实际检查：全量/纯 Go 各 715 项、race 607 项、Node 95 项、真实 Host 17 项（含子用例）通过；MyGo vet、Go vet、格式与差异检查通过。剩余：后续任务 1.5–1.7 未开始。
 
-### 1.5 审批与用户提问载荷（中）
+### 1.5 审批与用户提问载荷（中，已完成）
 
 - **范围/依赖**：依赖 1.2；涉及 `app/approval.go`、`question.go`、`internal/interaction` 与对应 Host answerer。
 - **实施/交付**：类型化回答/取消和通知外层；继续由 interaction 管理 FIFO、身份指纹、表单与载荷校验，不把 UI 可变表单塞进通用协议包。结构迁移不新增 timed/continued 能力。
 - **验收/回归**：agentless 提问、审批优先、重复/迟到回答、abort、取消与退出结算保持；错误重试保留表单，关闭不伪造空答案/历史。Go/Node 边界、Tester 和真实审批/提问全部通过，answerer 不悬挂。
+- **完成记录（2026-10-26）**：`internal/protocol/interaction.go` 增加 approval/question respond/cancel 参数、问题答案与 closed 外层；interaction 保留队列、指纹、表单和校验，App 发送具名载荷。`tests/fixtures/protocol/interaction.json` 由 Go/Node 共用。实际检查：全量/纯 Go 各 719 项、race 627 项、Node 95 项、真实 Host 24 项（含子用例）通过；MyGo vet、Go vet、格式与差异检查通过。剩余：后续任务 1.6–1.7 未开始。
 
 ### 1.6 会话管理与子代理查询载荷（中）
 

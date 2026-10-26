@@ -6,6 +6,8 @@ import (
 	"errors"
 	"slices"
 	"strings"
+
+	"dsh-mygo/internal/protocol"
 )
 
 const MaxPendingApprovals = 64
@@ -60,10 +62,7 @@ func DecodeApproval(params json.RawMessage) (Approval, error) {
 }
 
 func DecodeApprovalClosed(params json.RawMessage) (string, string, error) {
-	var closed struct {
-		RequestID string `json:"requestId"`
-		SessionID string `json:"sessionId"`
-	}
+	var closed protocol.ApprovalClosedParams
 	if json.Unmarshal(params, &closed) != nil || !validID(closed.RequestID) || !validID(closed.SessionID) {
 		return "", "", errors.New("invalid approval close notification")
 	}

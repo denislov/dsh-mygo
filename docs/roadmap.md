@@ -122,6 +122,10 @@ node scripts/smoke-installer.mjs                # 未运行：本机已安装 ds
 
 本批验证：全量/纯 Go 各 715 项、protocol/channel/projection/app/view race 607 项、Node Host 95 项通过；MyGo vet、Go vet、格式与差异检查通过。显式设置 DSH_MYGO_DSH_DIR，真实 composition、模型设置、配置、权限持久化与策略执行、首启、profile 升级相关 17 项（含子用例）通过，使用 mock provider。wire、protocolVersion、能力与 Node handlers 不变；原生窗口、安装器与 macOS 未重验，本批没有布局/输入绑定改动。后续按计划继续审批/提问载荷类型化。
 
+2026-10-26 审批与提问载荷类型化：internal/protocol 定义 `approval/respond`、`question/respond|cancel` 请求、问题答案与 approval/question closed 外层；App 回答/取消和 interaction 的 closed 解码改用具名载荷。FIFO、身份指纹、重复/迟到回答、表单状态、agentless question 与审批优先仍由 interaction/app 管理，UI 可变表单不进入 protocol；空 selected、custom 与 closed sessionId 的存在性语义保持。
+
+本批验证：全量/纯 Go 各 719 项、protocol/interaction/channel/projection/app/view race 627 项、Node Host 95 项通过；MyGo vet、Go vet、格式与差异检查通过。显式设置 DSH_MYGO_DSH_DIR，真实 composition、fake/真实审批、提问与取消相关 24 项（含子用例）通过，使用 mock provider。wire、protocolVersion、能力与 Node handlers 不变；原生窗口、安装器与 macOS 未重验，本批没有布局/输入绑定改动。后续按计划继续会话管理与子代理查询载荷类型化。
+
 ## 4. 缺口
 
 ### 4.1 发布阻塞（没有它不能称为产品）
@@ -157,7 +161,7 @@ node scripts/smoke-installer.mjs                # 未运行：本机已安装 ds
 - 并发/竞态只在本地跑过；无三平台矩阵；CI 不含真实 Host 组合（本地可用 source checkout 或 bundled runtime 跑）。
 - macOS 零验收（Metal、输入法、字体、菜单、剪贴板、签名/公证）。
 - 已有打包与安装/卸载 smoke；无干净机器验收、升级/更新测试。
-- App 与 view.Model 仍聚合多个领域状态；启动快照、共享发送门禁、能力解析与 initialize/create/resume/prompt/cancel/list/history/release/model/config/permission 载荷已收敛，其余载荷类型、回合状态、Host 一代资源、设置/导航/历史和 View 子状态继续分批拆分。先明确所有权与时序护栏，不用字段数或行数代替验收。
+- App 与 view.Model 仍聚合多个领域状态；启动快照、共享发送门禁、能力解析与 initialize/create/resume/prompt/cancel/list/history/release/model/config/permission/approval/question 载荷已收敛，其余载荷类型、回合状态、Host 一代资源、设置/导航/历史和 View 子状态继续分批拆分。先明确所有权与时序护栏，不用字段数或行数代替验收。
 - DSH 升级（rc 版本、精确 peer 依赖、公开 API 漂移）没有 runbook 和兼容矩阵。
 - 遗留物：`cmd/spike`、SDK 兼容链路的退役时间未定。
 

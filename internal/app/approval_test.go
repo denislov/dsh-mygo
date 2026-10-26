@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -47,9 +48,9 @@ func TestApprovalRoundTripHasNoSyntheticHistory(t *testing.T) {
 	if len(application.model.Approvals) != 0 || application.model.ApprovalOpen || len(application.model.Items) != 0 {
 		t.Fatal("response left an approval or invented history")
 	}
-	params := client.params[0].(map[string]any)
-	if params["requestId"] != "a1" || params["decision"] != "allow" {
-		t.Fatalf("response parameters = %+v", params)
+	params, ok := client.params[0].(protocol.ApprovalRespondParams)
+	if !ok || params.RequestID != "a1" || params.Decision != protocol.ApprovalDecisionAllow {
+		t.Fatalf("response parameters = %T %+v", client.params[0], client.params[0])
 	}
 }
 

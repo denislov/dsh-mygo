@@ -7,6 +7,8 @@ import (
 	"errors"
 	"slices"
 	"strings"
+
+	"dsh-mygo/internal/protocol"
 )
 
 type QuestionOption struct {
@@ -89,10 +91,7 @@ func DecodeQuestion(params json.RawMessage) (*QuestionRequest, error) {
 }
 
 func DecodeQuestionClosed(params json.RawMessage) (string, string, error) {
-	var closed struct {
-		RequestID string  `json:"requestId"`
-		SessionID *string `json:"sessionId"`
-	}
+	var closed protocol.QuestionClosedParams
 	if json.Unmarshal(params, &closed) != nil || !validID(closed.RequestID) || closed.SessionID == nil || *closed.SessionID != "" && !validID(*closed.SessionID) {
 		return "", "", errors.New("invalid question close notification")
 	}

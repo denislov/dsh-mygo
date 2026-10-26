@@ -263,3 +263,12 @@
 - 教训：wire DTO 与 View 表单类型分离，才能在不改变校验的前提下控制 secret 生命周期；空 effort、revision 等必填/清空语义不能用统一 omitempty 处理。
 - 做法：protocol 定义 model/config/permission 请求与快照，app 保留 required/预算/身份校验并转换 view；凭据请求使用指针 value，RPC 返回后立即置空，双端 fixture 固定 wire。
 - 固化：未固化
+
+## L-027 交互表单留在 interaction，wire 回答与关闭信封进 protocol
+
+- 出现次数：1
+- 来源：2026-10-26 审批与提问载荷类型化
+- 现象：审批/提问的请求类型同时承载 wire 字段和 UI 表单状态；回答、取消与 closed 通知仍用 map/匿名结构，容易在迁移时把表单或校验职责混进通用协议包。
+- 教训：wire 回答/关闭信封可以具名化，但 FIFO、身份指纹、草稿与载荷校验必须继续由 interaction/app 拥有；空 selected、custom 和空 sessionId 是不同语义。
+- 做法：protocol 只增加 respond/cancel 参数、答案和 closed 外层；interaction 保留队列与表单并用具名 closed 解码，app 转换表单答案后发送，双端 fixture 覆盖审批、提问与全局关闭。
+- 固化：未固化

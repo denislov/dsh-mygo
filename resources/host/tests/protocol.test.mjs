@@ -255,6 +255,7 @@ test('cancel timeout is bounded and does not report an idle session', async (con
 })
 
 test('host approval binds to an owned live tool call and delegates foreign agents', async () => {
+  const fixture = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/interaction.json', import.meta.url), 'utf8'))
   const { server, handles, listeners, notifications } = runtime()
   await server.handle('initialize', handshake)
   const { session } = await server.handle('session/create', { cwd: process.cwd(), provider: 'test', model: 'echo' })
@@ -265,7 +266,7 @@ test('host approval binds to an owned live tool call and delegates foreign agent
   assert.equal(pending.external, false)
   assert.equal(pending.sessionId, session.id)
   assert.equal(pending.arguments, '{"file_path":"marker"}')
-  await server.handle('approval/respond', { requestId: pending.requestId, decision: 'allow' })
+  await server.handle('approval/respond', { ...fixture.approvalRespond, requestId: pending.requestId })
   assert.equal(await waiting, 'allowed-once')
   assert.equal(await server.requestApproval({ agent: { session: { id: session.id } }, toolName: 'write' }, () => Promise.resolve('rejected')), 'rejected')
   await server.shutdown()
@@ -287,6 +288,7 @@ test('host cancellation and shutdown resolve approvals even without a request si
 })
 
 test('questions negotiate capability, delegate foreign agents, and accept agentless requests', async () => {
+  const fixture = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/interaction.json', import.meta.url), 'utf8'))
   const { server, handles, notifications } = runtime()
   await server.handle('initialize', { ...handshake, capabilities: ['question', 'session.cancel'] })
   const { session } = await server.handle('session/create', { cwd: process.cwd(), provider: 'test', model: 'echo' })
@@ -294,12 +296,12 @@ test('questions negotiate capability, delegate foreign agents, and accept agentl
   const waiting = server.requestQuestion({ agent: handles[0].agent, questions })
   const pending = notifications.at(-1).params
   assert.equal(pending.sessionId, session.id)
-  await server.handle('question/respond', { requestId: pending.requestId, answers: [{ id: 'q', selected: [], custom: 'hello' }] })
+  await server.handle('question/respond', { ...fixture.questionRespond, requestId: pending.requestId })
   assert.equal((await waiting).answers[0].custom, 'hello')
   const global = assert.rejects(server.requestQuestion({ questions }), { code: 'ASK_CANCELLED' })
   await server.handle('session/cancel', { sessionId: session.id })
   assert.equal(server.questions.pending.size, 1)
-  await server.handle('question/cancel', { requestId: notifications.at(-1).params.requestId })
+  await server.handle('question/cancel', { ...fixture.questionCancel, requestId: notifications.at(-1).params.requestId })
   await global
   assert.equal(await server.requestQuestion({ agent: { session: { id: session.id } }, questions }, async () => 'delegated'), 'delegated')
   server.capabilities = []

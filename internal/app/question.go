@@ -7,6 +7,7 @@ import (
 
 	"dsh-mygo/internal/channel"
 	"dsh-mygo/internal/interaction"
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -66,8 +67,8 @@ func (a *App) RespondQuestion(requestID string, cancelQuestion bool) {
 	if client == nil {
 		return
 	}
-	method := "question/cancel"
-	params := map[string]any{"requestId": requestID}
+	method := protocol.MethodQuestionCancel
+	var params any = protocol.QuestionCancelParams{RequestID: requestID}
 	if !cancelQuestion {
 		answers, err := items[0].Answers()
 		if err != nil {
@@ -75,8 +76,12 @@ func (a *App) RespondQuestion(requestID string, cancelQuestion bool) {
 			a.publishQuestions()
 			return
 		}
-		method = "question/respond"
-		params["answers"] = answers
+		wireAnswers := make([]protocol.QuestionAnswer, 0, len(answers))
+		for _, answer := range answers {
+			wireAnswers = append(wireAnswers, protocol.QuestionAnswer{ID: answer.ID, Selected: answer.Selected, Custom: answer.Custom})
+		}
+		method = protocol.MethodQuestionRespond
+		params = protocol.QuestionRespondParams{RequestID: requestID, Answers: wireAnswers}
 	}
 	sessionID := items[0].SessionID
 	if !a.questions.Begin(requestID) {
@@ -87,6 +92,7 @@ func (a *App) RespondQuestion(requestID string, cancelQuestion bool) {
 		ctx, cancel := context.WithTimeout(context.Background(), cancelTimeout)
 		defer cancel()
 		result, err := client.Call(ctx, method, params)
+
 		a.post(func() {
 			if a.shuttingDown.Load() || a.model.Phase == view.PhaseFailed {
 				return
