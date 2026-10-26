@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { test } from 'node:test'
 import { MygoServer } from '../server.mjs'
 import { maxBase64Bytes } from '../attachments.mjs'
@@ -189,6 +190,18 @@ test('admission keeps wire order and stores durable references only', async () =
   assert.deepEqual(tail, { type: 'text', text: 'thanks' })
   assert.equal(store.saved.length, 1)
   assert.ok(!JSON.stringify(messages[0]).includes(PNG))
+  await server.shutdown()
+})
+
+test('shared prompt fixture carries text and image blocks in wire order', async () => {
+  const fixture = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/prompt.json', import.meta.url), 'utf8'))
+  const store = attachmentStore()
+  const { server, session, messages } = await runtime({ attachments: store })
+  await server.handle('session/prompt', { ...fixture.textWithImage, sessionId: session.id })
+  assert.deepEqual(messages[0].content[0], { type: 'text', text: 'look' })
+  assert.equal(messages[0].content[1].attachment.mediaType, 'image/png')
+  assert.equal(messages[0].content[1].attachment.name, 'shot.png')
+  assert.equal(store.saved.length, 1)
   await server.shutdown()
 })
 

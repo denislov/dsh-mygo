@@ -74,6 +74,21 @@ test('session create payloads match the shared Go wire fixture and reject mixed 
   }
 })
 
+test('session prompt and cancel payloads match the shared Go wire fixture', async () => {
+  const fixture = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/prompt.json', import.meta.url), 'utf8'))
+  const { server } = runtime()
+  try {
+    await server.handle('initialize', { ...handshake, capabilities: ['session.cancel'] })
+    const { session } = await server.handle('session/create', { cwd: process.cwd(), provider: 'test', model: 'echo' })
+    const accepted = await server.handle('session/prompt', { ...fixture.text, sessionId: session.id })
+    assert.deepEqual(accepted, fixture.accepted)
+    assert.deepEqual(await server.handle('session/cancel', { ...fixture.cancel, sessionId: session.id }), fixture.cancelActive)
+    assert.deepEqual(await server.handle('session/cancel', { ...fixture.cancel, sessionId: session.id }), fixture.cancelIdle)
+  } finally {
+    await server.shutdown()
+  }
+})
+
 test('shared client offer negotiates only supported capabilities, including independent reasoning baseline', async () => {
   const fixture = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/capabilities.json', import.meta.url), 'utf8'))
   for (const history of [false, true]) {

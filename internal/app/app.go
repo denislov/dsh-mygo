@@ -885,25 +885,26 @@ func (a *App) Send(text string) {
 	a.rememberSubmittedDraft(a.promptID, original)
 	delivery := make(chan error, 1)
 	a.promptDone = delivery
-	go a.prompt(client, blocks, text, a.promptID, a.sessionID, delivery)
+	request := a.promptRequest(a.sessionID, blocks)
+	go a.prompt(client, request, text, a.promptID, delivery)
 }
 
-func (a *App) prompt(client rpcClient, blocks []map[string]any, submitted string, promptID uint64, sessionID string, delivery chan error) {
+// promptRequest selects the custom channel or the explicit legacy SDK field
+// spelling. The session identity is captured on the main thread.
+func (a *App) promptRequest(sessionID string, blocks []protocol.ContentBlock) any {
+	if a.options.SDKProtocol {
+		return protocol.SDKPromptParams{SessionID: sessionID, ContentBlocks: blocks}
+	}
+	return protocol.SessionPromptParams{SessionID: sessionID, Content: blocks}
+}
+
+func (a *App) prompt(client rpcClient, request any, submitted string, promptID uint64, delivery chan error) {
 	defer close(delivery)
 	ctx, cancel := context.WithTimeout(context.Background(), promptTimeout)
 	defer cancel()
-	contentField := "content"
-	if a.options.SDKProtocol {
-		contentField = "contentBlocks"
-	}
-	result, err := client.Call(ctx, "session/prompt", map[string]any{
-		"sessionId":  sessionID,
-		contentField: blocks,
-	})
+	result, err := client.Call(ctx, protocol.MethodSessionPrompt, request)
 	if err == nil && a.local != nil {
-		var acknowledged struct {
-			MessageID string `json:"messageId"`
-		}
+		var acknowledged protocol.PromptResult
 		if json.Unmarshal(result, &acknowledged) != nil || !validModelLabel(acknowledged.MessageID, false) {
 			err = errors.New("Invalid prompt delivery acknowledgement")
 		}
@@ -964,7 +965,7 @@ func (a *App) cancelTurn(client rpcClient, promptID uint64, sessionID string, de
 		}
 	}
 	if err == nil {
-		result, err = client.Call(ctx, "session/cancel", map[string]any{"sessionId": sessionID})
+		result, err = client.Call(ctx, protocol.MethodSessionCancel, protocol.SessionCancelParams{SessionID: sessionID})
 	}
 	a.postAfterResync(func() {
 		if a.shuttingDown.Load() || a.promptID != promptID || a.model.Phase != view.PhaseRunning || !a.model.CancelPending {
@@ -977,10 +978,7 @@ func (a *App) cancelTurn(client rpcClient, promptID uint64, sessionID string, de
 			a.model.Phase = view.PhaseIdle
 			return
 		}
-		var stopped struct {
-			Cancelled *bool  `json:"cancelled"`
-			Status    string `json:"status"`
-		}
+		var stopped protocol.SessionCancelResult
 		if err == nil && (json.Unmarshal(result, &stopped) != nil || stopped.Cancelled == nil || stopped.Status != "idle") {
 			err = errors.New("invalid session/cancel response")
 		}

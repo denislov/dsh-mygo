@@ -172,6 +172,43 @@ func TestSendQueuesPromptAndClearsDraft(t *testing.T) {
 	}
 }
 
+func TestPromptUsesTheProtocolFieldSpelling(t *testing.T) {
+	for _, sdk := range []bool{false, true} {
+		t.Run(map[bool]string{false: "custom", true: "SDK"}[sdk], func(t *testing.T) {
+			client := &fakeClient{result: json.RawMessage(`{"messageId":"m1"}`)}
+			application := newTestApp(client)
+			application.options.SDKProtocol = sdk
+			application.Send("hello")
+			deadline := time.Now().Add(2 * time.Second)
+			for len(client.called()) == 0 && time.Now().Before(deadline) {
+				time.Sleep(time.Millisecond)
+			}
+			fields := requestFields(t, client.params[0])
+			contentKey, otherKey := "content", "contentBlocks"
+			if sdk {
+				contentKey, otherKey = otherKey, contentKey
+			}
+			if fields["sessionId"] != "s1" {
+				t.Fatalf("sessionId = %v", fields["sessionId"])
+			}
+			if _, present := fields[otherKey]; present {
+				t.Fatalf("unexpected %s field: %v", otherKey, fields)
+			}
+			blocks, ok := fields[contentKey].([]any)
+			if !ok || len(blocks) != 1 || blocks[0].(map[string]any)["text"] != "hello" {
+				t.Fatalf("blocks = %v", fields[contentKey])
+			}
+			if sdk {
+				if _, ok := client.params[0].(protocol.SDKPromptParams); !ok {
+					t.Fatalf("request type = %T", client.params[0])
+				}
+			} else if _, ok := client.params[0].(protocol.SessionPromptParams); !ok {
+				t.Fatalf("request type = %T", client.params[0])
+			}
+		})
+	}
+}
+
 func TestSetFailureReportsHostState(t *testing.T) {
 	application := newTestApp(&fakeClient{})
 	application.model.Phase = view.PhaseRunning
@@ -281,6 +318,9 @@ func TestCancelWaitsForHostPreservesDraftAndRejectsDuplicate(t *testing.T) {
 	}
 	if len(client.called()) != 1 || client.called()[0] != "session/cancel" {
 		t.Fatalf("calls = %v", client.called())
+	}
+	if request, ok := client.params[0].(protocol.SessionCancelParams); !ok || request.SessionID != "s1" {
+		t.Fatalf("cancel request = %T %+v", client.params[0], client.params[0])
 	}
 	if application.model.Phase != view.PhaseIdle || application.model.CancelPending || application.model.Draft != "next prompt" {
 		t.Fatalf("model = %+v", application.model)

@@ -18,6 +18,7 @@ import (
 
 	"dsh-mygo/internal/attachment"
 	"dsh-mygo/internal/channel"
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -267,10 +268,10 @@ func insertReferences(a *App, references []string) {
 // promptBlocks builds the ordered content blocks for one send: the visible
 // text first, then staged images as canonical base64. Validation runs before
 // any request, so a refused batch never clears the draft.
-func (a *App) promptBlocks(text string) ([]map[string]any, error) {
+func (a *App) promptBlocks(text string) ([]protocol.ContentBlock, error) {
 	pending := a.model.Attachments.Pending
 	if len(pending) == 0 {
-		return []map[string]any{{"type": "text", "text": text}}, nil
+		return []protocol.ContentBlock{protocol.NewTextBlock(text)}, nil
 	}
 	if a.options.SDKProtocol {
 		return nil, attachment.ErrUnsupported
@@ -281,16 +282,12 @@ func (a *App) promptBlocks(text string) ([]map[string]any, error) {
 	if err := a.attachmentLimits.Validate(pending); err != nil {
 		return nil, err
 	}
-	blocks := make([]map[string]any, 0, len(pending)+1)
+	blocks := make([]protocol.ContentBlock, 0, len(pending)+1)
 	if text != "" {
-		blocks = append(blocks, map[string]any{"type": "text", "text": text})
+		blocks = append(blocks, protocol.NewTextBlock(text))
 	}
 	for _, draft := range pending {
-		block := map[string]any{"type": "image", "mimeType": draft.MediaType, "data": base64.StdEncoding.EncodeToString(draft.Data)}
-		if name := attachment.DisplayName(draft.Name); name != "" {
-			block["name"] = name
-		}
-		blocks = append(blocks, block)
+		blocks = append(blocks, protocol.NewImageBlock(draft.MediaType, base64.StdEncoding.EncodeToString(draft.Data), attachment.DisplayName(draft.Name)))
 	}
 	return blocks, nil
 }

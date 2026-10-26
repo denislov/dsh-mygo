@@ -1,7 +1,7 @@
 # 后续重构完整实施计划（审阅稿）
 
 > 制定日期：2026-10-26。代码基线：`3d07c0e`。
-> 当前状态：已审阅并按阶段实施。阶段 1 任务 1.1 已完成，其余任务未开始。
+> 当前状态：已审阅并按阶段实施。阶段 1 任务 1.1–1.2 已完成，其余任务未开始。
 > 本文件覆盖代码审查方案的全部剩余重构，不再每完成一个小批次就重建或删除。整个计划完成后删除本文件及 AGENTS 中的临时入口，完成记录保留在 git 与路线图。
 
 ## 一、范围、基线与执行约定
@@ -63,7 +63,7 @@ flowchart TD
 **目标**: 核心请求、响应、通知信封与错误 kind 有清晰的具名表达，app 不再重复翻译相同 schema。
 **成功标准**: 相同 wire 在迁移前后编码语义一致，原有缺失/null/空字符串、必填布尔、安全整数、身份与预算校验保持；未知能力/字段仍按各方法原契约处理，SDK 兼容保持。
 **测试**: 每任务的编码/非法载荷表、双端 fixture、相关 Go/Node 单元与 fake/真实 Host；详见第三部分验证分组。
-**状态**: 进行中（1.1 已完成）
+**状态**: 进行中（1.1–1.2 已完成）
 
 ### 1.1 session/create、session/resume 与摘要（中，已完成）
 
@@ -72,11 +72,12 @@ flowchart TD
 - **验收/回归**：两种路由不混用；按各方法现有行为分别测试 effort 缺省、空字符串与明确取值，不用统一 omitempty 消除差异；当前持有会话与冷恢复路由规则保持。摘要的 archived、nextSeq、时间、目录和必填空字符串不能因零值而跳过校验。跑初始化、最近草稿恢复、模型设置、会话切换、Runtime 提交/回滚及真实 Restart。
 - **完成记录（2026-10-26）**：`internal/protocol/session.go` 增加 create/resume 方法、`SessionRoute` 构造器、请求/响应与摘要 DTO，`tests/fixtures/protocol/session.json` 由 Go/Node 共用。启动创建、冷恢复、普通导航、冷重命名改用具名载荷；create 响应复用完整摘要校验。实际检查：全量/纯 Go 各 672 项、race 564 项、Node 89 项、真实 Host 36 项（含子用例）通过；MyGo vet、Go vet、差异检查通过。剩余：后续任务 1.2–1.7 未开始。
 
-### 1.2 session/prompt、session/cancel 与投递确认（高）
+### 1.2 session/prompt、session/cancel 与投递确认（高，已完成）
 
 - **范围/依赖**：依赖 1.1；涉及 `app.go`、`attachments.go`、`local_state.go` 与 SDK `contentBlocks` 分支。
 - **实施/交付**：类型化 custom/SDK prompt、现有文本/图片输入块、投递确认与 cancel 结果。实际工具参数、扩展数据仍允许有界 RawMessage/map，不强行统一异构块；每种现有块都有独立编码 oracle。
 - **验收/回归**：文本/附件-only、canonical base64、单图/总预算与顺序保持；无效 messageId 不丢草稿。cancel 的必填 cancelled、idle、超时 kind 保持；等待 prompt 被接受之后才取消，提前 idle 不越过取消确认屏障，旧响应不结束新回合。真实附件、取消、流式回归通过。
+- **完成记录（2026-10-26）**：`internal/protocol/prompt.go` 增加 custom/SDK prompt、独立文本/图片块、`PromptResult`、取消请求与必填 `cancelled` 结果；`tests/fixtures/protocol/prompt.json` 由 Go/Node 共用。App 发送、附件块与取消确认改用具名载荷，原有投递确认、取消屏障和草稿恢复保持。实际检查：全量/纯 Go 各 690 项、race 582 项、Node 91 项、真实 Host 25 项（含子用例）通过；MyGo vet、Go vet、格式与差异检查通过。剩余：后续任务 1.3–1.7 未开始。
 
 ### 1.3 列表、历史、历史窗口与 release（高）
 

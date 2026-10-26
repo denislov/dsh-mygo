@@ -60,6 +60,24 @@ func waitForPendingCleared(t *testing.T, application *App, updates <-chan func()
 	})
 }
 
+// promptContentBlocks decodes the typed prompt request back into its wire
+// objects so tests assert the order and fields the Host receives.
+func promptContentBlocks(t *testing.T, params any) []map[string]any {
+	t.Helper()
+	raw, ok := requestFields(t, params)["content"].([]any)
+	if !ok {
+		t.Fatalf("content = %v", requestFields(t, params)["content"])
+	}
+	blocks := make([]map[string]any, len(raw))
+	for index, value := range raw {
+		blocks[index], ok = value.(map[string]any)
+		if !ok {
+			t.Fatalf("block %d = %v", index, value)
+		}
+	}
+	return blocks
+}
+
 func TestSendCarriesStagedImagesAsCanonicalBase64(t *testing.T) {
 	client := &fakeClient{result: json.RawMessage(`{"messageId":"m1"}`)}
 	application, updates := newMygoSendApp(client)
@@ -69,8 +87,7 @@ func TestSendCarriesStagedImagesAsCanonicalBase64(t *testing.T) {
 	application.Send("look at this")
 
 	waitForCalls(t, client, 1)
-	params := client.params[0].(map[string]any)
-	blocks := params["content"].([]map[string]any)
+	blocks := promptContentBlocks(t, client.params[0])
 	if len(blocks) != 2 {
 		t.Fatalf("blocks = %+v", blocks)
 	}
@@ -98,9 +115,29 @@ func TestSendAllowsImageOnlyMessages(t *testing.T) {
 	application.Send("")
 
 	waitForCalls(t, client, 1)
-	blocks := client.params[0].(map[string]any)["content"].([]map[string]any)
+	blocks := promptContentBlocks(t, client.params[0])
 	if len(blocks) != 1 || blocks[0]["type"] != "image" {
 		t.Fatalf("blocks = %+v", blocks)
+	}
+}
+
+func TestSendPreservesTextAndImageOrder(t *testing.T) {
+	client := &fakeClient{result: json.RawMessage(`{"messageId":"m1"}`)}
+	application, _ := newMygoSendApp(client)
+	application.model.Attachments.Pending = []attachment.Draft{
+		{Name: "first.png", MediaType: attachment.MediaPNG, Data: []byte("one")},
+		{Name: "second.png", MediaType: attachment.MediaPNG, Data: []byte("two")},
+	}
+
+	application.Send("look")
+
+	waitForCalls(t, client, 1)
+	blocks := promptContentBlocks(t, client.params[0])
+	if len(blocks) != 3 || blocks[0]["type"] != "text" || blocks[1]["name"] != "first.png" || blocks[2]["name"] != "second.png" {
+		t.Fatalf("blocks = %+v", blocks)
+	}
+	if blocks[1]["data"] != base64.StdEncoding.EncodeToString([]byte("one")) || blocks[2]["data"] != base64.StdEncoding.EncodeToString([]byte("two")) {
+		t.Fatal("image order or encoding changed")
 	}
 }
 

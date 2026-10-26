@@ -183,12 +183,24 @@ func TestRecentSessionUsesCurrentHostDefaultInsteadOfFallbackModel(t *testing.T)
 }
 
 func TestMalformedDeliveryAcknowledgementDoesNotDiscardDraft(t *testing.T) {
-	client := &fakeClient{result: json.RawMessage(`{}`)}
-	a, updates, _ := editingTestApp(t, client)
-	a.model.Draft = "preserve until valid acknowledgement"
-	a.Send(a.model.Draft)
-	pumpEditing(t, updates, func() bool { return len(a.local.pending) == 0 })
-	if a.model.Draft != "preserve until valid acknowledgement" || a.model.Error == "" {
-		t.Fatal("malformed success discarded the draft")
+	for _, test := range []struct{ name, result string }{
+		{"missing", `{}`},
+		{"empty", `{"messageId":""}`},
+		{"null", `{"messageId":null}`},
+		{"wrong type", `{"messageId":1}`},
+		{"blank", `{"messageId":"  "}`},
+		{"control", `{"messageId":"a\u0000b"}`},
+		{"oversized", `{"messageId":"` + strings.Repeat("x", 257) + `"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := &fakeClient{result: json.RawMessage(test.result)}
+			a, updates, _ := editingTestApp(t, client)
+			a.model.Draft = "preserve until valid acknowledgement"
+			a.Send(a.model.Draft)
+			pumpEditing(t, updates, func() bool { return len(a.local.pending) == 0 })
+			if a.model.Draft != "preserve until valid acknowledgement" || a.model.Error == "" {
+				t.Fatal("malformed success discarded the draft")
+			}
+		})
 	}
 }
