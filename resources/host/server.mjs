@@ -220,7 +220,7 @@ export class MygoServer {
     if (!this.initialized) throw fault('protocol/not-initialized', 'Initialize the host first')
     if (this.configuration.pending && CONFIGURATION_BLOCKING_METHODS.has(method)) throw fault('settings/busy', 'A configuration write is still pending')
     if (PERMISSION_SENSITIVE_METHODS.has(method) && this.sessions.get(params.sessionId)?.permissionUncertain) throw fault('permission/refresh-required', 'Refresh permissions before continuing')
-    const route = routes[method]
+    const route = Object.hasOwn(routes, method) ? routes[method] : undefined
     if (route === undefined) throw fault('protocol/method-not-found', 'Unknown channel method', -32601)
     return route(this, params, method)
   }

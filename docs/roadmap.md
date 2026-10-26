@@ -21,6 +21,10 @@
 | 构建产物 | 2026-10-26 本机构建：应用 exe 15.3 MB、安装器 5.8 MB；runtime `.tgz` 222,545,475 B（约 212.2 MiB）与 catalog；未发布新资产。线上仍为旧 v0.1.1 单体安装器 |
 | 工程基线 | 公共 GitHub remote（2026-10-25 切换）；tag `v0.1.1` 指向 `728a3ed`；发布提交的 Windows 全量与 Linux Go CI 全绿 |
 
+### 提交质量复核（2026-10-27）
+
+- Node 路由表只分发自身声明的方法，拒绝 `toString`、`constructor` 等原型属性名，恢复 `protocol/method-not-found` / `-32601`。新增回归先复现失败，修正后 `node --test resources/host/tests/*.test.mjs` 97 项通过。
+
 ### 2.1 当前验证组合
 
 | 单元 | 当前值 | 校验方式 |

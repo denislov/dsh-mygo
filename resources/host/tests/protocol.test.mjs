@@ -121,6 +121,18 @@ test('handshake gates methods, rejects incompatible versions and never advertise
   await server.shutdown()
 })
 
+test('routing rejects unknown methods even when they name Object prototype properties', async () => {
+  const { server } = runtime()
+  try {
+    await server.handle('initialize', handshake)
+    for (const method of ['missing/method', 'toString', 'constructor', 'hasOwnProperty', '__proto__', 'valueOf']) {
+      await assert.rejects(server.handle(method, {}), { kind: 'protocol/method-not-found', code: -32601 }, method)
+    }
+  } finally {
+    await server.shutdown()
+  }
+})
+
 test('initialize accepts the declared app compatibility range and rejects versions outside it', async () => {
   for (const version of ['0.1.1', '0.1.99']) {
     const { server } = runtime()
