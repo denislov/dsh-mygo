@@ -55,3 +55,32 @@ func TestStaticViewTranslationsAndFormatArguments(t *testing.T) {
 		}
 	}
 }
+
+func TestNamedMessagesApplyDeclaredParameters(t *testing.T) {
+	if got := Textf("en-US", "Changed files · %d", 3); got != "Changed files · 3" {
+		t.Fatalf("English format = %q", got)
+	}
+	if got := Textf("zh-CN", "Changed files · %d", 3); got != "变更文件 · 3" {
+		t.Fatalf("Chinese format = %q", got)
+	}
+}
+
+func TestNamedApplicationMessagesHaveStableTranslations(t *testing.T) {
+	formats := regexp.MustCompile(`%[0-9.]*[ds]`)
+	for key, value := range english {
+		if value == "" {
+			t.Errorf("empty English message: %q", key)
+		}
+		translated := chinese[value]
+		if translated == "" {
+			t.Errorf("missing Chinese text for %q (%q)", key, value)
+			continue
+		}
+		if !reflect.DeepEqual(formats.FindAllString(value, -1), formats.FindAllString(translated, -1)) {
+			t.Errorf("format argument mismatch: %q -> %q", value, translated)
+		}
+		if Text("en-US", key) != value || Text("zh-CN", key) != translated {
+			t.Errorf("named message did not resolve: %q", key)
+		}
+	}
+}

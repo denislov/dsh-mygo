@@ -2,17 +2,74 @@
 // payloads and provider identifiers must never pass through this catalog.
 package i18n
 
+import "fmt"
+
+// Text resolves either a named application key or a legacy literal key. Named
+// keys keep message identity stable when English wording changes.
 func Text(locale, key string) string {
+	text := key
+	if value, ok := english[key]; ok {
+		text = value
+	}
 	if locale == "zh-CN" {
+		if value, ok := chinese[text]; ok {
+			return value
+		}
 		if value, ok := chinese[key]; ok {
 			return value
 		}
 	}
-	return key
+	return text
+}
+
+// Textf resolves a message and applies only catalog-declared format arguments.
+func Textf(locale, key string, args ...any) string {
+	return fmt.Sprintf(Text(locale, key), args...)
 }
 
 var chinese = map[string]string{
-	"Docked Session rail": "停靠会话栏", "Floating Session rail": "悬浮会话栏",
+	"The host event stream has a gap":                                      "Host 事件流存在缺口",
+	"Invalid question notification":                                        "无效的提问通知",
+	"Unexpected assistant stream":                                          "未预期的助手流",
+	"Invalid assistant stream":                                             "无效的助手流",
+	"Too many session updates while loading history":                       "加载历史时会话更新过多",
+	"Unexpected approval request":                                          "未预期的审批请求",
+	"Invalid host event":                                                   "无效的 Host 事件",
+	"Invalid approval queue":                                               "无效的审批队列",
+	"Invalid question request":                                             "无效的提问请求",
+	"Could not send the answer. Retry or cancel the question.":             "无法发送回答，请重试或取消提问。",
+	"Could not confirm permissions. Refresh before continuing or retrying": "未能确认权限，请刷新后再继续或重试",
+	"Invalid host status":                                                  "无效的 Host 状态",
+	"Invalid restored session identity or route":                           "恢复的会话身份或路由无效",
+	"Could not restart the DeepSeek Harness host":                          "无法重启 DeepSeek Harness Host",
+	"Model selection event is missing":                                     "缺少模型选择事件",
+	"Permissions saved for this conversation.":                             "已保存此会话的权限。",
+	"Checking installed DSH":                                               "正在检查已安装的 DSH",
+	"Could not initialize the host":                                        "无法初始化 Host",
+	"The DeepSeek Harness host exited":                                     "DeepSeek Harness Host 已退出",
+	"Invalid host notification":                                            "无效的 Host 通知",
+	"Invalid session event sequence":                                       "无效的会话事件序列",
+	"Could not stop the turn":                                              "无法停止回合",
+	"Choose dsh command":                                                   "选择 dsh 命令",
+	"The host connection closed":                                           "Host 连接已关闭",
+	"Unexpected question request":                                          "未预期的提问请求",
+	"Invalid stream notification":                                          "无效的流式通知",
+	"Invalid session response":                                             "无效的会话响应",
+	"Invalid approval notification":                                        "无效的审批通知",
+	"Could not send the decision. Retry or stop the turn.":                 "无法发送决定，请重试或停止回合。",
+	"Choose runtime bundle":                                                "选择 runtime 包",
+	"Could not recover the session":                                        "无法恢复会话",
+	"Invalid host status revision":                                         "无效的 Host 状态版本",
+	"The session changed while history was loading":                        "加载历史时会话已变化",
+	"Concurrent session activity is not supported":                         "不支持并发会话活动",
+	"Configuration saved. Existing session model is unchanged.":            "配置已保存，现有会话模型不变。",
+	"Could not open the logs folder":                                       "无法打开日志文件夹",
+	"Finish the current interaction before switching sessions":             "请先完成当前交互再切换会话",
+	"Invalid approval request":                                             "无效的审批请求",
+	"Invalid question queue":                                               "无效的提问队列",
+	"Permission events are missing":                                        "缺少权限事件",
+	"Permission boundary changed while loading the session":                "加载会话时权限边界发生变化",
+	"Docked Session rail":                                                  "停靠会话栏", "Floating Session rail": "悬浮会话栏",
 	"Resize":                    "调整大小",
 	"Workspace tools separator": "工作面板分组分隔", "Resize tools": "调整工具区大小", "Resize panels · ": "调整面板大小 · ",
 	"Thought": "思考", "Thought · ": "思考 · ", "Workspace panel · ": "工作面板 · ",

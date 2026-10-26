@@ -131,7 +131,7 @@ func (a *App) loadHistoryPage(latest bool) {
 			}
 			// Metadata writes cannot be accepted as a fresh realtime boundary.
 			if snapshot.NextSeq != a.nextSeq {
-				a.model.History.Error = "History changed. Refresh the latest messages to retry"
+				a.model.History.Error = msgHistoryChanged
 				return
 			}
 			if latest {

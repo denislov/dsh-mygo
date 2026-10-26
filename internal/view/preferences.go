@@ -82,6 +82,10 @@ func applicationShortcuts(c *mgo.Context, model *Model) {
 
 func (model *Model) T(text string) string { return i18n.Text(model.Prefs.Value.Locale, text) }
 
+func (model *Model) Tf(text string, args ...any) string {
+	return i18n.Textf(model.Prefs.Value.Locale, text, args...)
+}
+
 // Bind stable values directly; only their labels change with the locale.
 func preferenceChoice(c *mgo.Context, model *Model, value *string, options []string, label string) mgo.Element {
 	theme := c.Theme()

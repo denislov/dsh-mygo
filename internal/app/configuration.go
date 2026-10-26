@@ -82,7 +82,7 @@ func (a *App) SaveDefaultModel() {
 	}
 	route := view.ModelRoute{Provider: a.model.SettingsProvider, Model: a.model.SettingsModel, Effort: a.model.SelectedEffort()}
 	if !validModelLabel(route.Provider, false) || !validModelLabel(route.Model, false) || !validModelLabel(route.Effort, true) {
-		a.model.SettingsError = "Choose a valid provider, model ID and effort"
+		a.model.SettingsError = msgSettingsInvalidRoute
 		return
 	}
 	a.writeConfiguration(protocol.MethodConfigurationDefaultModel, protocol.ConfigurationDefaultModelParams{
@@ -105,7 +105,7 @@ func (a *App) SaveCredential() {
 		return
 	}
 	if value == "" || len(value) > 8192 || strings.TrimSpace(value) != value || strings.ContainsAny(value, "\r\n\t\x00 ") {
-		a.model.SettingsError = "Enter a non-empty API key without whitespace (maximum 8192 bytes)"
+		a.model.SettingsError = msgSettingsInvalidCredential
 		return
 	}
 	reference := a.model.Configuration.Credential.Reference
@@ -159,13 +159,13 @@ func (a *App) writeConfiguration(method string, params any, confirm func(view.Co
 			a.cancelSettingsOperation()
 			if err != nil {
 				a.model.ConfigurationUncertain = true
-				a.model.SettingsError = "Could not confirm the configuration write. Refresh before continuing or retrying"
+				a.model.SettingsError = msgSettingsWriteUnconfirmed
 				return
 			}
 			a.model.Configuration = snapshot
 			a.model.ConfigurationReady = true
 			a.model.ConfigurationUncertain = false
-			a.model.SettingsNotice = "Configuration saved. Existing session model is unchanged."
+			a.model.SettingsNotice = msgSettingsSaved
 		})
 	}()
 }

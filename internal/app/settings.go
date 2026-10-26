@@ -233,7 +233,7 @@ func (a *App) RefreshSettings() {
 			a.model.Catalog = catalog
 			if canPermissions {
 				if permissions.NextSeq != a.nextSeq {
-					a.model.SettingsError = "Session permissions changed. Refresh to retry"
+					a.model.SettingsError = msgPermissionsChanged
 					return
 				}
 				a.model.Permission.Accept(permissions)
@@ -265,12 +265,12 @@ func (a *App) ApplySettings() {
 		return
 	}
 	if a.model.ModelUncertain || a.model.ConfigurationUncertain || a.model.Permission.Uncertain {
-		a.model.SettingsError = "Refresh to confirm the active route before retrying"
+		a.model.SettingsError = msgSettingsRefreshRoute
 		return
 	}
 	route := view.ModelRoute{Provider: a.model.SettingsProvider, Model: a.model.SettingsModel, Effort: a.model.SelectedEffort()}
 	if !validModelLabel(route.Provider, false) || !validModelLabel(route.Model, false) || !validModelLabel(route.Effort, true) {
-		a.model.SettingsError = "Choose a valid provider, model ID and effort"
+		a.model.SettingsError = msgSettingsInvalidRoute
 		return
 	}
 	ctx, operation, cancel := a.beginSettingsOperation()
@@ -300,11 +300,11 @@ func (a *App) ApplySettings() {
 			a.cancelSettingsOperation()
 			if err != nil {
 				a.model.ModelUncertain = true
-				a.model.SettingsError = "Could not apply the model. Refresh to confirm the active route before retrying"
+				a.model.SettingsError = msgSettingsApplyFailed
 				return
 			}
 			if *summary.NextSeq <= startSeq || *summary.NextSeq > a.nextSeq {
-				a.setFailure("Model selection event is missing", errors.New("Restart the host to recover from the durable log"))
+				a.setFailure(msgModelSelectionMissing, errors.New("Restart the host to recover from the durable log"))
 				go a.stopHost()
 				return
 			}

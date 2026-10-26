@@ -55,7 +55,7 @@ func (a *App) ChooseProjectFolder() {
 				return
 			}
 			if err != nil {
-				a.model.Setup.Error = "Could not open the project folder. Choose an existing folder and retry"
+				a.model.Setup.Error = msgSetupFolderFailed
 				return
 			}
 			if folder == "" {

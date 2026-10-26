@@ -130,7 +130,7 @@ func (a *App) DetectRuntimes() {
 				a.model.Runtime.Candidates = append(a.model.Runtime.Candidates, choice)
 			}
 			if probeErr != nil && !hasLegacy {
-				a.model.Runtime.Notice = "No installed DSH was found. Download a runtime bundle or choose a dsh command."
+				a.model.Runtime.Notice = msgRuntimeNoDSH
 				a.logf("runtime detection: %v", probeErr)
 			}
 		})
@@ -144,7 +144,7 @@ func (a *App) BrowseDSH() {
 	}
 	go func() {
 		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
-			Title:   "Choose dsh command",
+			Title:   a.model.T(msgRuntimeChooseCommand),
 			Filters: []mygo.FileFilter{{Name: "DSH command", Extensions: []string{"exe", "cmd", "bat"}}},
 		})
 		if err != nil || len(paths) == 0 {
@@ -173,7 +173,7 @@ func (a *App) probeExternal(command string) {
 			a.model.Runtime.Checking = false
 			a.model.Runtime.Candidates = nil
 			if err != nil {
-				a.model.Runtime.Error = "The selected dsh command could not be used. Check Node.js 24+ and the DSH version."
+				a.model.Runtime.Error = msgRuntimeProbeFailed
 				a.logf("runtime probe: %v", err)
 				return
 			}
@@ -194,8 +194,8 @@ func (a *App) InstallRuntimeFile() {
 	}
 	go func() {
 		paths, err := mygo.Dialog.Open(mygo.OpenDialogOptions{
-			Title:   "Choose runtime bundle",
-			Filters: []mygo.FileFilter{{Name: "Runtime bundle", Extensions: []string{"tgz", "gz"}}},
+			Title:   a.model.T(msgRuntimeChooseBundle),
+			Filters: []mygo.FileFilter{{Name: msgRuntimeBundleLabel, Extensions: []string{"tgz", "gz"}}},
 		})
 		if err != nil || len(paths) == 0 {
 			return
@@ -205,13 +205,13 @@ func (a *App) InstallRuntimeFile() {
 }
 
 func (a *App) installRuntimeArchive(path string) {
-	ctx, generation, ok := a.beginRuntimeOperation("Installing runtime")
+	ctx, generation, ok := a.beginRuntimeOperation(msgRuntimeInstalling)
 	if !ok {
 		return
 	}
 	go func() {
 		installed, err := a.options.Runtimes.InstallArchive(ctx, path, func(ratio float32) {
-			a.reportRuntimeProgress(generation, "Installing runtime", ratio)
+			a.reportRuntimeProgress(generation, msgRuntimeInstalling, ratio)
 		})
 		if err != nil {
 			a.finishRuntimeOperation(generation, err, "")
@@ -225,10 +225,10 @@ func (a *App) installedRuntimeReady(installed runtimes.Runtime) {
 	a.model.Runtime.Busy = false
 	a.model.Runtime.Progress = 0
 	a.model.Runtime.Status = ""
-	a.model.Runtime.Notice = "Runtime installed."
+	a.model.Runtime.Notice = msgRuntimeInstalled
 	a.refreshRuntimeChoicesLocked()
 	if a.model.SettingsOpen {
-		a.model.SettingsNotice = "Runtime installed. Use it to switch."
+		a.model.SettingsNotice = msgRuntimeInstalledSettings
 		return
 	}
 	a.activateRuntime(installed.ID)
@@ -237,7 +237,7 @@ func (a *App) installedRuntimeReady(installed runtimes.Runtime) {
 // DownloadRuntime downloads the newest compatible runtime, or a specific
 // catalog entry when id is non-empty.
 func (a *App) DownloadRuntime(id string) {
-	ctx, generation, ok := a.beginRuntimeOperation("Checking runtime releases")
+	ctx, generation, ok := a.beginRuntimeOperation(msgRuntimeCheckingReleases)
 	if !ok {
 		return
 	}
@@ -252,7 +252,7 @@ func (a *App) DownloadRuntime(id string) {
 			a.finishRuntimeOperation(generation, errors.New("no compatible runtime is available for this app version"), "")
 			return
 		}
-		a.reportRuntimeProgress(generation, "Downloading runtime", 0)
+		a.reportRuntimeProgress(generation, msgRuntimeDownloading, 0)
 		installed, err := a.options.Runtimes.InstallDownload(ctx, release, entry, func(stage string, ratio float32) {
 			a.reportRuntimeProgress(generation, stage, ratio)
 		})
@@ -267,7 +267,7 @@ func (a *App) DownloadRuntime(id string) {
 // CheckRuntimeUpdates refreshes the downloadable runtime list without starting
 // an install.
 func (a *App) CheckRuntimeUpdates() {
-	ctx, generation, ok := a.beginRuntimeOperation("Checking runtime releases")
+	ctx, generation, ok := a.beginRuntimeOperation(msgRuntimeCheckingReleases)
 	if !ok {
 		return
 	}
@@ -280,7 +280,7 @@ func (a *App) CheckRuntimeUpdates() {
 		choices := make([]view.RuntimeChoice, 0, len(release.Catalog.Runtimes))
 		for _, entry := range release.Catalog.Runtimes {
 			choices = append(choices, view.RuntimeChoice{
-				ID: entry.ID, Kind: string(runtimes.KindManaged), Label: "Runtime bundle",
+				ID: entry.ID, Kind: string(runtimes.KindManaged), Label: msgRuntimeBundleLabel,
 				DSH: entry.DSH, Node: entry.Node, HostVersion: entry.HostVersion,
 				Detail: formatBytes(entry.Size), Compatible: true,
 			})
@@ -291,7 +291,7 @@ func (a *App) CheckRuntimeUpdates() {
 			a.model.Runtime.Status = ""
 			a.model.Runtime.Available = choices
 			if len(choices) == 0 {
-				a.model.Runtime.Notice = "No compatible runtime bundle is available for this app version."
+				a.model.Runtime.Notice = msgRuntimeNoCompatible
 			} else {
 				a.model.Runtime.Notice = ""
 			}
@@ -306,7 +306,7 @@ func (a *App) UseExternalRuntime(command string) {
 	if !a.runtimeAvailable() || a.model.Runtime.Busy || a.model.Runtime.Checking || a.model.Runtime.Switching {
 		return
 	}
-	ctx, generation, ok := a.beginRuntimeOperation("Checking installed DSH")
+	ctx, generation, ok := a.beginRuntimeOperation(msgRuntimeCheckingInstalled)
 	if !ok {
 		return
 	}
@@ -331,7 +331,7 @@ func (a *App) UseExternalRuntime(command string) {
 			a.model.Runtime.Status = ""
 			a.refreshRuntimeChoicesLocked()
 			if a.model.SettingsOpen {
-				a.model.SettingsNotice = "Runtime added. Use it to switch."
+				a.model.SettingsNotice = msgRuntimeAddedSettings
 				a.ActivateRuntime(installed.ID)
 				return
 			}
@@ -347,7 +347,7 @@ func (a *App) UseLegacyRuntime() {
 	}
 	candidate, ok := a.options.Runtimes.LegacyCandidate()
 	if !ok {
-		a.model.Runtime.Error = "The runtime bundled with the previous installation is no longer usable."
+		a.model.Runtime.Error = msgRuntimeLegacyUnusable
 		return
 	}
 	installed, err := a.options.Runtimes.AddLegacy(candidate)
@@ -378,17 +378,17 @@ func (a *App) ActivateRuntime(id string) {
 	}
 	target, ok := a.options.Runtimes.Find(id)
 	if !ok {
-		a.model.Runtime.Error = "The selected runtime is no longer installed."
+		a.model.Runtime.Error = msgRuntimeMissing
 		a.refreshRuntimeChoicesLocked()
 		return
 	}
 	selected, hasSelected := a.options.Runtimes.Selected()
 	if hasSelected && selected.ID == target.ID {
-		a.model.Runtime.Notice = "This runtime is already selected."
+		a.model.Runtime.Notice = msgRuntimeAlreadySelected
 		return
 	}
 	if hasSelected && selected.Kind == runtimes.KindDirect {
-		a.model.Runtime.Error = "The development runtime is fixed for this launch."
+		a.model.Runtime.Error = msgRuntimeDirectFixed
 		return
 	}
 	a.beginRuntimeSwitch(target, selected, a.resumeSessionID())
@@ -413,7 +413,7 @@ func (a *App) activateRuntime(id string) {
 	}
 	target, ok := a.options.Runtimes.Find(id)
 	if !ok {
-		a.model.Runtime.Error = "The selected runtime is no longer installed."
+		a.model.Runtime.Error = msgRuntimeMissing
 		a.refreshRuntimeChoicesLocked()
 		return
 	}
@@ -492,7 +492,7 @@ func (a *App) failRuntimeSwitch(cause error) {
 			a.model.Runtime.Switching = false
 			a.model.Runtime.SetupRequired = true
 			a.model.Phase = view.PhaseAwaitingRuntime
-			a.model.Runtime.Error = "Could not start this runtime. Choose another runtime or install a new one."
+			a.model.Runtime.Error = msgRuntimeStartFailed
 			a.refreshRuntimeChoicesLocked()
 		})
 		return
@@ -505,7 +505,7 @@ func (a *App) failRuntimeSwitch(cause error) {
 	a.post(func() {
 		a.model.Runtime.Error = ""
 		a.model.Phase = view.PhaseStarting
-		a.model.SettingsError = "Could not switch runtime. The previous runtime was restored."
+		a.model.SettingsError = msgRuntimeSwitchFailed
 		a.refreshRuntimeChoicesLocked()
 	})
 	a.startHost(false, switching.resumeID, switching.route)
@@ -537,10 +537,10 @@ func (a *App) RemoveRuntime(id string) {
 		return
 	}
 	if a.model.Runtime.Current.ID == id {
-		a.model.Runtime.Error = "Switch to another runtime before removing this one."
+		a.model.Runtime.Error = msgRuntimeRemoveCurrent
 		return
 	}
-	_, generation, ok := a.beginRuntimeOperation("Removing runtime")
+	_, generation, ok := a.beginRuntimeOperation(msgRuntimeRemoving)
 	if !ok {
 		return
 	}
@@ -555,7 +555,7 @@ func (a *App) RemoveRuntime(id string) {
 			a.model.Runtime.Progress = 0
 			a.model.Runtime.Status = ""
 			a.model.Runtime.Error = ""
-			a.model.Runtime.Notice = "Runtime removed."
+			a.model.Runtime.Notice = msgRuntimeRemoved
 			a.refreshRuntimeChoicesLocked()
 		})
 	}()
@@ -568,7 +568,7 @@ func (a *App) CancelRuntimeOperation() {
 	a.model.Runtime.Checking = false
 	a.model.Runtime.Progress = 0
 	a.model.Runtime.Status = ""
-	a.model.Runtime.Notice = "Runtime operation cancelled."
+	a.model.Runtime.Notice = msgRuntimeCancelled
 }
 
 func (a *App) refreshRuntimeChoicesLocked() {
@@ -589,16 +589,16 @@ func (a *App) refreshRuntimeChoicesLocked() {
 }
 
 func runtimeChoice(runtime runtimes.Runtime) view.RuntimeChoice {
-	label := "Managed runtime"
+	label := msgRuntimeManaged
 	detail := runtime.Dir
 	switch runtime.Kind {
 	case runtimes.KindExternal:
-		label = "Existing DSH installation"
+		label = msgRuntimeExisting
 		detail = runtime.Command
 	case runtimes.KindLegacy:
-		label = "Runtime bundled with a previous installation"
+		label = msgRuntimeBundledPrevious
 	case runtimes.KindDirect:
-		label = "Development runtime"
+		label = msgRuntimeDevelopment
 	}
 	return view.RuntimeChoice{
 		ID: runtime.ID, Kind: string(runtime.Kind), Label: label,
@@ -628,13 +628,13 @@ func runtimeErrorMessage(err error) string {
 	}
 	switch {
 	case errors.Is(err, runtimes.ErrNoRuntime):
-		return "A DSH runtime is required before the host can start."
+		return msgRuntimeRequired
 	case strings.Contains(strings.ToLower(err.Error()), "checksum"):
-		return "The runtime file failed verification. Try again or import a local bundle."
+		return msgRuntimeChecksumFailed
 	case strings.Contains(strings.ToLower(err.Error()), "no runtime"):
-		return "No compatible runtime is available for this app version."
+		return msgRuntimeNoCompatible
 	default:
-		return "Could not complete the runtime operation. Check the logs and try again."
+		return msgRuntimeOperationFailed
 	}
 }
 

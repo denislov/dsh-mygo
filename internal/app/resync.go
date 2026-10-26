@@ -53,7 +53,7 @@ func (a *App) startResync() {
 
 func (a *App) failResync() {
 	a.cancelResync()
-	a.setFailure("Could not synchronize session history", errors.New("Restart the host to recover the session from its durable log"))
+	a.setFailure(msgResyncFailed, errors.New("Restart the host to recover the session from its durable log"))
 	go a.stopHost()
 }
 

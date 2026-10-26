@@ -103,7 +103,7 @@ func (a *App) clearStream() {
 func (a *App) handleStreamNotificationFrom(source *hostInstance, params json.RawMessage) {
 	var notification protocol.AssistantStreamNotification
 	if json.Unmarshal(params, &notification) != nil || !validSessionID(notification.SessionID) {
-		a.setFailure("Invalid stream notification", errors.New("Invalid stream envelope"))
+		a.setFailure(msgStreamInvalidNotify, errors.New("Invalid stream envelope"))
 		go a.stopHost()
 		return
 	}
@@ -111,12 +111,12 @@ func (a *App) handleStreamNotificationFrom(source *hostInstance, params json.Raw
 		return
 	}
 	if !a.model.CanStream {
-		a.setFailure("Unexpected assistant stream", errors.New("Streaming capability was not negotiated"))
+		a.setFailure(msgStreamUnexpected, errors.New("Streaming capability was not negotiated"))
 		go a.stopHost()
 		return
 	}
 	if err := a.stream.Apply(notification.Frame); err != nil {
-		a.setFailure("Invalid assistant stream", err)
+		a.setFailure(msgStreamInvalid, err)
 		go a.stopHost()
 		return
 	}

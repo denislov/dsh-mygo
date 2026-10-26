@@ -25,7 +25,7 @@ func (a *App) handleQuestionNotification(method string, params json.RawMessage) 
 	if method == protocol.NotificationQuestionClosed {
 		requestID, sessionID, err := interaction.DecodeQuestionClosed(params)
 		if err != nil {
-			a.setFailure("Invalid question notification", err)
+			a.setFailure(msgQuestionInvalidNotify, err)
 			go a.stopHost()
 			return
 		}
@@ -35,7 +35,7 @@ func (a *App) handleQuestionNotification(method string, params json.RawMessage) 
 	}
 	request, err := interaction.DecodeQuestion(params)
 	if err != nil {
-		a.setFailure("Invalid question request", err)
+		a.setFailure(msgQuestionInvalid, err)
 		go a.stopHost()
 		return
 	}
@@ -43,12 +43,12 @@ func (a *App) handleQuestionNotification(method string, params json.RawMessage) 
 		return
 	}
 	if !a.model.CanQuestion {
-		a.setFailure("Unexpected question request", errors.New("Question capability was not negotiated"))
+		a.setFailure(msgQuestionUnexpected, errors.New("Question capability was not negotiated"))
 		go a.stopHost()
 		return
 	}
 	if err := a.questions.Add(request); err != nil {
-		a.setFailure("Invalid question queue", err)
+		a.setFailure(msgQuestionInvalidQueue, err)
 		go a.stopHost()
 		return
 	}
@@ -106,7 +106,7 @@ func (a *App) RespondQuestion(requestID string, cancelQuestion bool) {
 			if err == nil || stale {
 				a.questions.Remove(requestID, sessionID)
 			} else {
-				a.questions.Fail(requestID, "Could not send the answer. Retry or cancel the question.")
+				a.questions.Fail(requestID, msgQuestionSendFailed)
 			}
 			a.publishQuestions()
 		})

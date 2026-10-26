@@ -102,7 +102,7 @@ func (a *App) readWorkspaceDirectory(path string) {
 		w.Loading = make(map[string]bool)
 	}
 	if len(w.Directories) >= 64 {
-		w.FileError = "Too many open folders"
+		w.FileError = msgWorkspaceTooManyFiles
 		return
 	}
 	w.Loading[path] = true
@@ -157,7 +157,7 @@ func (a *App) openWorkspaceFile(path string) {
 				return
 			}
 			if len(file.Image) > 0 && bitmap == nil {
-				w.PreviewError = "Image cannot be previewed"
+				w.PreviewError = msgWorkspaceImageFailed
 				return
 			}
 			w.Preview = file
@@ -277,7 +277,7 @@ func (a *App) restartWorkspaceTerminal() {
 			}
 			w.TerminalBusy = false
 			if err != nil {
-				w.TerminalError = "Could not start terminal"
+				w.TerminalError = msgWorkspaceTerminal
 				return
 			}
 			w.Terminal = term

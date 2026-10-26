@@ -30,7 +30,7 @@ func detailsBody(c *mgo.Context, model *Model) {
 		})
 		detailSection(c, "progress", model.T("Progress"), iconActivity, &model.Shell.ProgressOpen, func() { progressDetails(c, model) })
 		if len(model.Workspace.Changes.Files) > 0 {
-			mgo.Button(c.Key("rail-changes"), fmt.Sprintf(model.T("Changed files · %d"), len(model.Workspace.Changes.Files))).FillWidth().OnClick(func() {
+			mgo.Button(c.Key("rail-changes"), model.Tf("Changed files · %d", len(model.Workspace.Changes.Files))).FillWidth().OnClick(func() {
 				if !model.Workspace.Open[PanelChanges] {
 					model.ToggleWorkspacePanel(PanelChanges)
 				}
@@ -48,9 +48,9 @@ func detailSection(c *mgo.Context, key, title string, icon *mgo.SVG, open *bool,
 		disclosure := mgo.CollapsibleBase(c, open)
 		disclosure.Trigger.FillWidth().Gap(space8).AlignItems(mgo.Center).Label(title)
 		disclosure.Trigger.Children(func() {
-			mgo.Icon(c, icon).Size(14, 14).TextColor(tokens.TextMuted)
+			mgo.Icon(c, icon).Size(iconDefault, iconDefault).TextColor(tokens.TextMuted)
 			mgo.Text(c, title).FontSize(textCaption).Bold().Grow(1)
-			mgo.Icon(c, iconChevronRight).Size(12, 12).TextColor(tokens.TextMuted).Rotate(90 * disclosure.Progress())
+			mgo.Icon(c, iconChevronRight).Size(iconSmall, iconSmall).TextColor(tokens.TextMuted).Rotate(90 * disclosure.Progress())
 		})
 		disclosure.Panel(func() {
 			mgo.Column(c).FillWidth().Gap(space8).Padding(space8, 0, 0, 0).Children(body)

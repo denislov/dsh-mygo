@@ -42,7 +42,7 @@ func (a *App) RenameSession() {
 	}
 	title := panel.Title
 	if strings.TrimSpace(title) == "" || len(title) > 1024 || strings.ContainsFunc(title, unicode.IsControl) {
-		a.model.SessionsError = "Enter a title of up to 1024 bytes without control characters"
+		a.model.SessionsError = msgSessionTitleInvalid
 		return
 	}
 	a.writeSession(panel.EditingID, title, nil)
@@ -142,7 +142,7 @@ func (a *App) writeSession(id, title string, archived *bool) {
 			if err != nil {
 				a.model.SessionPanel.Uncertain = true
 				a.sessionNeedsHistory = archived == nil && id == currentID
-				a.model.SessionsError = "Could not confirm the change. Refresh sessions before continuing"
+				a.model.SessionsError = msgSessionConfirmFailed
 				return
 			}
 			a.model.Sessions = sessions

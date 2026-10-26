@@ -25,7 +25,7 @@ func (a *App) handleApprovalNotification(method string, params json.RawMessage) 
 	if method == protocol.NotificationApprovalClosed {
 		requestID, sessionID, err := interaction.DecodeApprovalClosed(params)
 		if err != nil {
-			a.setFailure("Invalid approval notification", err)
+			a.setFailure(msgApprovalInvalidNotify, err)
 			go a.stopHost()
 			return
 		}
@@ -35,7 +35,7 @@ func (a *App) handleApprovalNotification(method string, params json.RawMessage) 
 	}
 	request, err := interaction.DecodeApproval(params)
 	if err != nil {
-		a.setFailure("Invalid approval request", err)
+		a.setFailure(msgApprovalInvalid, err)
 		go a.stopHost()
 		return
 	}
@@ -43,12 +43,12 @@ func (a *App) handleApprovalNotification(method string, params json.RawMessage) 
 		return
 	}
 	if !a.model.CanApprove {
-		a.setFailure("Unexpected approval request", errors.New("Approval capability was not negotiated"))
+		a.setFailure(msgApprovalUnexpected, errors.New("Approval capability was not negotiated"))
 		go a.stopHost()
 		return
 	}
 	if err := a.approvals.Add(request); err != nil {
-		a.setFailure("Invalid approval queue", err)
+		a.setFailure(msgApprovalInvalidQueue, err)
 		go a.stopHost()
 		return
 	}
@@ -82,7 +82,7 @@ func (a *App) RespondApproval(requestID, decision string) {
 			if err == nil || stale {
 				a.approvals.Remove(requestID, sessionID)
 			} else {
-				a.approvals.Fail(requestID, "Could not send the decision. Retry or stop the turn.")
+				a.approvals.Fail(requestID, msgApprovalSendFailed)
 			}
 			a.publishApprovals()
 		})

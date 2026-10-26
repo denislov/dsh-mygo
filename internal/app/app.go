@@ -259,7 +259,7 @@ func (a *App) Start() {
 func (a *App) awaitRuntime(err error) {
 	message := ""
 	if err != nil {
-		message = "The selected DSH runtime could not be used. Choose another runtime or install a new one."
+		message = msgRuntimeInvalid
 		a.logf("runtime setup required: %v", err)
 	}
 	a.post(func() {
@@ -325,7 +325,7 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 			a.awaitRuntime(err)
 			return
 		}
-		a.fail("Could not start the DeepSeek Harness host", err)
+		a.fail(msgHostStart, err)
 		return
 	}
 	if a.options.Runtimes != nil {
@@ -335,7 +335,7 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 					a.failRuntimeSwitch(err)
 					return
 				}
-				a.fail("Could not prepare the DeepSeek Harness profile", err)
+				a.fail(msgHostPrepare, err)
 				return
 			}
 		}
@@ -343,7 +343,7 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 		if err := a.options.Preflight(); err != nil {
 			summary := a.options.PreflightSummary
 			if summary == "" {
-				summary = "Could not start the DeepSeek Harness host"
+				summary = msgHostStart
 			}
 			a.fail(summary, err)
 			return
@@ -356,9 +356,9 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 			a.failRuntimeSwitch(err)
 			return
 		}
-		summary := "Could not start the DeepSeek Harness host"
+		summary := msgHostStart
 		if recover {
-			summary = "Could not restart the DeepSeek Harness host"
+			summary = msgHostRestart
 		}
 		a.fail(summary, err)
 		return
@@ -392,7 +392,7 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 		if errors.Is(err, io.EOF) || errors.Is(err, channel.ErrClosed) || a.shuttingDown.Load() || !a.isCurrentHost(instance) {
 			return
 		}
-		a.failHost(instance, "The host connection closed", err)
+		a.failHost(instance, msgHostConnectionClosed, err)
 		a.stopHostInstance(instance)
 	}()
 
@@ -410,9 +410,9 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 		if !a.options.SDKProtocol && !recover {
 			err = fmt.Errorf("%w\n\nCheck that the mygo profile contains dsh-base and @dsh-mygo/host. Initialize a new development profile with resources/host/setup-profile.mjs --dsh-home <absolute-directory>", err)
 		}
-		summary := "Could not initialize the host"
+		summary := msgHostInitialize
 		if recover {
-			summary = "Could not recover the session"
+			summary = msgHostRecover
 		}
 		a.failHost(instance, summary, err)
 		a.stopHostInstance(instance)
@@ -538,7 +538,7 @@ func (a *App) hostReady(instance *hostInstance, initialized initializedSession, 
 	a.model.Runtime.Error = ""
 	a.model.Runtime.Notice = ""
 	if switchedID != "" {
-		a.model.SettingsNotice = "Runtime switched."
+		a.model.SettingsNotice = msgRuntimeSwitched
 		a.refreshRuntimeChoicesLocked()
 	}
 	if initialized.route.Provider != "" {
@@ -616,7 +616,7 @@ func (a *App) OpenLogs() {
 		return
 	}
 	if err := platform.Reveal(a.options.LogDir); err != nil {
-		a.model.RecoveryError = "Could not open the logs folder"
+		a.model.RecoveryError = msgHostLogsOpenFailed
 		return
 	}
 	a.model.RecoveryError = ""
@@ -880,7 +880,7 @@ func (a *App) prompt(client rpcClient, request any, submitted string, promptID u
 		a.turn.deliveryFailed()
 		a.model.Phase = view.PhaseIdle
 		a.model.CancelPending = false
-		a.model.Error = "Could not deliver the prompt"
+		a.model.Error = msgHostPromptFailed
 		a.model.ErrorDetail = clipDetail(err.Error()+"\n\nThe prompt may not have reached the host. Check before retrying.", maxErrorRunes)
 		if a.model.Draft == "" {
 			a.model.Draft = submitted
@@ -943,7 +943,7 @@ func (a *App) cancelTurn(client rpcClient, promptID uint64, sessionID string, de
 			if errors.As(err, &rpcError) && protocol.ErrorKind(rpcError.Data) == protocol.ErrorKindSessionCancelTimeout {
 				a.turn.cancelTimedOut()
 			}
-			a.model.Error = "Could not stop the turn"
+			a.model.Error = msgHostStopFailed
 			a.model.ErrorDetail = clipDetail(err.Error(), maxErrorRunes)
 			return
 		}
@@ -1003,11 +1003,11 @@ func (a *App) handleNotificationFrom(source *hostInstance, method string, params
 		case protocol.NotificationSessionStatus:
 			method = protocol.NotificationSDKSessionStatus
 		case protocol.NotificationHostFatal:
-			a.setFailure("The host reported an agent failure", errors.New("Restart the host before retrying"))
+			a.setFailure(msgHostAgentFailure, errors.New("Restart the host before retrying"))
 			go a.stopHost()
 			return
 		case protocol.NotificationSDKSessionEvent, protocol.NotificationSDKSessionStatus:
-			a.setFailure("Invalid host notification", errors.New("SDK notifications are not valid on the mygo channel"))
+			a.setFailure(msgHostInvalidNotify, errors.New("SDK notifications are not valid on the mygo channel"))
 			go a.stopHost()
 			return
 		}
@@ -1026,7 +1026,7 @@ func (a *App) handleSessionEventNotification(source *hostInstance, params json.R
 	var envelope protocol.SessionEventNotification
 	if json.Unmarshal(params, &envelope) != nil || envelope.SessionID == "" {
 		if !a.options.SDKProtocol {
-			a.setFailure("Invalid host event", errors.New("The host sent an invalid session event"))
+			a.setFailure(msgHostInvalidEvent, errors.New("The host sent an invalid session event"))
 			go a.stopHost()
 		}
 		return
@@ -1034,7 +1034,7 @@ func (a *App) handleSessionEventNotification(source *hostInstance, params json.R
 	event, eventSeq, err := projection.DecodeEvent(envelope.Event)
 	if err != nil {
 		if !a.options.SDKProtocol {
-			a.setFailure("Invalid host event", errors.New("The host sent an invalid session event"))
+			a.setFailure(msgHostInvalidEvent, errors.New("The host sent an invalid session event"))
 			go a.stopHost()
 		}
 		return
@@ -1044,7 +1044,7 @@ func (a *App) handleSessionEventNotification(source *hostInstance, params json.R
 	}
 	if !a.options.SDKProtocol {
 		if envelope.Seq == nil || eventSeq == nil || *envelope.Seq != event.Seq {
-			a.setFailure("Invalid session event sequence", errors.New("The host sent an inconsistent session event sequence"))
+			a.setFailure(msgHostInvalidSequence, errors.New("The host sent an inconsistent session event sequence"))
 			go a.stopHost()
 			return
 		}
@@ -1097,7 +1097,7 @@ func (a *App) handleSessionStatusNotification(params json.RawMessage) {
 	var notification protocol.SessionStatusNotification
 	if json.Unmarshal(params, &notification) != nil {
 		if !a.options.SDKProtocol {
-			a.setFailure("Invalid host status", errors.New("The host sent an invalid session status"))
+			a.setFailure(msgHostInvalidStatus, errors.New("The host sent an invalid session status"))
 			go a.stopHost()
 		}
 		return
@@ -1106,13 +1106,13 @@ func (a *App) handleSessionStatusNotification(params json.RawMessage) {
 		return
 	}
 	if !a.options.SDKProtocol && notification.Status != "idle" && notification.Status != "running" {
-		a.setFailure("Invalid host status", errors.New("The host sent an unknown session status"))
+		a.setFailure(msgHostInvalidStatus, errors.New("The host sent an unknown session status"))
 		go a.stopHost()
 		return
 	}
 	if a.model.CanResync {
 		if notification.StatusRevision == nil || *notification.StatusRevision > maxSafeInteger {
-			a.setFailure("Invalid host status revision", errors.New("The host sent an invalid status revision"))
+			a.setFailure(msgHostInvalidRevision, errors.New("The host sent an invalid status revision"))
 			go a.stopHost()
 			return
 		}
@@ -1207,7 +1207,7 @@ func (a *App) watchHost(instance *hostInstance) {
 	if err != nil {
 		detail = err.Error()
 	}
-	a.failHost(instance, "The DeepSeek Harness host exited", errors.New(detail))
+	a.failHost(instance, msgHostExited, errors.New(detail))
 }
 
 // failHost publishes a failure only if the captured Host is still current when
@@ -1282,7 +1282,7 @@ func (a *App) requireResync(err error) {
 	a.model.RecoveryOpen = true
 	a.model.Recoverable = !a.options.SDKProtocol && !a.shuttingDown.Load()
 	a.model.Restarting = false
-	a.model.Error = "The host event stream has a gap"
+	a.model.Error = msgHostEventGap
 	a.model.ErrorDetail = "Restart the host to recover the session from its durable log. Automatic resynchronization is not available in this version."
 	a.model.RecoveryError = ""
 	a.turn.clear()

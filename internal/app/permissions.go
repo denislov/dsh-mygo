@@ -108,16 +108,16 @@ func (a *App) ApplyPermission() {
 			a.cancelSettingsOperation()
 			if err != nil {
 				a.model.Permission.Uncertain = true
-				a.model.SettingsError = "Could not confirm permissions. Refresh before continuing or retrying"
+				a.model.SettingsError = msgPermissionsUnconfirmed
 				return
 			}
 			if snapshot.NextSeq != a.nextSeq {
-				a.setFailure("Permission events are missing", errors.New("Restart the host to recover the durable session"))
+				a.setFailure(msgPermissionsEventsMissing, errors.New("Restart the host to recover the durable session"))
 				go a.stopHost()
 				return
 			}
 			a.model.Permission.Accept(snapshot)
-			a.model.SettingsNotice = "Permissions saved for this conversation."
+			a.model.SettingsNotice = msgPermissionsSaved
 			if a.model.QuickSelector == "permission" {
 				a.model.SettingsOpen = false
 				a.model.QuickSelector = ""

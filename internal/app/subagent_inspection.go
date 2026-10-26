@@ -195,7 +195,7 @@ func (a *App) readSubagents(before *uint64) {
 			}
 			a.cancelSubagentRead()
 			if err != nil {
-				p.Error = "Could not load subagents. Refresh to retry"
+				p.Error = msgSubagentsLoadFailed
 				return
 			}
 			if read.child == "" {
@@ -204,7 +204,7 @@ func (a *App) readSubagents(before *uint64) {
 			}
 			page, ok := a.subagents.commitPage(read, history)
 			if !ok {
-				p.Error = "Could not load subagents. Refresh to retry"
+				p.Error = msgSubagentsLoadFailed
 				return
 			}
 			content := view.NewModel()

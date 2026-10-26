@@ -169,15 +169,15 @@ func (a *App) loadSessionInDirectory(id, cwd string) {
 		opened := err == nil
 		var history historySnapshot
 		if err != nil {
-			err = errors.New("Could not open the session. Check ownership, working directory and model route, then retry")
+			err = errors.New(msgSessionOpenFailed)
 		} else {
 			var result protocol.SessionResult
 			if json.Unmarshal(raw, &result) != nil {
-				err = errors.New("Invalid session response")
+				err = errors.New(msgSessionInvalidResponse)
 			} else {
 				summary, err = decodeSessionSummary(result.Session)
 				if err == nil && (summary.Status != "idle" || summary.NextSeq == nil || id != "" && summary.ID != id || summary.Provider == "" || summary.Model == "" || summary.CWD == "") {
-					err = errors.New("Invalid restored session identity or route")
+					err = errors.New(msgSessionInvalidRestore)
 				}
 			}
 		}
@@ -193,7 +193,7 @@ func (a *App) loadSessionInDirectory(id, cwd string) {
 		if err == nil && canPermissions {
 			permissions, err = readPermissions(ctx, client, summary.ID)
 			if err == nil && permissions.NextSeq != nextSeq {
-				err = errors.New("Permission boundary changed while loading the session")
+				err = errors.New(msgSessionPermissionBoundary)
 			}
 		}
 		a.post(func() {
@@ -213,15 +213,15 @@ func (a *App) loadSessionInDirectory(id, cwd string) {
 				}
 				a.model.SessionsError = err.Error()
 				if len(buffer) > 0 {
-					a.setFailure("The session changed while history was loading", errors.New("Restart the host to recover the session safely"))
+					a.setFailure(msgSessionChanged, errors.New("Restart the host to recover the session safely"))
 					go a.stopHost()
 				}
 				return
 			}
 			if a.model.Phase != view.PhaseIdle || len(a.model.Approvals) > 0 || len(a.model.Questions) > 0 {
-				a.model.SessionsError = "Finish the current interaction before switching sessions"
+				a.model.SessionsError = msgSessionFinishInteraction
 				if len(buffer) > 0 {
-					a.setFailure("Concurrent session activity is not supported", errors.New("Restart the host to recover from the durable logs"))
+					a.setFailure(msgSessionConcurrent, errors.New("Restart the host to recover from the durable logs"))
 					go a.stopHost()
 				}
 				return
@@ -323,7 +323,7 @@ func (a *App) bufferSessionNotificationFrom(source *hostInstance, method string,
 	ok, overflow := a.sessionNavigator.bufferResponse(hostNotification{host: source, method: method, params: params})
 	if !ok {
 		if overflow {
-			a.setFailure("Too many session updates while loading history", errors.New("Restart the host to recover from the durable log"))
+			a.setFailure(msgSessionTooManyUpdates, errors.New("Restart the host to recover from the durable log"))
 			go a.stopHost()
 		}
 		return true

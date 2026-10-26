@@ -221,7 +221,7 @@ func (a *App) offerPreviousDraft(id string) {
 		} else if a.model.Draft != text {
 			a.model.Draft = text + "\n\n" + a.model.Draft
 		}
-		a.model.LocalState.Notice = "Previous draft copied here. Review it before sending."
+		a.model.LocalState.Notice = msgLocalPreviousDraft
 		a.model.LocalState.RecoverDraft = nil
 		a.persistLocalState()
 	}
@@ -316,5 +316,5 @@ func originalSubmittedText(draft, text string) string {
 }
 
 func localRestoreNotice() string {
-	return "Could not reopen the last conversation. Its draft is kept; use Sessions to retry or continue in this new conversation."
+	return msgLocalRestoreFailed
 }

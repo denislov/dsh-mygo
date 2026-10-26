@@ -156,7 +156,7 @@ func TestSwitchRuntimeCommitsAfterInitialize(t *testing.T) {
 	if application.model.ActiveRoute != wantRoute {
 		t.Fatalf("runtime switch lost selected route: %+v", application.model.ActiveRoute)
 	}
-	if application.model.SettingsNotice != "Runtime switched." {
+	if application.model.SettingsNotice != msgRuntimeSwitched {
 		t.Fatalf("settings notice = %q", application.model.SettingsNotice)
 	}
 }
@@ -264,7 +264,7 @@ func TestRemoveUnselectedRuntime(t *testing.T) {
 	}
 	application.RemoveRuntime(second.ID)
 	waitFor(t, application, updates, 5*time.Second, func() bool {
-		return !application.Model().Runtime.Busy && application.Model().Runtime.Notice == "Runtime removed."
+		return !application.Model().Runtime.Busy && application.Model().Runtime.Notice == msgRuntimeRemoved
 	})
 	if _, ok := manager.Find(second.ID); ok {
 		t.Fatal("removed runtime is still installed")
@@ -273,7 +273,7 @@ func TestRemoveUnselectedRuntime(t *testing.T) {
 	if !ok || selected.ID != first.ID {
 		t.Fatalf("selected = %+v, %v", selected, ok)
 	}
-	if application.model.Runtime.Notice != "Runtime removed." {
+	if application.model.Runtime.Notice != msgRuntimeRemoved {
 		t.Fatalf("notice = %q", application.model.Runtime.Notice)
 	}
 }
