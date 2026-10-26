@@ -8,6 +8,7 @@
 | [mygo-native-ui.md](mygo-native-ui.md) | MyGo 0.6.2 提供哪些原生 UI 能力？有哪些生命周期约束？ | 足以承载桌面聊天 UI |
 | [transport-options.md](transport-options.md) | Host 与 Go UI 之间用什么协议？ | 先用 SDK 验证，再落自定义 channel |
 | [dsh-tui-reference.md](dsh-tui-reference.md) | dsh-TUI 如何作为非 Web surface 落地？哪些可借鉴？ | 借鉴组合与适配层，不复刻其 UI |
+| [refactor-tooling.md](refactor-tooling.md) | 是否为协议词汇做代码生成、是否写主线程 analyzer、哪些度量/依赖/生成物检查进 CI？ | 暂不生成/不自造 analyzer；保留 fixture/vet/依赖与生成物检查 |
 
 ## 参考版本
 

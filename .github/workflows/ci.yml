@@ -37,6 +37,10 @@ jobs:
         run: go tool mygo vet .
       - name: Go tests
         run: go test ./...
+      - name: Production metrics
+        run: go run ./cmd/metrics -top 10
+      - name: Repository artifact check
+        run: node scripts/check-repository.mjs
       - name: Node host tests
         run: node --test "resources/host/tests/*.test.mjs"
       - name: Signing script tests
