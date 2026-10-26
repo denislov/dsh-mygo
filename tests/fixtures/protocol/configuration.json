@@ -1,0 +1,39 @@
+{
+  "get": {},
+  "defaultModel": {
+    "revision": 2,
+    "provider": "test",
+    "model": "saved",
+    "effort": ""
+  },
+  "defaultModelEffort": {
+    "revision": 2,
+    "provider": "test",
+    "model": "saved",
+    "effort": "high"
+  },
+  "credentialSet": {
+    "reference": "MYGO_TEST_KEY",
+    "operation": "set",
+    "value": "test-value"
+  },
+  "credentialUnset": {
+    "reference": "MYGO_TEST_KEY",
+    "operation": "unset"
+  },
+  "snapshot": {
+    "revision": 2,
+    "defaults": {
+      "provider": "test",
+      "model": "saved",
+      "effort": ""
+    },
+    "credential": {
+      "available": true,
+      "reference": "MYGO_TEST_KEY",
+      "configured": false,
+      "writable": true,
+      "source": "none"
+    }
+  }
+}

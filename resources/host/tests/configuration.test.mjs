@@ -38,6 +38,18 @@ function runtime(capabilities = ['settings.configuration']) {
   return { server, ctx, initialized, references }
 }
 
+test('shared configuration fixture drives default and credential writes', async () => {
+  const fixture = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/configuration.json', import.meta.url), 'utf8'))
+  const { server } = runtime()
+  const saved = await server.handle('configuration/default-model', { ...fixture.defaultModel, revision: 0 })
+  assert.equal(saved.defaults.model, 'saved')
+  const set = await server.handle('configuration/credential', fixture.credentialSet)
+  assert.equal(set.credential.configured, true)
+  const unset = await server.handle('configuration/credential', fixture.credentialUnset)
+  assert.equal(unset.credential.configured, false)
+  await server.shutdown()
+})
+
 test('configuration is capability gated and status only returns whitelisted facts', async () => {
   const disabled = runtime([])
   await assert.rejects(disabled.server.handle('configuration/get', {}), { kind: 'protocol/capability-unavailable' })

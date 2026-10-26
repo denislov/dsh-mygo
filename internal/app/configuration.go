@@ -25,7 +25,7 @@ func validCredentialReference(value string) bool {
 }
 
 func decodeConfiguration(raw json.RawMessage) (view.Configuration, error) {
-	var snapshot view.Configuration
+	var snapshot protocol.ConfigurationSnapshot
 	var required struct {
 		Revision *uint64 `json:"revision"`
 		Defaults struct {
@@ -43,7 +43,7 @@ func decodeConfiguration(raw json.RawMessage) (view.Configuration, error) {
 	}
 	invalid := errors.New("Invalid configuration response. Refresh to retry")
 	if len(raw) > 8192 || json.Unmarshal(raw, &required) != nil || required.Revision == nil || *required.Revision > maxSafeInteger || required.Defaults.Provider == nil || required.Defaults.Model == nil || required.Defaults.Effort == nil || required.Credential.Available == nil || required.Credential.Configured == nil || required.Credential.Writable == nil || required.Credential.Reference == nil || required.Credential.Source == nil {
-		return snapshot, invalid
+		return view.Configuration{}, invalid
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
@@ -54,11 +54,22 @@ func decodeConfiguration(raw json.RawMessage) (view.Configuration, error) {
 	if credential.Source != "none" && credential.Source != "managed" && credential.Source != "environment" && credential.Source != "fallback" || credential.Configured == (credential.Source == "none") || credential.Available && !validCredentialReference(credential.Reference) || !credential.Available && (credential.Reference != "" || credential.Configured || credential.Writable) {
 		return view.Configuration{}, invalid
 	}
-	return snapshot, nil
+	return configurationView(snapshot), nil
+}
+
+func configurationView(snapshot protocol.ConfigurationSnapshot) view.Configuration {
+	return view.Configuration{
+		Revision: snapshot.Revision,
+		Defaults: view.ModelRoute{Provider: snapshot.Defaults.Provider, Model: snapshot.Defaults.Model, Effort: snapshot.Defaults.Effort},
+		Credential: view.CredentialStatus{
+			Available: snapshot.Credential.Available, Reference: snapshot.Credential.Reference,
+			Configured: snapshot.Credential.Configured, Writable: snapshot.Credential.Writable, Source: snapshot.Credential.Source,
+		},
+	}
 }
 
 func readConfiguration(ctx context.Context, client rpcClient) (view.Configuration, error) {
-	raw, err := client.Call(ctx, "configuration/get", map[string]any{})
+	raw, err := client.Call(ctx, protocol.MethodConfigurationGet, struct{}{})
 	if err != nil {
 		return view.Configuration{}, errors.New("Could not load configuration. Refresh to retry")
 	}
@@ -74,7 +85,14 @@ func (a *App) SaveDefaultModel() {
 		a.model.SettingsError = "Choose a valid provider, model ID and effort"
 		return
 	}
-	a.writeConfiguration("configuration/default-model", map[string]any{"revision": a.model.Configuration.Revision, "provider": route.Provider, "model": route.Model, "effort": route.Effort}, &route)
+	a.writeConfiguration(protocol.MethodConfigurationDefaultModel, protocol.ConfigurationDefaultModelParams{
+		Revision: a.model.Configuration.Revision, Provider: route.Provider, Model: route.Model, Effort: route.Effort,
+	}, func(snapshot view.Configuration) error {
+		if snapshot.Defaults != route {
+			return errors.New("Default model was not confirmed")
+		}
+		return nil
+	})
 }
 
 func (a *App) canWriteConfiguration() bool {
@@ -90,7 +108,14 @@ func (a *App) SaveCredential() {
 		a.model.SettingsError = "Enter a non-empty API key without whitespace (maximum 8192 bytes)"
 		return
 	}
-	a.writeConfiguration("configuration/credential", map[string]any{"reference": a.model.Configuration.Credential.Reference, "operation": "set", "value": value}, nil)
+	reference := a.model.Configuration.Credential.Reference
+	request := &protocol.ConfigurationCredentialParams{Reference: reference, Operation: protocol.CredentialOperationSet, Value: &value}
+	a.writeConfiguration(protocol.MethodConfigurationCredential, request, func(snapshot view.Configuration) error {
+		if !snapshot.Credential.Available || snapshot.Credential.Reference != reference || !snapshot.Credential.Configured {
+			return errors.New("Credential write was not confirmed")
+		}
+		return nil
+	})
 }
 
 func (a *App) ClearCredential() {
@@ -99,10 +124,16 @@ func (a *App) ClearCredential() {
 		return
 	}
 	a.model.ConfirmCredentialClear = false
-	a.writeConfiguration("configuration/credential", map[string]any{"reference": a.model.Configuration.Credential.Reference, "operation": "unset"}, nil)
+	reference := a.model.Configuration.Credential.Reference
+	a.writeConfiguration(protocol.MethodConfigurationCredential, &protocol.ConfigurationCredentialParams{Reference: reference, Operation: protocol.CredentialOperationUnset}, func(snapshot view.Configuration) error {
+		if !snapshot.Credential.Available || snapshot.Credential.Reference != reference {
+			return errors.New("Credential write was not confirmed")
+		}
+		return nil
+	})
 }
 
-func (a *App) writeConfiguration(method string, params map[string]any, expected *view.ModelRoute) {
+func (a *App) writeConfiguration(method string, params any, confirm func(view.Configuration) error) {
 	ctx, operation := a.beginSettingsOperationTimeout(60 * time.Second)
 	cancel, client, id := a.settingsCancel, a.currentClient(), a.sessionID
 	a.model.SettingsApplying = true
@@ -111,15 +142,14 @@ func (a *App) writeConfiguration(method string, params map[string]any, expected 
 	go func() {
 		defer cancel()
 		raw, err := client.Call(ctx, method, params)
-		delete(params, "value")
+		if request, ok := params.(*protocol.ConfigurationCredentialParams); ok {
+			request.Value = nil
+		}
 		var snapshot view.Configuration
 		if err == nil {
 			snapshot, err = decodeConfiguration(raw)
-			if err == nil && expected != nil && snapshot.Defaults != *expected {
-				err = errors.New("Default model was not confirmed")
-			}
-			if err == nil && expected == nil && (!snapshot.Credential.Available || snapshot.Credential.Reference != params["reference"] || params["operation"] == "set" && !snapshot.Credential.Configured) {
-				err = errors.New("Credential write was not confirmed")
+			if err == nil && confirm != nil {
+				err = confirm(snapshot)
 			}
 		}
 		a.post(func() {

@@ -6,12 +6,19 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"dsh-mygo/internal/protocol"
+	"dsh-mygo/internal/view"
 )
 
 const configurationJSON = `{"revision":2,"defaults":{"provider":"test","model":"saved","effort":""},"credential":{"available":true,"reference":"MYGO_TEST_KEY","configured":false,"writable":true,"source":"none"}}`
+const configuredConfigurationJSON = `{"revision":3,"defaults":{"provider":"test","model":"saved","effort":""},"credential":{"available":true,"reference":"MYGO_TEST_KEY","configured":true,"writable":true,"source":"managed"}}`
 
 func TestConfigurationValidationAndSafeErrors(t *testing.T) {
-	client := &sessionClient{request: func(context.Context, string, any) (json.RawMessage, error) {
+	client := &sessionClient{request: func(_ context.Context, method string, params any) (json.RawMessage, error) {
+		if method != protocol.MethodConfigurationGet || len(requestFields(t, params)) != 0 {
+			t.Fatalf("configuration request = %s %v", method, params)
+		}
 		return json.RawMessage(configurationJSON), nil
 	}}
 	if snapshot, err := readConfiguration(context.Background(), client); err != nil || snapshot.Defaults.Model != "saved" {
@@ -33,8 +40,12 @@ func TestConfigurationValidationAndSafeErrors(t *testing.T) {
 
 func TestConfigurationSaveRequiresReadbackAndPreservesSession(t *testing.T) {
 	client := &sessionClient{request: func(_ context.Context, method string, params any) (json.RawMessage, error) {
-		if method != "configuration/default-model" || params.(map[string]any)["revision"] != uint64(2) {
-			t.Error("unexpected configuration request")
+		request, ok := params.(protocol.ConfigurationDefaultModelParams)
+		if method != protocol.MethodConfigurationDefaultModel || !ok || request.Revision != 2 {
+			t.Fatalf("unexpected configuration request: %T %+v", params, params)
+		}
+		if value, present := requestFields(t, params)["effort"]; !present || value != "" {
+			t.Fatal("empty default effort must be sent to clear the value")
 		}
 		return json.RawMessage(configurationJSON), nil
 	}}
@@ -59,7 +70,11 @@ func TestConfigurationSaveRequiresReadbackAndPreservesSession(t *testing.T) {
 }
 
 func TestCredentialSubmissionClearsInputAndQuarantinesFailedWrite(t *testing.T) {
-	client := &sessionClient{request: func(context.Context, string, any) (json.RawMessage, error) {
+	client := &sessionClient{request: func(_ context.Context, method string, params any) (json.RawMessage, error) {
+		request, ok := params.(*protocol.ConfigurationCredentialParams)
+		if method != protocol.MethodConfigurationCredential || !ok || request.Operation != protocol.CredentialOperationUnset || request.Value != nil {
+			t.Fatalf("unexpected credential request: %T %+v", params, params)
+		}
 		return nil, errors.New("fake-secret-must-not-appear")
 	}}
 	application, updates := sessionTestApp(client)
@@ -81,6 +96,31 @@ func TestCredentialSubmissionClearsInputAndQuarantinesFailedWrite(t *testing.T) 
 	application.SaveDefaultModel()
 	if application.model.SettingsBusy {
 		t.Fatal("unconfirmed write retried without refresh")
+	}
+}
+
+func TestCredentialRequestDropsSecretAfterCall(t *testing.T) {
+	value := "fake-only-secret"
+	request := &protocol.ConfigurationCredentialParams{Reference: "MYGO_TEST_KEY", Operation: protocol.CredentialOperationSet, Value: &value}
+	client := &sessionClient{request: func(_ context.Context, method string, params any) (json.RawMessage, error) {
+		if method != protocol.MethodConfigurationCredential || params != request {
+			t.Fatalf("unexpected credential request: %T", params)
+		}
+		return json.RawMessage(configuredConfigurationJSON), nil
+	}}
+	application, updates := sessionTestApp(client)
+	application.model.CanConfigure = true
+	application.model.SettingsOpen = true
+	application.model.ConfigurationReady = true
+	application.writeConfiguration(protocol.MethodConfigurationCredential, request, func(snapshot view.Configuration) error {
+		if !snapshot.Credential.Configured {
+			return errors.New("Credential write was not confirmed")
+		}
+		return nil
+	})
+	completeSettingsJob(t, application, updates)
+	if request.Value != nil || !application.model.Configuration.Credential.Configured || application.model.ConfigurationUncertain || application.model.SettingsError != "" {
+		t.Fatal("credential payload survived transport or was not applied")
 	}
 }
 
