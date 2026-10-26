@@ -70,7 +70,7 @@ func runtimeSetupProgress(c *mgo.Context, model *Model) {
 	card := surfaceCard(c, "runtime-progress-card").FillWidth().Padding(space16).Gap(space8)
 	card.Children(func() {
 		mgo.Row(c).FillWidth().Gap(space8).AlignItems(mgo.Center).Children(func() {
-			mgo.Spinner(c.Key("runtime-progress-spinner")).Size(14, 14)
+			mgo.Spinner(c.Key("runtime-progress-spinner")).Size(iconDefault, iconDefault)
 			mgo.Text(c, model.T(model.Runtime.Status)).FontSize(textBody).Bold()
 		})
 		mgo.Progress(c.Key("runtime-progress"), float64(model.Runtime.Progress)).FillWidth()
@@ -89,7 +89,7 @@ func runtimeSetupInstalledDSH(c *mgo.Context, model *Model) {
 			FontSize(textCaption).TextColor(tokens.TextMuted)
 		if model.Runtime.Checking {
 			mgo.Row(c.Key("runtime-checking")).Gap(space6).AlignItems(mgo.Center).Children(func() {
-				mgo.Spinner(c.Key("runtime-checking-spinner")).Size(12, 12)
+				mgo.Spinner(c.Key("runtime-checking-spinner")).Size(iconSmall, iconSmall)
 				mgo.Text(c, model.T("Checking installed DSH…")).FontSize(textCaption).TextColor(tokens.TextMuted)
 			})
 		}

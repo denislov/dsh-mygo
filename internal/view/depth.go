@@ -63,7 +63,7 @@ func taskPanel(c *mgo.Context, model *Model) {
 					ratio = float64(done) / float64(total)
 				}
 				mgo.Progress(c.Key("task-progress"), ratio).Grow(1).Label(label)
-				mgo.Icon(c, iconChevronRight).Size(12, 12).TextColor(tokens.TextMuted).Rotate(90 * disclosure.Progress())
+				mgo.Icon(c, iconChevronRight).Size(iconSmall, iconSmall).TextColor(tokens.TextMuted).Rotate(90 * disclosure.Progress())
 			})
 			disclosure.Panel(func() {
 				_, height := c.Size()

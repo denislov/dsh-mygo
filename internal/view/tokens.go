@@ -40,6 +40,19 @@ const (
 	textReading float32 = 16
 	textTitle   float32 = 18
 	textDisplay float32 = 28
+
+	// Semantic control and icon sizes shared by the shell.
+	controlSize          float32 = 32
+	compactActionSize    float32 = 24
+	rowActionSize        float32 = 26
+	panelHeaderHeight    float32 = 40
+	settingsHeaderHeight float32 = 48
+	iconSmall            float32 = 12
+	iconDefault          float32 = 14
+	iconControl          float32 = 17
+	iconAction           float32 = 18
+	attachmentThumbW     float32 = 40
+	attachmentThumbH     float32 = 32
 )
 
 // appTokens is the semantic palette the shell paints with. MyGo's Theme only

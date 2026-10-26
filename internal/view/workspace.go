@@ -165,7 +165,7 @@ func workspacePanel(c *mgo.Context, model *Model, p WorkspacePanel) {
 	w := &model.Workspace
 	tokens := tokensFor(c.Theme())
 	mgo.Column(c.Key("workspace-panel-"+string(p))).Label(model.T("Workspace panel · ")+model.T(workspacePanelLabel(p))).Fill().MinWidth(0).MinHeight(0).Radius(radiusLg).Background(tokens.Surface).Border(1, tokens.Border).Children(func() {
-		mgo.Row(c.Key("panel-header")).FillWidth().Height(40).Padding(space4, space8).Gap(space4).AlignItems(mgo.Center).Children(func() {
+		mgo.Row(c.Key("panel-header")).FillWidth().Height(panelHeaderHeight).Padding(space4, space8).Gap(space4).AlignItems(mgo.Center).Children(func() {
 			mgo.Text(c, model.T(workspacePanelLabel(p))).FontSize(textCaption).SingleLine().Grow(1).MinWidth(0)
 			if p == PanelTerminal && w.RestartTerminal != nil {
 				iconButton(c.Key("restart-terminal"), model.T("Restart terminal"), iconRefresh).Disabled(w.TerminalBusy).OnClick(w.RestartTerminal)
@@ -209,7 +209,7 @@ func workspacePanel(c *mgo.Context, model *Model, p WorkspacePanel) {
 func workspaceEmpty(c *mgo.Context, model *Model, busy bool, message, fallback string) {
 	mgo.Column(c).Grow(1).MinHeight(0).FillWidth().Padding(space16).Gap(space8).AlignItems(mgo.Center).Justify(mgo.Center).Children(func() {
 		if busy {
-			mgo.Spinner(c).Size(18, 18)
+			mgo.Spinner(c).Size(iconAction, iconAction)
 		} else {
 			if message == "" {
 				message = fallback
@@ -237,7 +237,7 @@ func workspaceFiles(c *mgo.Context, model *Model) {
 		}
 		mgo.Button(c.Key("file-"+entry.Path), "").Label(entry.Name).Tooltip(entry.Path).FillWidth().Padding(space6, space8).Background(mgo.Transparent).Border(0, mgo.Transparent).Children(func() {
 			mgo.Row(c).FillWidth().Gap(space6).Padding(0, 0, 0, float32(depth)*12).AlignItems(mgo.Center).Children(func() {
-				mgo.Icon(c, icon).Size(14, 14)
+				mgo.Icon(c, icon).Size(iconDefault, iconDefault)
 				mgo.Text(c, entry.Name).FontSize(textCaption).SingleLine().Grow(1).MinWidth(0)
 			})
 		}).OnClick(func() {

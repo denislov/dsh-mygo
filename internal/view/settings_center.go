@@ -215,7 +215,7 @@ func settingsCenterModal(c *mgo.Context, model *Model) {
 		mgo.Row(c.Key("settings-layout")).Width(contentWidth).Height(contentHeight).MinHeight(0).Children(func() {
 			settingsNav(c, model, section)
 			mgo.Column(c.Key("settings-content")).Grow(1).MinWidth(0).FillHeight().Children(func() {
-				mgo.Row(c.Key("settings-header")).Height(48).FillWidth().Padding(space6, space12).AlignItems(mgo.Center).Children(func() {
+				mgo.Row(c.Key("settings-header")).Height(settingsHeaderHeight).FillWidth().Padding(space6, space12).AlignItems(mgo.Center).Children(func() {
 					mgo.Spacer(c)
 					iconButton(c.Key("settings-close"), model.T("Close settings"), iconClose).Disabled(writing).OnClick(model.closeSettingsCenter)
 				})
@@ -311,7 +311,7 @@ func settingsNav(c *mgo.Context, model *Model, active SettingsSection) {
 					button.Children(func() {
 						mgo.Row(c).FillWidth().Gap(space8).AlignItems(mgo.Center).Children(func() {
 							if width >= 760 {
-								mgo.Icon(c, settingsSectionIcon(section)).Size(17, 17)
+								mgo.Icon(c, settingsSectionIcon(section)).Size(iconControl, iconControl)
 							}
 							mgo.Text(c, label).FontSize(textLabel).SingleLine().Grow(1).MinWidth(0)
 						})

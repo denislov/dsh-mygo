@@ -48,7 +48,7 @@ func quickSelector(c *mgo.Context, m *Model, anchor mgo.Element, kind string) {
 			mgo.Column(c).Width(min(340, width-48)).MaxHeight(max(180, height-80)).Gap(space4).Padding(space8).Children(func() {
 				mgo.Text(c, m.T("Mode")).FontSize(textMicro).TextColor(tokens.TextFaint).Margin(0, space6, space2, space6)
 				if m.SettingsBusy {
-					mgo.Spinner(c.Key("permission-loading")).Size(12, 12)
+					mgo.Spinner(c.Key("permission-loading")).Size(iconSmall, iconSmall)
 				}
 				if m.SettingsError != "" {
 					mgo.Text(c, m.T(m.SettingsError)).FontSize(textMicro).TextColor(tokens.Danger)
@@ -133,7 +133,7 @@ func quickModels(c *mgo.Context, m *Model, height float32) {
 						}
 					})
 					if selected {
-						mgo.Icon(c, iconCheck).Size(14, 14).TextColor(tokens.Accent)
+						mgo.Icon(c, iconCheck).Size(iconDefault, iconDefault).TextColor(tokens.Accent)
 					}
 				})
 				b.OnClick(func() {
@@ -192,7 +192,7 @@ func quickPermissions(c *mgo.Context, m *Model, height float32) {
 						mgo.Row(c).FillWidth().Gap(space8).AlignItems(mgo.Center).Children(func() {
 							mgo.Text(c, label).FontSize(textLabel).Grow(1).MinWidth(0).SingleLine()
 							if option.ID == s.Snapshot.Current {
-								mgo.Icon(c, iconCheck).Size(14, 14).TextColor(tokens.Accent)
+								mgo.Icon(c, iconCheck).Size(iconDefault, iconDefault).TextColor(tokens.Accent)
 							}
 						})
 						if description != "" {

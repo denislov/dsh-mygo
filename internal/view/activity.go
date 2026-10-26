@@ -102,7 +102,7 @@ func activityCard(c *mgo.Context, model *Model, group *activityGroup) {
 		disclosure := mgo.CollapsibleBase(c, &state.Expanded)
 		disclosure.Trigger.FillWidth().Gap(space8).AlignItems(mgo.Center).Padding(space2, 0).Label(summary)
 		disclosure.Trigger.Children(func() {
-			mgo.Icon(c, iconActivity).Size(14, 14).TextColor(tokens.TextMuted)
+			mgo.Icon(c, iconActivity).Size(iconDefault, iconDefault).TextColor(tokens.TextMuted)
 			mgo.Text(c, summary).FontSize(textCaption).TextColor(tokens.TextMuted).SingleLine().Grow(1)
 			if running {
 				mgo.Spinner(c.Key("activity-spinner-"+group.key)).Size(10, 10)
@@ -110,7 +110,7 @@ func activityCard(c *mgo.Context, model *Model, group *activityGroup) {
 			if failed {
 				statusPill(c, "activity-state-"+group.key, model.T("Failed"), tokens.Danger, tokens.DangerSoft)
 			}
-			mgo.Icon(c, iconChevronRight).Size(12, 12).TextColor(tokens.TextMuted).
+			mgo.Icon(c, iconChevronRight).Size(iconSmall, iconSmall).TextColor(tokens.TextMuted).
 				Rotate(90 * disclosure.Progress())
 		})
 		disclosure.Panel(func() {
@@ -144,14 +144,14 @@ func reasoningBlock(c *mgo.Context, model *Model, item projection.Item) {
 		disclosure.Trigger.FillWidth().Gap(space8).AlignItems(mgo.Center).Padding(space2, 0).
 			Label(model.T("Thought · ") + summary)
 		disclosure.Trigger.Children(func() {
-			mgo.Icon(c, iconActivity).Size(14, 14).TextColor(tokens.TextMuted)
+			mgo.Icon(c, iconActivity).Size(iconDefault, iconDefault).TextColor(tokens.TextMuted)
 			mgo.Text(c, model.T("Thought")).FontSize(textCaption).TextColor(tokens.TextMuted).SingleLine()
 			mgo.Text(c, "·").FontSize(textCaption).TextColor(tokens.TextFaint)
 			mgo.Text(c, summary).FontSize(textCaption).TextColor(tokens.TextMuted).SingleLine().Grow(1).MinWidth(0)
 			if item.State == "streaming" {
 				mgo.Spinner(c.Key("thinking")).Size(10, 10)
 			}
-			mgo.Icon(c, iconChevronRight).Size(12, 12).TextColor(tokens.TextFaint).Rotate(90 * disclosure.Progress())
+			mgo.Icon(c, iconChevronRight).Size(iconSmall, iconSmall).TextColor(tokens.TextFaint).Rotate(90 * disclosure.Progress())
 		})
 		disclosure.Panel(func() {
 			mgo.Column(c.Key("reasoning-body")).FillWidth().Padding(space6, space8).Children(func() {

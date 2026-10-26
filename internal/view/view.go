@@ -450,7 +450,7 @@ func toolCard(c *mgo.Context, model *Model, item projection.Item, nested bool) {
 			} else if item.State == "running" {
 				mgo.Spinner(c.Key("tool-running-"+item.ID)).Size(10, 10)
 			}
-			mgo.Icon(c, iconChevronRight).Size(12, 12).TextColor(tokens.TextMuted).
+			mgo.Icon(c, iconChevronRight).Size(iconSmall, iconSmall).TextColor(tokens.TextMuted).
 				Rotate(90 * disclosure.Progress())
 		})
 		disclosure.Panel(func() {

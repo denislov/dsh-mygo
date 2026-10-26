@@ -20,7 +20,7 @@ func composerToolbar(c *mgo.Context, model *Model) {
 				b.Background(tokens.SurfaceHover)
 			}
 			b.Children(func() {
-				mgo.Icon(c, iconFolder).Size(14, 14).TextColor(tokens.TextMuted)
+				mgo.Icon(c, iconFolder).Size(iconDefault, iconDefault).TextColor(tokens.TextMuted)
 				mgo.Text(c, label).FontSize(textCaption).TextColor(tokens.TextMuted).SingleLine()
 			})
 		}

@@ -146,22 +146,7 @@ func sessionPanel(c *mgo.Context, model *Model, modal bool) {
 	panel := &model.SessionPanel
 	tokens := tokensFor(c.Theme())
 	disabled := !model.CanChooseSession()
-	if modal && (model.SessionBusy || panel.Refreshing) {
-		label := "Loading sessions…"
-		if model.SessionSwitching {
-			label = "Loading session history…"
-		}
-		if panel.Writing {
-			label = "Saving conversation…"
-		}
-		mgo.Text(c, model.T(label)).FontSize(textCaption).TextColor(tokens.TextMuted)
-	}
-	if model.SessionsError != "" {
-		mgo.Text(c, model.T(model.SessionsError)).FontSize(textCaption).TextColor(tokens.Danger)
-	}
-	if panel.ActiveArchived {
-		mgo.Text(c, model.T("This conversation is archived. Restore it or choose another.")).FontSize(textCaption)
-	}
+	sessionPanelStatus(c, model, panel, modal, tokens)
 	entries := model.projectSessionEntries()
 	if len(entries) == 0 && !model.SessionBusy && !panel.Refreshing && model.SessionsError == "" {
 		mgo.Text(c, model.T("No matching conversations.")).FontSize(textCaption).TextColor(tokens.TextMuted)
@@ -186,92 +171,124 @@ func sessionPanel(c *mgo.Context, model *Model, modal bool) {
 	list.Rows(func(row mgo.ListRow) {
 		entry := entries[row.Index]
 		if entry.Header {
-			background := tokens.Sidebar
-			if modal {
-				background = c.Theme().Background
-			}
-			mgo.Row(c.Key(entry.Key)).FillWidth().Background(background).Padding(space12, space12, space4, space12).Gap(space4).AlignItems(mgo.Center).Children(func() {
-				label := projectName(entry.Project)
-				if label == "" {
-					label = model.T("Other conversations")
-				}
-				mgo.Text(c, label).FontSize(textCaption).TextColor(tokens.TextMuted).SingleLine().Grow(1).Tooltip(entry.Project)
-				if entry.Project != "" && model.NewProjectSession != nil {
-					iconButton(c.Key("new-project"), model.T("New conversation in project")+" · "+entry.Project, iconPlus).
-						Size(24, 24).Padding(4).Background(mgo.Transparent).Disabled(disabled).
-						OnClick(func() { model.NewProjectSession(entry.Project) })
-				}
-			})
+			sessionProjectHeader(c, model, entry, modal, disabled, tokens)
 			return
 		}
-		session := entry.Session
-		current := session.ID == model.SessionID
-		mgo.Column(c.Key(session.ID)).Gap(space2).Padding(space2, 0).Children(func() {
-			label := model.sessionLabel(session)
+		sessionConversationRow(c, model, entry, modal, disabled, tokens)
+	})
+	sessionManagementForms(c, model, panel)
+}
+
+func sessionPanelStatus(c *mgo.Context, model *Model, panel *SessionPanelState, modal bool, tokens appTokens) {
+	if modal && (model.SessionBusy || panel.Refreshing) {
+		label := "Loading sessions…"
+		if model.SessionSwitching {
+			label = "Loading session history…"
+		}
+		if panel.Writing {
+			label = "Saving conversation…"
+		}
+		mgo.Text(c, model.T(label)).FontSize(textCaption).TextColor(tokens.TextMuted)
+	}
+	if model.SessionsError != "" {
+		mgo.Text(c, model.T(model.SessionsError)).FontSize(textCaption).TextColor(tokens.Danger)
+	}
+	if panel.ActiveArchived {
+		mgo.Text(c, model.T("This conversation is archived. Restore it or choose another.")).FontSize(textCaption)
+	}
+}
+
+func sessionProjectHeader(c *mgo.Context, model *Model, entry sessionListEntry, modal, disabled bool, tokens appTokens) {
+	background := tokens.Sidebar
+	if modal {
+		background = c.Theme().Background
+	}
+	mgo.Row(c.Key(entry.Key)).FillWidth().Background(background).Padding(space12, space12, space4, space12).Gap(space4).AlignItems(mgo.Center).Children(func() {
+		label := projectName(entry.Project)
+		if label == "" {
+			label = model.T("Other conversations")
+		}
+		mgo.Text(c, label).FontSize(textCaption).TextColor(tokens.TextMuted).SingleLine().Grow(1).Tooltip(entry.Project)
+		if entry.Project != "" && model.NewProjectSession != nil {
+			iconButton(c.Key("new-project"), model.T("New conversation in project")+" · "+entry.Project, iconPlus).
+				Size(compactActionSize, compactActionSize).Padding(4).Background(mgo.Transparent).Disabled(disabled).
+				OnClick(func() { model.NewProjectSession(entry.Project) })
+		}
+	})
+}
+
+func sessionConversationRow(c *mgo.Context, model *Model, entry sessionListEntry, modal, disabled bool, tokens appTokens) {
+	panel := &model.SessionPanel
+	session := entry.Session
+	current := session.ID == model.SessionID
+	mgo.Column(c.Key(session.ID)).Gap(space2).Padding(space2, 0).Children(func() {
+		label := model.sessionLabel(session)
+		if current {
+			label = model.T("Current · ") + label
+		}
+		rowElement := mgo.Row(c).FillWidth().Gap(0).AlignItems(mgo.Center).Radius(radiusSm)
+		if current {
+			rowElement.Background(tokens.SurfaceHover)
+		}
+		rowElement.Children(func() {
+			background := mgo.Transparent
 			if current {
-				label = model.T("Current · ") + label
+				background = tokens.SurfaceHover
 			}
-			row := mgo.Row(c).FillWidth().Gap(0).AlignItems(mgo.Center).Radius(radiusSm)
-			if current {
-				row.Background(tokens.SurfaceHover)
-			}
-			row.Children(func() {
-				background := mgo.Transparent
-				if current {
-					background = tokens.SurfaceHover
+			selectButton := mgo.Button(c.Key("select"), "").Label(label).Tooltip(sessionTooltip(model, session)).Grow(1).MinWidth(0).
+				Padding(space8, space12).Background(background).Border(0, mgo.Transparent).
+				Radius(radiusMd).Transition(quietTransition).Disabled(disabled || session.Archived || model.SwitchSession == nil).
+				OnClick(func() { model.SwitchSession(session.ID) })
+			if !disabled && !session.Archived && model.SwitchSession != nil {
+				if selectButton.Pressed() {
+					selectButton.Background(tokens.SurfacePressed)
+				} else if selectButton.Hovered() && !current {
+					selectButton.Background(tokens.SurfaceHover)
 				}
-				selectButton := mgo.Button(c.Key("select"), "").Label(label).Tooltip(sessionTooltip(model, session)).Grow(1).MinWidth(0).
-					Padding(space8, space12).Background(background).Border(0, mgo.Transparent).
-					Radius(radiusMd).Transition(quietTransition).Disabled(disabled || session.Archived || model.SwitchSession == nil).
-					OnClick(func() { model.SwitchSession(session.ID) })
-				if !disabled && !session.Archived && model.SwitchSession != nil {
-					if selectButton.Pressed() {
-						selectButton.Background(tokens.SurfacePressed)
-					} else if selectButton.Hovered() && !current {
-						selectButton.Background(tokens.SurfaceHover)
+			}
+			selectButton.Children(func() {
+				mgo.Column(c).FillWidth().Gap(space2).Children(func() {
+					mgo.Text(c, model.sessionLabel(session)).FontSize(textLabel).SingleLine().TextColor(tokens.Text)
+					updated := session.UpdatedAt
+					if updated == 0 {
+						updated = session.CreatedAt
 					}
-				}
-				selectButton.Children(func() {
-					mgo.Column(c).FillWidth().Gap(space2).Children(func() {
-						mgo.Text(c, model.sessionLabel(session)).FontSize(textLabel).SingleLine().TextColor(tokens.Text)
-						updated := session.UpdatedAt
-						if updated == 0 {
-							updated = session.CreatedAt
+					status := session.Status
+					if session.Archived {
+						status = "archived"
+					}
+					meta := relativeTimeLabel(model, time.Now(), updated)
+					if status != "" {
+						if meta != "" {
+							meta += " · "
 						}
-						status := session.Status
-						if session.Archived {
-							status = "archived"
-						}
-						meta := relativeTimeLabel(model, time.Now(), updated)
-						if status != "" {
-							if meta != "" {
-								meta += " · "
-							}
-							meta += model.T(status)
-						}
-						if modal && meta != "" {
-							mgo.Text(c, meta).FontSize(textMicro).TextColor(tokens.TextMuted).SingleLine()
-						}
-						if modal && session.MetadataIncomplete {
-							mgo.Text(c, model.T("Open to rebuild metadata")).FontSize(textMicro).SingleLine().TextColor(tokens.TextMuted)
-						}
-						if modal && session.CWD != "" {
-							mgo.Text(c, session.CWD).FontSize(textCaption).SingleLine().TextColor(tokens.TextMuted)
-						}
-					})
+						meta += model.T(status)
+					}
+					if modal && meta != "" {
+						mgo.Text(c, meta).FontSize(textMicro).TextColor(tokens.TextMuted).SingleLine()
+					}
+					if modal && session.MetadataIncomplete {
+						mgo.Text(c, model.T("Open to rebuild metadata")).FontSize(textMicro).SingleLine().TextColor(tokens.TextMuted)
+					}
+					if modal && session.CWD != "" {
+						mgo.Text(c, session.CWD).FontSize(textCaption).SingleLine().TextColor(tokens.TextMuted)
+					}
 				})
-				if panel.CanRename || panel.CanArchive {
-					opacity := float32(0)
-					if row.Hovered() || row.FocusWithin() {
-						opacity = 1
-					}
-					iconButton(c.Key("actions"), model.T("Conversation actions · ")+model.sessionLabel(session), iconMore).
-						Size(26, 26).Padding(4).Background(mgo.Transparent).Border(0, mgo.Transparent).Disabled(disabled).Opacity(opacity).
-						Menu(func(menu *mgo.Menu) { sessionActions(menu, model, session) })
-				}
 			})
+			if panel.CanRename || panel.CanArchive {
+				opacity := float32(0)
+				if rowElement.Hovered() || rowElement.FocusWithin() {
+					opacity = 1
+				}
+				iconButton(c.Key("actions"), model.T("Conversation actions · ")+model.sessionLabel(session), iconMore).
+					Size(rowActionSize, rowActionSize).Padding(4).Background(mgo.Transparent).Border(0, mgo.Transparent).Disabled(disabled).Opacity(opacity).
+					Menu(func(menu *mgo.Menu) { sessionActions(menu, model, session) })
+			}
 		})
 	})
+}
+
+func sessionManagementForms(c *mgo.Context, model *Model, panel *SessionPanelState) {
 	if panel.EditingID != "" {
 		mgo.Column(c.Key("rename-" + panel.EditingID)).Gap(space6).Children(func() {
 			mgo.Text(c, model.T("Rename conversation")).Bold().FontSize(textCaption)
