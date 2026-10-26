@@ -94,6 +94,10 @@ node scripts/smoke-installer.mjs                # 未运行：本机已安装 ds
 
 本批验证：全量/纯 Go 各 546 项、view/app race 345 项通过；MyGo vet、Go vet、差异检查与应用构建通过。Tester 覆盖鼠标/键盘调整、悬停提示和光标、浮层位置/关闭、1920/1356/560 宽度往返与状态保留。Windows 原生复核 1480×860 的停靠布局（调整工具比例以适配检查机屏幕）、1356×900 的浮层与 560×420 的最小窗口；实际输入行为由 Tester 验证。未重打安装器，macOS 未验证。
 
+2026-10-26 启动与发送边界首批重构：Restart 和 Runtime 切换在主线程捕获恢复模型路由，候选失败回滚沿用同一快照；初始化只接收显式参数及本次 launch 的期望身份，移除 App 共享 hostIdentity，worker 不再读取 ActiveRoute。App.Send 与 composer 共用业务就绪判断，传输和本次文本/附件校验保留在调用侧，后台历史读取不变成全局门禁。SDK 回归保留，wire 与协议版本不变。
+
+本批验证：全量与纯 Go 各 579 项、app/view race 378 项通过；MyGo vet、Go vet、差异检查与应用构建通过。显式设置 DSH_MYGO_DSH_DIR，composition、Restart、模型设置、配置和会话切换相关 11 项（含子用例）通过；真实 Restart 在修改模型为 route-probe/high 后 kill/recover，确认同会话历史、流版本重置与后续模型输出。fake Runtime 切换/回滚同时验证非默认模型和 effort 保留。Windows 隔离 fake Host 原生窗口用 UI Automation 写入文本并点击 Send，确认空输入禁用、有内容启用、运行中显示 Stop、提交后恢复 Ready 和空输入禁用。键盘门禁与附件-only 由 Tester/Host 测试覆盖；安装器、macOS 未重验。
+
 ## 4. 缺口
 
 ### 4.1 发布阻塞（没有它不能称为产品）
@@ -129,7 +133,7 @@ node scripts/smoke-installer.mjs                # 未运行：本机已安装 ds
 - 并发/竞态只在本地跑过；无三平台矩阵；CI 不含真实 Host 组合（本地可用 source checkout 或 bundled runtime 跑）。
 - macOS 零验收（Metal、输入法、字体、菜单、剪贴板、签名/公证）。
 - 已有打包与安装/卸载 smoke；无干净机器验收、升级/更新测试。
-- `internal/app/app.go` 约 700 行、`view.Model` 是承载 60+ 字段的扁平结构，设置/会话/交互状态交叉增长；目前靠测试守边界，继续加功能前需要拆分。
+- App 与 view.Model 仍聚合多个领域状态；首批收敛启动快照与共享发送门禁，能力/载荷类型、回合状态、Host 一代资源、设置/导航/历史和 View 子状态继续分批拆分。先明确所有权与时序护栏，不用字段数或行数代替验收。
 - DSH 升级（rc 版本、精确 peer 依赖、公开 API 漂移）没有 runbook 和兼容矩阵。
 - 遗留物：`cmd/spike`、SDK 兼容链路的退役时间未定。
 

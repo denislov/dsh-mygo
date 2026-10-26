@@ -150,7 +150,6 @@ type App struct {
 	canStreamBaseline   bool
 	canHistoryWindow    bool
 	canRelease          bool
-	hostIdentity        channel.HostIdentity
 	attachmentLimits    *attachment.Limits
 	mentionSeq          atomic.Uint64
 	retiredSessions     map[string]bool
@@ -280,7 +279,7 @@ func (a *App) Start() {
 		}
 		a.post(a.refreshRuntimeChoicesLocked)
 	}
-	a.startHost(false, recent)
+	a.startHost(false, recent, view.ModelRoute{})
 }
 
 // awaitRuntime shows the pre-host setup state. The full onboarding view lives
@@ -342,7 +341,7 @@ func (a *App) resolveLaunchPlan() (RuntimeLaunchPlan, error) {
 	}, nil
 }
 
-func (a *App) startHost(recover bool, resumeID string) {
+func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 	generation := a.hostGeneration.Add(1)
 	plan, err := a.resolveLaunchPlan()
 	if err != nil {
@@ -357,7 +356,6 @@ func (a *App) startHost(recover bool, resumeID string) {
 		a.fail("Could not start the DeepSeek Harness host", err)
 		return
 	}
-	a.hostIdentity = plan.Identity
 	if a.options.Runtimes != nil {
 		if plan.HostBundleDir != "" && a.options.PrepareProfile != nil {
 			if err := a.options.PrepareProfile(plan.HostBundleDir); err != nil {
@@ -445,7 +443,10 @@ func (a *App) startHost(recover bool, resumeID string) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), initializeTimeout)
 	defer cancel()
-	initialized, err := a.initializeSession(ctx, client, resumeID, !recover && resumeID != "" && !a.switchNeedsResume())
+	initialized, err := a.initializeSession(ctx, client, sessionInitialization{
+		resumeID: resumeID, route: route, identity: plan.Identity,
+		allowFallback: !recover && resumeID != "" && !a.switchNeedsResume(),
+	})
 	if err != nil {
 		if a.hasPendingRuntimeSwitch() {
 			a.failRuntimeSwitch(err)
@@ -637,9 +638,10 @@ func (a *App) Restart() {
 	if a.model.SessionPanel.ActiveArchived {
 		resumeID = ""
 	}
+	route := a.model.ActiveRoute
 	go func() {
 		a.stopHost()
-		a.startHost(true, resumeID)
+		a.startHost(true, resumeID, route)
 		a.post(func() {
 			a.restarting = false
 			a.model.Restarting = false
@@ -686,10 +688,19 @@ type initializedSession struct {
 }
 
 func (a *App) initialize(ctx context.Context, client rpcClient, resumeID string) (initializedSession, error) {
-	return a.initializeSession(ctx, client, resumeID, false)
+	return a.initializeSession(ctx, client, sessionInitialization{resumeID: resumeID})
 }
 
-func (a *App) initializeSession(ctx context.Context, client rpcClient, resumeID string, allowFallback bool) (initializedSession, error) {
+// sessionInitialization is an immutable input to one startup worker. Recovery
+// callers capture route on the main thread; identity comes from its launch plan.
+type sessionInitialization struct {
+	resumeID      string
+	route         view.ModelRoute
+	identity      channel.HostIdentity
+	allowFallback bool
+}
+
+func (a *App) initializeSession(ctx context.Context, client rpcClient, request sessionInitialization) (initializedSession, error) {
 	if a.options.SDKProtocol {
 		params := map[string]any{"cwd": a.options.CWD, "provider": a.options.Provider, "model": a.options.Model}
 		if a.options.ReasoningEffort != "" {
@@ -719,8 +730,8 @@ func (a *App) initializeSession(ctx context.Context, client rpcClient, resumeID 
 		return initializedSession{}, err
 	}
 	var initialized channel.InitializeResult
-	if a.hostIdentity.Version != "" {
-		initialized, err = channel.DecodeInitializeExpecting(result, a.hostIdentity)
+	if request.identity.Version != "" {
+		initialized, err = channel.DecodeInitializeExpecting(result, request.identity)
 	} else {
 		initialized, err = channel.DecodeInitialize(result)
 	}
@@ -730,13 +741,17 @@ func (a *App) initializeSession(ctx context.Context, client rpcClient, resumeID 
 	canConfigure := slices.Contains(initialized.Capabilities, "settings.configuration")
 	canHistory := slices.Contains(initialized.Capabilities, "session.history")
 	restoreNotice := ""
-	if resumeID != "" && canHistory {
-		restored, err := a.resumeSessionWithRoute(ctx, client, resumeID, initialized, canConfigure, !allowFallback)
-		if err == nil || !allowFallback {
+	if request.resumeID != "" && canHistory {
+		route := request.route
+		if request.allowFallback {
+			route = view.ModelRoute{}
+		}
+		restored, err := a.resumeSession(ctx, client, request.resumeID, initialized, canConfigure, route)
+		if err == nil || !request.allowFallback {
 			return restored, err
 		}
 		restoreNotice = localRestoreNotice()
-	} else if resumeID != "" && allowFallback {
+	} else if request.resumeID != "" && request.allowFallback {
 		restoreNotice = localRestoreNotice()
 	}
 	params := a.routeParams(canConfigure)
@@ -801,12 +816,9 @@ func (a *App) initializeSession(ctx context.Context, client rpcClient, resumeID 
 
 // resumeSession restores the previous session and replays its durable history
 // after a host restart. A failure leaves the previous projection untouched.
-func (a *App) resumeSession(ctx context.Context, client rpcClient, id string, initialized channel.InitializeResult, canConfigure bool) (initializedSession, error) {
-	return a.resumeSessionWithRoute(ctx, client, id, initialized, canConfigure, true)
-}
-func (a *App) resumeSessionWithRoute(ctx context.Context, client rpcClient, id string, initialized channel.InitializeResult, canConfigure, useActiveRoute bool) (initializedSession, error) {
+func (a *App) resumeSession(ctx context.Context, client rpcClient, id string, initialized channel.InitializeResult, canConfigure bool, route view.ModelRoute) (initializedSession, error) {
 	params := map[string]any{"sessionId": id}
-	if route := a.model.ActiveRoute; useActiveRoute && route.Provider != "" && route.Model != "" {
+	if route.Provider != "" && route.Model != "" {
 		params["provider"] = route.Provider
 		params["model"] = route.Model
 		if route.Effort != "" {
@@ -901,10 +913,7 @@ func validSessionID(value string) bool {
 func (a *App) Send(text string) {
 	original := originalSubmittedText(a.model.Draft, text)
 	text = strings.TrimSpace(text)
-	if a.model.Inspection.Open || a.model.SetupBlocked() {
-		return
-	}
-	if text == "" && len(a.model.Attachments.Pending) == 0 || a.shuttingDown.Load() || a.model.LocalState.Closing || a.model.Phase != view.PhaseIdle || len(a.model.Questions) > 0 || a.model.SessionBusy || a.model.History.Detached || a.model.SessionPanel.BlocksInput() || a.model.SettingsBusy || a.model.SettingsOpen || a.model.ModelUncertain || a.model.ConfigurationUncertain || a.model.Permission.Uncertain {
+	if text == "" && len(a.model.Attachments.Pending) == 0 || a.shuttingDown.Load() || !a.model.CanSendPrompt() {
 		return
 	}
 	client := a.currentClient()

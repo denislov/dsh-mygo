@@ -20,6 +20,7 @@ type runtimeSwitch struct {
 	target   runtimes.Runtime
 	previous runtimes.Runtime
 	resumeID string
+	route    view.ModelRoute
 }
 
 func (a *App) runtimeAvailable() bool { return a.options.Runtimes != nil }
@@ -432,7 +433,8 @@ func (a *App) beginRuntimeSwitch(target, previous runtimes.Runtime, resumeID str
 		return
 	}
 	a.switchMu.Lock()
-	a.switchRuntime = &runtimeSwitch{target: target, previous: previous, resumeID: resumeID}
+	route := a.model.ActiveRoute
+	a.switchRuntime = &runtimeSwitch{target: target, previous: previous, resumeID: resumeID, route: route}
 	a.switchMu.Unlock()
 	a.cancelSessionOperation()
 	a.cancelResync()
@@ -458,7 +460,7 @@ func (a *App) beginRuntimeSwitch(target, previous runtimes.Runtime, resumeID str
 	a.logf("runtime switch: %s -> %s", previous.ID, target.ID)
 	go func() {
 		a.stopHost()
-		a.startHost(false, resumeID)
+		a.startHost(false, resumeID, route)
 	}()
 }
 
@@ -514,7 +516,7 @@ func (a *App) failRuntimeSwitch(cause error) {
 		a.model.SettingsError = "Could not switch runtime. The previous runtime was restored."
 		a.refreshRuntimeChoicesLocked()
 	})
-	a.startHost(false, switching.resumeID)
+	a.startHost(false, switching.resumeID, switching.route)
 }
 
 // OpenRuntimeSettings closes the recovery dialog and opens the runtime section.

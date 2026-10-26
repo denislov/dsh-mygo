@@ -122,7 +122,7 @@ func TestStartupResumeFailureCreatesConversationAndOffersPreviousDraft(t *testin
 		}
 	}}
 	a, _, _ := editingTestApp(t, client)
-	initialized, err := a.initializeSession(context.Background(), client, "missing", true)
+	initialized, err := a.initializeSession(context.Background(), client, sessionInitialization{resumeID: "missing", allowFallback: true})
 	if err != nil || initialized.sessionID != "new" || initialized.restoreNotice == "" {
 		t.Fatal("unavailable recent session blocked new work")
 	}
@@ -175,7 +175,7 @@ func TestRecentSessionUsesCurrentHostDefaultInsteadOfFallbackModel(t *testing.T)
 		}
 	}}
 	a := New(Options{Provider: "fallback", Model: "fallback", UseHostDefaults: true})
-	initialized, err := a.initializeSession(context.Background(), client, "original", true)
+	initialized, err := a.initializeSession(context.Background(), client, sessionInitialization{resumeID: "original", allowFallback: true})
 	if err != nil || initialized.route.Model != "host-default" {
 		t.Fatal("recent conversation did not use current Host defaults")
 	}

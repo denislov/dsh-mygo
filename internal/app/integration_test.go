@@ -311,6 +311,7 @@ func TestAgainstMygoRestart(t *testing.T) {
 		return application.Model().Phase == view.PhaseIdle && hasAssistantText(application.Model().Items, "pong")
 	})
 	sessionID := application.Model().SessionID
+	wantRoute := selectStartupTestRoute(t, application, updates, "mygo-mock")
 	itemsBefore := len(application.Model().Items)
 
 	application.mu.Lock()
@@ -343,6 +344,9 @@ func TestAgainstMygoRestart(t *testing.T) {
 	if application.stream.Revision() != 0 {
 		t.Fatal("new Host inherited the previous Agent stream revision")
 	}
+	if application.model.ActiveRoute != wantRoute {
+		t.Fatalf("restart lost selected route: %+v", application.model.ActiveRoute)
+	}
 	if len(application.Model().Items) != itemsBefore {
 		t.Fatalf("recovered items = %d, want %d", len(application.Model().Items), itemsBefore)
 	}
@@ -352,7 +356,7 @@ func TestAgainstMygoRestart(t *testing.T) {
 
 	application.Send("Reply with exactly: pong")
 	waitFor(t, application, updates, 30*time.Second, func() bool {
-		return application.Model().Phase == view.PhaseIdle && assistantTexts(application.Model().Items, "pong") >= 2
+		return application.Model().Phase == view.PhaseIdle && hasAssistantText(application.Model().Items, "Selected mygo-mock/route-probe/high")
 	})
 }
 

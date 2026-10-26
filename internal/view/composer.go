@@ -14,7 +14,7 @@ func composer(c *mgo.Context, model *Model) {
 	tokens := tokensFor(theme)
 	services := c.Services()
 	stopped := model.Runtime.SetupRequired || model.Phase == PhaseStopped || model.Phase == PhaseFailed || model.Phase == PhaseResyncing || model.SessionSwitching || model.RecoveryOpen || model.LocalState.Closing || model.Inspection.Open
-	canSend := !model.Runtime.SetupRequired && model.Phase == PhaseIdle && !model.SetupBlocked() && model.Send != nil && len(model.Questions) == 0 && !model.SessionBusy && !model.History.Detached && !model.SessionPanel.BlocksInput() && !model.SettingsOpen && !model.Inspection.Open && !model.SettingsBusy && !model.ModelUncertain && !model.ConfigurationUncertain && !model.Permission.Uncertain && !model.LocalState.Closing
+	canSend := model.Send != nil && model.CanSendPrompt()
 	attachments := &model.Attachments
 	hasContent := func() bool { return strings.TrimSpace(model.Draft) != "" || len(attachments.Pending) > 0 }
 	zone := mgo.Column(c.Key("composer-zone")).FillWidth().Padding(space8, space24, space12, space24).Gap(space6).AlignItems(mgo.Center)

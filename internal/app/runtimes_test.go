@@ -122,7 +122,7 @@ func TestSwitchRuntimeCommitsAfterInitialize(t *testing.T) {
 		Provider: "test",
 		Model:    "echo",
 		RuntimeLaunch: func() (RuntimeLaunchPlan, error) {
-			return RuntimeLaunchPlan{Config: host.Config{Command: node, Args: []string{fakeHost, "--sessions", "--accept-resume"}}}, nil
+			return RuntimeLaunchPlan{Config: host.Config{Command: node, Args: []string{fakeHost, "--sessions", "--accept-resume", "--models"}}}, nil
 		},
 		Post: func(fn func()) { updates <- fn },
 	})
@@ -135,6 +135,7 @@ func TestSwitchRuntimeCommitsAfterInitialize(t *testing.T) {
 	if originalSession == "" {
 		t.Fatal("host did not create a session")
 	}
+	wantRoute := selectStartupTestRoute(t, application, updates, "test")
 
 	application.OpenRuntimeSettings()
 	if !application.model.SettingsOpen || application.model.SettingsSection != view.SettingsSectionRuntime {
@@ -151,6 +152,9 @@ func TestSwitchRuntimeCommitsAfterInitialize(t *testing.T) {
 	}
 	if application.sessionID != originalSession {
 		t.Fatalf("session = %q, want %q", application.sessionID, originalSession)
+	}
+	if application.model.ActiveRoute != wantRoute {
+		t.Fatalf("runtime switch lost selected route: %+v", application.model.ActiveRoute)
 	}
 	if application.model.SettingsNotice != "Runtime switched." {
 		t.Fatalf("settings notice = %q", application.model.SettingsNotice)
@@ -194,7 +198,7 @@ func TestSwitchRuntimeRollsBackOnFailure(t *testing.T) {
 			if calls.Add(1) == 2 {
 				return RuntimeLaunchPlan{}, errors.New("candidate host failed")
 			}
-			return RuntimeLaunchPlan{Config: host.Config{Command: node, Args: []string{fakeHost, "--sessions", "--accept-resume"}}}, nil
+			return RuntimeLaunchPlan{Config: host.Config{Command: node, Args: []string{fakeHost, "--sessions", "--accept-resume", "--models"}}}, nil
 		},
 		Post: func(fn func()) { updates <- fn },
 	})
@@ -205,6 +209,7 @@ func TestSwitchRuntimeRollsBackOnFailure(t *testing.T) {
 	})
 	originalSession := application.sessionID
 
+	wantRoute := selectStartupTestRoute(t, application, updates, "test")
 	application.OpenRuntimeSettings()
 	application.ActivateRuntime(second.ID)
 	waitFor(t, application, updates, 15*time.Second, func() bool {
@@ -223,6 +228,9 @@ func TestSwitchRuntimeRollsBackOnFailure(t *testing.T) {
 	}
 	if calls.Load() < 3 {
 		t.Fatalf("runtime launches = %d, want a rollback restart", calls.Load())
+	}
+	if application.model.ActiveRoute != wantRoute {
+		t.Fatalf("runtime rollback lost selected route: %+v", application.model.ActiveRoute)
 	}
 }
 
