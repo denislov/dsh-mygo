@@ -22,6 +22,7 @@ type fakeClient struct {
 	results    map[string]json.RawMessage
 	err        error
 	closed     bool
+	closeCount int
 	beforeCall func(method string)
 }
 
@@ -47,6 +48,7 @@ func (f *fakeClient) Close() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.closed = true
+	f.closeCount++
 }
 
 func (f *fakeClient) called() []string {
@@ -79,7 +81,7 @@ func newTestApp(client rpcClient) *App {
 		SDKProtocol: true,
 		Post:        func(fn func()) { fn() },
 	})
-	application.client = client
+	application.installHost(&hostInstance{client: client})
 	application.model.Phase = view.PhaseIdle
 	return application
 }

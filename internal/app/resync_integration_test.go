@@ -76,7 +76,7 @@ func TestAgainstMygoResync(t *testing.T) {
 			if !a.model.CanResync {
 				t.Fatal("live history was not negotiated")
 			}
-			id, pid := a.sessionID, a.supervisor.PID()
+			id, pid := a.sessionID, a.currentSupervisor().PID()
 			a.Send("recover this prompt")
 			a.model.Draft = "next draft"
 			sawResync := false
@@ -140,7 +140,7 @@ func TestAgainstMygoResync(t *testing.T) {
 					t.Fatal("settled resync retained a stream")
 				}
 			}
-			if users != 1 || a.model.Draft != "next draft" || a.sessionID != id || a.supervisor.PID() != pid || a.hostGeneration.Load() != 1 {
+			if users != 1 || a.model.Draft != "next draft" || a.sessionID != id || a.currentSupervisor().PID() != pid || a.hostGeneration.Load() != 1 {
 				t.Fatal("resync duplicated history, lost a draft or restarted the Host")
 			}
 			before := assistantAnswers(a)

@@ -18,7 +18,7 @@ func editingTestApp(t *testing.T, client rpcClient) (*App, chan func(), string) 
 	path := filepath.Join(t.TempDir(), "editing.json")
 	updates := make(chan func(), 256)
 	a := New(Options{PreferencesPath: path, Provider: "test", Model: "echo", Post: func(fn func()) { updates <- fn }})
-	a.client = client
+	a.installHost(&hostInstance{client: client})
 	a.loadLocalState()
 	(<-updates)()
 	a.sessionID = "original"

@@ -72,7 +72,7 @@ func TestAgainstMygoToolDiffs(t *testing.T) {
 				t.Fatal("fake diff metadata changed")
 			}
 			application.Shutdown(10 * time.Second)
-			if err := application.supervisor.WaitError(); err != nil {
+			if err := application.currentSupervisor().WaitError(); err != nil {
 				t.Fatalf("tool diff shutdown: %v", err)
 			}
 		})

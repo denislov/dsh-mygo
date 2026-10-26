@@ -199,7 +199,7 @@ func TestAgainstMygoRealStreaming(t *testing.T) {
 				application.Cancel()
 			case "shutdown":
 				application.Shutdown(10 * time.Second)
-				if err := application.supervisor.WaitError(); err != nil {
+				if err := application.currentSupervisor().WaitError(); err != nil {
 					t.Fatalf("stream shutdown: %v", err)
 				}
 				for len(updates) > 0 {
@@ -227,7 +227,7 @@ func TestAgainstMygoRealStreaming(t *testing.T) {
 				t.Fatal("stream replaced session")
 			}
 			application.Shutdown(10 * time.Second)
-			if err := application.supervisor.WaitError(); err != nil {
+			if err := application.currentSupervisor().WaitError(); err != nil {
 				t.Fatalf("stream host shutdown: %v", err)
 			}
 		})

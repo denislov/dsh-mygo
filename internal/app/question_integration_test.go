@@ -65,7 +65,7 @@ func TestAgainstMygoQuestions(t *testing.T) {
 						application.Cancel()
 					case "shutdown":
 						application.Shutdown(10 * time.Second)
-						if err := application.supervisor.WaitError(); err != nil {
+						if err := application.currentSupervisor().WaitError(); err != nil {
 							t.Fatalf("pending question shutdown: %v", err)
 						}
 						for len(updates) > 0 {
@@ -105,7 +105,7 @@ func TestAgainstMygoQuestions(t *testing.T) {
 						t.Fatal("question replaced the session")
 					}
 					application.Shutdown(10 * time.Second)
-					if err := application.supervisor.WaitError(); err != nil {
+					if err := application.currentSupervisor().WaitError(); err != nil {
 						t.Fatalf("question host shutdown: %v", err)
 					}
 				})

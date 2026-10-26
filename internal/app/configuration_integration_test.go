@@ -92,7 +92,7 @@ func TestAgainstMygoConfiguration(t *testing.T) {
 				t.Fatal("isolated credential write failed")
 			}
 			snapshot, err := decodeConfiguration(raw)
-			if err != nil || !snapshot.Credential.Configured || snapshot.Credential.Source != "managed" || strings.Contains(string(raw), fakeKey) || strings.Contains(application.supervisor.StderrTail(), fakeKey) {
+			if err != nil || !snapshot.Credential.Configured || snapshot.Credential.Source != "managed" || strings.Contains(string(raw), fakeKey) || strings.Contains(application.currentSupervisor().StderrTail(), fakeKey) {
 				t.Fatal("credential status or redaction failed")
 			}
 			if mode == "real" {

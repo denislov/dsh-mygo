@@ -72,7 +72,7 @@ func TestAgainstMygoPermissions(t *testing.T) {
 				t.Fatal("session switch lost permission or draft")
 			}
 			if mode == "real" {
-				process, err := os.FindProcess(a.supervisor.PID())
+				process, err := os.FindProcess(a.currentSupervisor().PID())
 				if err != nil {
 					t.Fatal(err)
 				}

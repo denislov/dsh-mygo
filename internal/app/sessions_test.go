@@ -22,7 +22,7 @@ type sessionClient struct {
 func sessionTestApp(client rpcClient) (*App, chan func()) {
 	updates := make(chan func(), 64)
 	application := New(Options{CWD: "C:/work", Provider: "test", Model: "echo", Post: func(fn func()) { updates <- fn }})
-	application.client = client
+	application.installHost(&hostInstance{client: client})
 	application.sessionID = "original"
 	application.model.SessionID = "original"
 	application.model.CanHistory = true

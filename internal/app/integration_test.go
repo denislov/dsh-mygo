@@ -290,8 +290,8 @@ func TestAgainstMygoRealComposition(t *testing.T) {
 		t.Fatalf("host identity = %q", application.Model().Detail)
 	}
 	application.Shutdown(10 * time.Second)
-	if err := application.supervisor.WaitError(); err != nil {
-		t.Fatalf("host shutdown: %v; stderr: %s", err, application.supervisor.StderrTail())
+	if err := application.currentSupervisor().WaitError(); err != nil {
+		t.Fatalf("host shutdown: %v; stderr: %s", err, application.currentSupervisor().StderrTail())
 	}
 }
 
@@ -314,9 +314,7 @@ func TestAgainstMygoRestart(t *testing.T) {
 	wantRoute := selectStartupTestRoute(t, application, updates, "mygo-mock")
 	itemsBefore := len(application.Model().Items)
 
-	application.mu.Lock()
-	supervisor := application.supervisor
-	application.mu.Unlock()
+	supervisor := application.currentSupervisor()
 	if supervisor == nil {
 		t.Fatal("host supervisor is missing")
 	}
@@ -471,7 +469,7 @@ func TestAgainstMygoRealModel(t *testing.T) {
 		t.Fatal("real model turn ended without an assistant reply")
 	}
 	application.Shutdown(10 * time.Second)
-	if err := application.supervisor.WaitError(); err != nil {
+	if err := application.currentSupervisor().WaitError(); err != nil {
 		t.Fatalf("real model host shutdown: %v", err)
 	}
 	t.Log("deepseek-official/deepseek-flash replied with exactly pong; host exited successfully")
@@ -633,7 +631,7 @@ func TestAgainstMygoRealCancellation(t *testing.T) {
 		t.Fatal("cancellation replaced the session")
 	}
 	application.Shutdown(10 * time.Second)
-	if err := application.supervisor.WaitError(); err != nil {
+	if err := application.currentSupervisor().WaitError(); err != nil {
 		t.Fatalf("cancelled host shutdown: %v", err)
 	}
 }

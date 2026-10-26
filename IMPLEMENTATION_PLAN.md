@@ -134,11 +134,12 @@ flowchart TD
 - **验收/回归**：同一事件序列得到相同终态与副作用；Send/Cancel 不绕过共享门禁。各 reset 按“新 Host/换会话/失败/同代 resync”有明确语义；原回合、流式、草稿和真实取消测试保持。
 - **完成记录（2026-10-26）**：新增 `internal/app/turn.go` 的纯 `turnTracker`，持有 awaiting/activity/cancelIdle/promptID/delivery，显式提供提交、活动、idle 认领、取消开始/idle/完成/超时、reset、恢复与失败转换；App 保留 Phase、代理队列与投影副作用。初始化、换会话、Restart 统一走 reset；resync 快照恢复活动状态；投递/取消回调继续按 prompt 身份失效。实际检查：`go test ./internal/app` 253 项、`go test ./...` 732 项通过。
 
-### 2.3 封装一代 Host 资源与关闭目标（高）
+### 2.3 封装一代 Host 资源与关闭目标（高，已完成）
 
 - **范围/依赖**：依赖 2.1，可与 2.2 分提交；涉及 startHost/stopHost/watchHost、client、supervisor、通知入口及 Runtime 切换。
 - **实施/交付**：用一代 Host 的资源对象持有 client、supervisor、身份、generation 与关闭状态；对特定对象关闭，不在异步执行时重新获取“当前 Host”。启动、初始化失败和正常退出分别有回收边界。
 - **验收/回归**：旧 watcher、读循环错误、慢 stop 和重复 Close 不关闭或覆盖新 Host；启动中退出、失败候选/回滚、排队旧事件、UI 背压停止与进程树回收都有用例。保持 stdout 纯净、stderr 有界和 Windows Job Object 行为。
+- **完成记录（2026-10-26）**：新增 `internal/app/host.go` 的不可复用 Host 实例，持有 client/supervisor/generation/closed 与幂等 stop；App 改为 currentHost/installHost/detachHost/stopHostInstance，通知入口、读循环、watcher、初始化发布与失败发布都绑定捕获实例。Restart 与 Runtime 切换先 detach 再异步停止旧实例；关闭后的实例仅保留只读 PID/stderr 诊断。实际检查：`go test ./internal/app` 256 项、`go test ./...` 735 项通过；新增旧通知/旧失败/重复 stop/关闭后安装用例。
 
 ### 2.4 按语义收拢异步 operation/cancel（高）
 

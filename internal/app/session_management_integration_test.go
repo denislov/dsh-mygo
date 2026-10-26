@@ -75,9 +75,7 @@ func TestAgainstMygoSessionManagement(t *testing.T) {
 				t.Fatal("archived conversation sent a prompt")
 			}
 			if mode == "real" {
-				a.mu.Lock()
-				supervisor := a.supervisor
-				a.mu.Unlock()
+				supervisor := a.currentSupervisor()
 				process, err := os.FindProcess(supervisor.PID())
 				if err != nil {
 					t.Fatal(err)

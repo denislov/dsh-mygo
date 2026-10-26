@@ -121,8 +121,8 @@ type App struct {
 	stream     projection.AssistantStream
 
 	mu                sync.Mutex
-	supervisor        *host.Supervisor
-	client            rpcClient
+	host              *hostInstance
+	lastHost          *hostInstance
 	notificationInput chan hostNotification
 
 	// These fields belong to the main thread.
@@ -387,16 +387,12 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 		a.fail(summary, err)
 		return
 	}
-	a.mu.Lock()
-	a.supervisor = supervisor
-	if a.shuttingDown.Load() {
-		a.mu.Unlock()
-		a.stopHost()
+	client := channel.NewClient(supervisor.Stdout(), supervisor.Stdin(), a.options.MaxFrame)
+	instance := &hostInstance{generation: generation, client: client, supervisor: supervisor}
+	if !a.installHost(instance) {
+		instance.stop(stopTimeout)
 		return
 	}
-	a.mu.Unlock()
-
-	client := channel.NewClient(supervisor.Stdout(), supervisor.Stdin(), a.options.MaxFrame)
 	a.mu.Lock()
 	incoming := a.notificationInput
 	startNotifications := false
@@ -405,36 +401,23 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 		a.notificationInput = incoming
 		startNotifications = true
 	}
-	a.client = client
-	if a.shuttingDown.Load() {
-		a.mu.Unlock()
-		a.stopHost()
-		return
-	}
 	a.mu.Unlock()
 	if startNotifications {
 		go a.runNotifications(incoming)
 	}
 	client.OnNotification(func(method string, params json.RawMessage) {
-		if a.hostGeneration.Load() != generation {
-			return
-		}
-		select {
-		case incoming <- hostNotification{method: method, params: params}:
-		case <-a.stopped:
-			return
-		}
+		a.forwardHostNotification(instance, incoming, method, params)
 	})
 	a.logf("host started: pid=%d generation=%d", supervisor.PID(), generation)
 
-	go a.watchHost(supervisor, generation)
+	go a.watchHost(instance)
 	go func() {
 		err := client.Run()
-		if errors.Is(err, io.EOF) || errors.Is(err, channel.ErrClosed) || a.shuttingDown.Load() || a.hostGeneration.Load() != generation {
+		if errors.Is(err, io.EOF) || errors.Is(err, channel.ErrClosed) || a.shuttingDown.Load() || !a.isCurrentHost(instance) {
 			return
 		}
-		a.fail("The host connection closed", err)
-		a.stopHost()
+		a.failHost(instance, "The host connection closed", err)
+		a.stopHostInstance(instance)
 	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), initializeTimeout)
@@ -455,18 +438,19 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 		if recover {
 			summary = "Could not recover the session"
 		}
-		a.fail(summary, err)
-		a.stopHost()
+		a.failHost(instance, summary, err)
+		a.stopHostInstance(instance)
 		return
 	}
-	if a.hostGeneration.Load() != generation {
+	if !a.isCurrentHost(instance) {
+		a.stopHostInstance(instance)
 		return
 	}
 	switchedID := ""
 	if a.hasPendingRuntimeSwitch() {
 		target, err := a.commitRuntimeSwitch()
 		if err != nil {
-			a.stopHost()
+			a.stopHostInstance(instance)
 			a.failRuntimeSwitch(err)
 			return
 		}
@@ -483,7 +467,7 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 		configurationCancel()
 	}
 	a.post(func() {
-		if a.shuttingDown.Load() || a.model.Phase == view.PhaseFailed || a.hostGeneration.Load() != generation {
+		if a.shuttingDown.Load() || a.model.Phase == view.PhaseFailed || !a.isCurrentHost(instance) {
 			return
 		}
 		previousID := a.sessionID
@@ -627,8 +611,9 @@ func (a *App) Restart() {
 		resumeID = ""
 	}
 	route := a.model.ActiveRoute
+	previous := a.detachHost()
 	go func() {
-		a.stopHost()
+		a.stopHostInstance(previous)
 		a.startHost(true, resumeID, route)
 		a.post(func() {
 			a.restarting = false
@@ -1195,42 +1180,45 @@ func (a *App) Shutdown(timeout time.Duration) {
 	a.post(a.cancelSessionOperation)
 	a.post(a.cancelSettingsOperation)
 	a.post(a.CloseSubagents)
-	a.mu.Lock()
-	client := a.client
-	supervisor := a.supervisor
-	a.mu.Unlock()
+	instance := a.detachHost()
 
-	if client != nil {
+	if instance != nil && instance.client != nil {
 		callTimeout := timeout
 		if callTimeout > 3*time.Second {
 			callTimeout = 3 * time.Second
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), callTimeout)
-		_, _ = client.Call(ctx, "shutdown", map[string]any{})
-		cancel()
-		client.Close()
-	}
-	if supervisor != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		_ = supervisor.Stop(ctx)
+		_, _ = instance.client.Call(ctx, "shutdown", map[string]any{})
 		cancel()
 	}
+	a.stopHostInstance(instance)
 	a.logf("shutdown complete")
 	a.closeLog()
 }
 
-func (a *App) watchHost(supervisor *host.Supervisor, generation uint64) {
-	err := supervisor.WaitError()
+func (a *App) watchHost(instance *hostInstance) {
+	err := instance.supervisor.WaitError()
 	a.logf("host exited: %v", err)
+	detail := "host exited"
+	if err != nil {
+		detail = err.Error()
+	}
+	a.failHost(instance, "The DeepSeek Harness host exited", errors.New(detail))
+}
+
+// failHost publishes a failure only if the captured Host is still current when
+// the callback reaches the main thread.
+func (a *App) failHost(instance *hostInstance, summary string, err error) {
 	a.post(func() {
-		if a.shuttingDown.Load() || a.hostGeneration.Load() != generation || a.model.Phase == view.PhaseFailed {
+		if a.shuttingDown.Load() || a.model.Phase == view.PhaseFailed {
 			return
 		}
-		detail := "host exited"
-		if err != nil {
-			detail = err.Error()
+		// A failure may stop its own instance before this callback runs. A
+		// newer generation, however, owns the failure path from then on.
+		if !a.isCurrentHost(instance) && a.hostGeneration.Load() != instance.generation {
+			return
 		}
-		a.setFailure("The DeepSeek Harness host exited", errors.New(detail))
+		a.setFailure(summary, err)
 	})
 }
 
@@ -1302,31 +1290,8 @@ func (a *App) requireResync(err error) {
 	a.logf("resync required: %v", err)
 }
 
-func (a *App) stopHost() {
-	a.mu.Lock()
-	client := a.client
-	supervisor := a.supervisor
-	a.mu.Unlock()
-	if client != nil {
-		client.Close()
-	}
-	if supervisor != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), stopTimeout)
-		_ = supervisor.Stop(ctx)
-		cancel()
-	}
-}
-
-func (a *App) currentClient() rpcClient {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.client
-}
-
 func (a *App) stderrTail() string {
-	a.mu.Lock()
-	supervisor := a.supervisor
-	a.mu.Unlock()
+	supervisor := a.currentSupervisor()
 	if supervisor == nil {
 		return ""
 	}
@@ -1429,12 +1394,11 @@ func (a *App) captureCrash(summary string, err error) {
 }
 
 func (a *App) supervisorPID() int {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.supervisor == nil {
+	supervisor := a.currentSupervisor()
+	if supervisor == nil {
 		return 0
 	}
-	return a.supervisor.PID()
+	return supervisor.PID()
 }
 
 func isTurnActivity(eventType string) bool {

@@ -37,7 +37,7 @@ func TestStartWithoutRuntimeAwaitsSetup(t *testing.T) {
 	if application.model.Runtime.Error != "" {
 		t.Fatalf("setup should not start with an error: %q", application.model.Runtime.Error)
 	}
-	if application.supervisor != nil {
+	if application.currentSupervisor() != nil {
 		t.Fatal("host started without a runtime")
 	}
 }

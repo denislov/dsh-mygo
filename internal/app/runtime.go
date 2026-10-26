@@ -440,6 +440,7 @@ func (a *App) beginRuntimeSwitch(target, previous runtimes.Runtime, resumeID str
 	a.cancelResync()
 	a.CloseSubagents()
 	a.hostGeneration.Add(1)
+	previousHost := a.detachHost()
 	a.model.Runtime.Switching = true
 	a.model.Runtime.SetupRequired = false
 	a.model.Runtime.Busy = false
@@ -459,7 +460,7 @@ func (a *App) beginRuntimeSwitch(target, previous runtimes.Runtime, resumeID str
 	a.model.Restarting = false
 	a.logf("runtime switch: %s -> %s", previous.ID, target.ID)
 	go func() {
-		a.stopHost()
+		a.stopHostInstance(previousHost)
 		a.startHost(false, resumeID, route)
 	}()
 }

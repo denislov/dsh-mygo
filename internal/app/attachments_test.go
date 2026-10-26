@@ -36,7 +36,7 @@ func newMygoSendApp(client rpcClient) (*App, chan func()) {
 		SessionID: "s1",
 		Post:      func(fn func()) { updates <- fn },
 	})
-	application.client = client
+	application.installHost(&hostInstance{client: client})
 	application.model.Phase = view.PhaseIdle
 	application.acceptAttachments(testLimits())
 	return application, updates

@@ -82,7 +82,7 @@ func TestAgainstMygoRealApprovals(t *testing.T) {
 			}
 			if decision == "shutdown" {
 				application.Shutdown(10 * time.Second)
-				if err := application.supervisor.WaitError(); err != nil {
+				if err := application.currentSupervisor().WaitError(); err != nil {
 					t.Fatalf("pending approval shutdown: %v", err)
 				}
 				for len(updates) > 0 {
@@ -119,7 +119,7 @@ func TestAgainstMygoRealApprovals(t *testing.T) {
 				t.Fatal("approval replaced the session")
 			}
 			application.Shutdown(10 * time.Second)
-			if err := application.supervisor.WaitError(); err != nil {
+			if err := application.currentSupervisor().WaitError(); err != nil {
 				t.Fatalf("approval host shutdown: %v", err)
 			}
 			t.Logf("%s: real approval service and tool execution verified", decision)
