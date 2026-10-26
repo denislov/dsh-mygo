@@ -68,3 +68,57 @@ func TestExplicitRouteFlagsOverrideHostDefaults(t *testing.T) {
 		}
 	}
 }
+
+func TestLaunchModePriority(t *testing.T) {
+	for _, scenario := range []struct {
+		name string
+		opts startupOptions
+		want launchMode
+	}{
+		{"device runtime", startupOptions{profile: "mygo"}, launchRuntimeStore},
+		{"runtime dir stays device-store", startupOptions{profile: "mygo", runtimeDir: "runtime"}, launchRuntimeStore},
+		{"host command", startupOptions{profile: "mygo", hostCommand: "node"}, launchDirect},
+		{"source checkout", startupOptions{profile: "mygo", dshDir: "D:/dsh"}, launchDirect},
+		{"other profile", startupOptions{profile: "custom"}, launchDirect},
+		{"sdk wins", startupOptions{profile: "sdk", sdkProtocol: true, hostCommand: "node"}, launchSDK},
+	} {
+		if got := resolveLaunchMode(scenario.opts); got != scenario.want {
+			t.Fatalf("%s: mode = %v, want %v", scenario.name, got, scenario.want)
+		}
+	}
+}
+
+func TestStartupValidation(t *testing.T) {
+	if err := validateStartup(startupOptions{profile: "sdk"}); err == nil {
+		t.Fatal("profile sdk without -sdk-protocol was accepted")
+	}
+	if err := validateStartup(startupOptions{profile: "mygo", sessionID: "id"}); err == nil {
+		t.Fatal("-session outside SDK was accepted")
+	}
+	if err := validateStartup(startupOptions{profile: "sdk", sdkProtocol: true, sessionID: "id"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateStartup(startupOptions{profile: "mygo"}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestStartupFlagsKeepRepeatedArgsAndExplicitEmptyEffort(t *testing.T) {
+	for _, args := range [][]string{
+		{"-host-arg", "one", "-host-arg", "two", "-effort", ""},
+		{"-host-arg=one", "-host-arg=two", "-effort="},
+	} {
+		var opts startupOptions
+		flags := flag.NewFlagSet("test", flag.ContinueOnError)
+		bindStartupFlags(flags, &opts)
+		if err := flags.Parse(args); err != nil {
+			t.Fatal(err)
+		}
+		if len(opts.hostArgs) != 2 || opts.hostArgs[0] != "one" || opts.hostArgs[1] != "two" {
+			t.Fatalf("host args = %v", opts.hostArgs)
+		}
+		if useHostDefaultRoute(flags) {
+			t.Fatal("explicit empty effort did not override Host defaults")
+		}
+	}
+}

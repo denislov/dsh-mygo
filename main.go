@@ -19,11 +19,6 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"dsh-mygo/internal/app"
-	"dsh-mygo/internal/channel"
-	"dsh-mygo/internal/host"
-	"dsh-mygo/internal/preferences"
-	"dsh-mygo/internal/runtimes"
-	"dsh-mygo/internal/version"
 	"dsh-mygo/internal/view"
 )
 
@@ -37,155 +32,43 @@ func (s *stringList) Set(value string) error {
 }
 
 func main() {
-	var hostArgs stringList
-	flag.Var(&hostArgs, "host-arg", "argument for -host-command (repeatable)")
-
-	dshDir := flag.String("dsh-dir", os.Getenv("DSH_MYGO_DSH_DIR"), "DeepSeek Harness checkout; runs apps/cli/src/bin.ts through tsx")
-	profile := flag.String("profile", "mygo", "DSH profile")
-	sdkProtocol := flag.Bool("sdk-protocol", false, "use the legacy SDK protocol (requires -profile sdk)")
-	provider := flag.String("provider", "deepseek-official", "explicit model provider override (otherwise use Host defaults when supported)")
-	model := flag.String("model", "deepseek-flash", "explicit model id override (otherwise use Host defaults when supported)")
-	effort := flag.String("effort", "", "optional reasoning effort")
-	cwdFlag := flag.String("cwd", "", "session working directory (default: current directory)")
-	sessionID := flag.String("session", "", "legacy SDK session id (default: generated; requires -sdk-protocol)")
-	dshHome := flag.String("dsh-home", "", "optional DSH_HOME override")
-	maxFrame := flag.Int("max-frame", channel.DefaultMaxFrameBytes, "maximum JSON-RPC frame bytes")
-	hostCommand := flag.String("host-command", "", "override the host executable")
-	runtimeHome := flag.String("runtime-home", "", "override the device-local runtime store (testing)")
-	runtimeDir := flag.String("runtime-dir", "", "use an extracted runtime bundle directly (development/smoke)")
-	logDirFlag := flag.String("log-dir", "", "override the logs directory (testing)")
-	stateDirFlag := flag.String("ui-state-dir", "", "override the device-local editing state directory")
+	opts := startupOptions{}
+	bindStartupFlags(flag.CommandLine, &opts)
 	flag.Parse()
+	if err := validateStartup(opts); err != nil {
+		log.Fatal(err)
+	}
 	mygo.App.SetName("dsh-mygo")
-	useHostDefaults := useHostDefaultRoute(flag.CommandLine)
-	if *profile == "sdk" && !*sdkProtocol {
-		log.Fatal("-profile sdk requires -sdk-protocol")
-	}
-	if *sessionID != "" && !*sdkProtocol {
-		log.Fatal("-session requires -sdk-protocol; mygo session ids are assigned by the host")
-	}
-
-	resourcesDir, err := mygo.App.Path(mygo.PathResources)
-	if err != nil {
-		log.Fatal(fmt.Errorf("resolve resources: %w", err))
-	}
-	devOverrides := *sdkProtocol || *hostCommand != "" || *dshDir != "" || *runtimeDir != ""
-	runtimeMode := !*sdkProtocol && *hostCommand == "" && *dshDir == "" && *profile == "mygo"
-	packaged := !mygo.IsDev()
-	cwd, requireWorkspace, err := resolveStartupCWD(*cwdFlag, packaged && !devOverrides)
+	plan, err := prepareStartup(opts, useHostDefaultRoute(flag.CommandLine))
 	if err != nil {
 		log.Fatal(err)
-	}
-	if *logDirFlag != "" {
-		absolute, err := filepath.Abs(*logDirFlag)
-		if err != nil {
-			log.Fatal(fmt.Errorf("resolve log directory: %w", err))
-		}
-		mygo.App.SetPath(mygo.PathLogs, absolute)
-	}
-	logDir, logErr := mygo.App.Path(mygo.PathLogs)
-	if logErr != nil {
-		log.Printf("resolve logs: %v", logErr)
-	}
-	dshHomePath, err := resolveDSHHome(*dshHome)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if *sdkProtocol && *sessionID == "" {
-		*sessionID = fmt.Sprintf("mygo-%d", time.Now().UnixNano())
-	}
-	var launch host.Config
-	var launchErr error
-	var preflight func() error
-	var preflightSummary string
-	var runtimeManager *runtimes.Manager
-	var prepareProfile func(string) error
-	if runtimeMode {
-		storeRoot := ""
-		if *runtimeHome != "" {
-			storeRoot, err = filepath.Abs(*runtimeHome)
-			if err != nil {
-				log.Fatal(fmt.Errorf("resolve runtime home: %w", err))
-			}
-		} else {
-			cacheRoot, cacheErr := mygo.App.Path(mygo.PathCache)
-			if cacheErr != nil {
-				log.Fatal(fmt.Errorf("resolve runtime cache: %w", cacheErr))
-			}
-			storeRoot = filepath.Join(cacheRoot, "runtimes")
-		}
-		runtimeManager = runtimes.NewManager(storeRoot, resourcesDir, version.Repository)
-		if *runtimeDir != "" {
-			runtimeManager.DirectDir, err = filepath.Abs(*runtimeDir)
-			if err != nil {
-				log.Fatal(fmt.Errorf("resolve runtime directory: %w", err))
-			}
-		}
-		prepareProfile = func(bundleDir string) error {
-			return host.EnsureProfile(dshHomePath, bundleDir, *profile)
-		}
-	} else {
-		launch, launchErr = host.ResolveLaunch(host.LaunchOptions{
-			DshDir:       *dshDir,
-			Profile:      *profile,
-			CWD:          cwd,
-			Command:      *hostCommand,
-			Args:         hostArgs,
-			ResourcesDir: resourcesDir,
-			RuntimeDir:   *runtimeDir,
-			DSHHome:      dshHomePath,
-		})
-		preflight = func() error {
-			if launchErr != nil {
-				return launchErr
-			}
-			if *sdkProtocol || *hostCommand != "" || *profile != "mygo" {
-				return nil
-			}
-			return host.EnsureProfile(dshHomePath, filepath.Join(resourcesDir, "host"), *profile)
-		}
-		preflightSummary = "Could not start the DeepSeek Harness host"
-		if launchErr == nil && !*sdkProtocol && *hostCommand == "" && *profile == "mygo" {
-			preflightSummary = "Could not prepare the DeepSeek Harness profile"
-		}
-	}
-
-	var window atomic.Pointer[mygo.Window]
-	stateRoot, stateErr := mygo.App.Path(mygo.PathUserData)
-	if *stateDirFlag != "" {
-		stateRoot, stateErr = filepath.Abs(*stateDirFlag)
-		if stateErr == nil {
-			mygo.App.SetPath(mygo.PathUserData, stateRoot)
-		}
 	}
 	mygo.App.SetLanguages("en-US", "zh-CN")
 	mygo.App.SetLocale("en-US")
-	statePath := ""
-	if stateErr == nil && !*sdkProtocol {
-		statePath = preferences.StatePath(stateRoot, dshHomePath, *profile)
-	}
+
+	var window atomic.Pointer[mygo.Window]
 	application := app.New(app.Options{
 		ApplyTheme:             func(value string) { mygo.Theme.SetSource(mygo.ThemeSource(value)) },
 		ApplyLocale:            mygo.App.SetLocale,
-		Launch:                 launch,
-		Runtimes:               runtimeManager,
-		Profile:                *profile,
-		DSHHome:                dshHomePath,
-		PrepareProfile:         prepareProfile,
-		CWD:                    cwd,
-		RequireWorkspace:       requireWorkspace,
-		Provider:               *provider,
-		Model:                  *model,
-		ReasoningEffort:        *effort,
-		UseHostDefaults:        useHostDefaults,
-		SessionID:              *sessionID,
-		SDKProtocol:            *sdkProtocol,
-		MaxFrame:               *maxFrame,
-		Preflight:              preflight,
-		PreflightSummary:       preflightSummary,
-		LogDir:                 logDir,
-		PreferencesPath:        statePath,
-		PreferencesUnavailable: stateErr != nil && !*sdkProtocol,
+		Launch:                 plan.launch,
+		Runtimes:               plan.runtimeManager,
+		Profile:                opts.profile,
+		DSHHome:                plan.dshHome,
+		PrepareProfile:         plan.prepareProfile,
+		CWD:                    plan.cwd,
+		RequireWorkspace:       plan.requireWorkspace,
+		Provider:               opts.provider,
+		Model:                  opts.model,
+		ReasoningEffort:        opts.effort,
+		UseHostDefaults:        plan.useHostDefaults,
+		SessionID:              plan.sessionID,
+		SDKProtocol:            opts.sdkProtocol,
+		MaxFrame:               opts.maxFrame,
+		Preflight:              plan.preflight,
+		PreflightSummary:       plan.preflightSummary,
+		LogDir:                 plan.logDir,
+		PreferencesPath:        plan.statePath,
+		PreferencesUnavailable: plan.preferencesUnavailable,
 		Quit:                   mygo.App.Quit,
 		Post: func(fn func()) {
 			if win := window.Load(); win != nil {
