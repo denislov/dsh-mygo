@@ -135,6 +135,7 @@ type App struct {
 	turn            turnTracker
 	sessionID       string
 	nextSeq         uint64
+	sessionBlank    bool
 	batchUpdating   bool
 	transcriptDirty bool
 	subagents       subagentComponent
@@ -465,6 +466,7 @@ func (a *App) hostReady(instance *hostInstance, initialized initializedSession, 
 		a.model.Draft = a.localComponent.draft(initialized.sessionID)
 	}
 	a.sessionID = initialized.sessionID
+	a.sessionBlank = initialized.blank
 	if a.local != nil && a.local.ready {
 		if previousID != initialized.sessionID {
 			a.model.Draft = a.localComponent.draft(initialized.sessionID)
@@ -630,6 +632,7 @@ type initializedSession struct {
 	history       historySnapshot
 	sessionID     string
 	nextSeq       uint64
+	blank         bool
 	cwd           string
 	transcript    *projection.Transcript
 	detail        string
@@ -722,7 +725,7 @@ func (a *App) initializeSession(ctx context.Context, client rpcClient, request s
 		selected = view.ModelRoute{Provider: created.Provider, Model: created.Model, Effort: created.Effort}
 	}
 	return initializedSession{
-		sessionID: created.ID, nextSeq: *created.NextSeq, cwd: a.options.CWD,
+		sessionID: created.ID, nextSeq: *created.NextSeq, blank: created.Blank, cwd: a.options.CWD,
 		caps:          caps,
 		restoreNotice: restoreNotice,
 		permissions:   permissions,
@@ -782,7 +785,7 @@ func (a *App) resumeSession(ctx context.Context, client rpcClient, id string, in
 		selected = view.ModelRoute{Provider: summary.Provider, Model: summary.Model, Effort: summary.Effort}
 	}
 	return initializedSession{
-		sessionID: summary.ID, nextSeq: nextSeq, cwd: cwd, transcript: &transcript,
+		sessionID: summary.ID, nextSeq: nextSeq, blank: summary.Blank, cwd: cwd, transcript: &transcript,
 		caps:        caps,
 		history:     history,
 		permissions: permissions,
@@ -1041,6 +1044,9 @@ func (a *App) handleSessionEventNotification(source *hostInstance, params json.R
 			return
 		}
 		a.nextSeq++
+		if a.sessionBlank && (event.Type == "user/message" || event.Type == "turn/start") {
+			a.setSessionBlank(false)
+		}
 		a.sessionCatalog.markDirty()
 		if event.Type == "permission/preset" || event.Type == "sandbox/mode" || event.Type == "approval/policy" {
 			a.model.Permission.Ready = false
@@ -1052,6 +1058,9 @@ func (a *App) handleSessionEventNotification(source *hostInstance, params json.R
 			}
 			if json.Unmarshal(event.Data, &data) == nil {
 				a.sessionCatalog.setTitle(a.nextSeq, data.Title)
+				if data.Title != "" {
+					a.setSessionBlank(false)
+				}
 				for index, summary := range a.model.Sessions {
 					if summary.ID == a.sessionID {
 						a.model.Sessions[index].Title = data.Title

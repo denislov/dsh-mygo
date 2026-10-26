@@ -41,6 +41,13 @@ func TestAgainstMygoSessionManagement(t *testing.T) {
 				t.Fatal("startup catalog or management capabilities missing")
 			}
 			original := a.sessionID
+			// A blank Session is reused by New conversation, so seed the
+			// original with a committed turn before asking for another one.
+			a.Send("seed the original session")
+			waitFor(t, a, updates, 30*time.Second, func() bool { return a.model.Phase == view.PhaseIdle && len(a.model.Items) >= 2 })
+			if a.sessionID != original {
+				t.Fatalf("seeding changed the session: %s -> %s", original, a.sessionID)
+			}
 			a.model.Draft = "original draft"
 			a.NewSession()
 			waitFor(t, a, updates, 30*time.Second, func() bool { return !a.model.SessionBusy && a.sessionID != original })
@@ -108,7 +115,7 @@ func TestAgainstMygoSessionManagement(t *testing.T) {
 				}
 			}
 			a.Send("continue after restore")
-			waitFor(t, a, updates, 30*time.Second, func() bool { return a.model.Phase == view.PhaseIdle && assistantAnswers(a) == 1 })
+			waitFor(t, a, updates, 30*time.Second, func() bool { return a.model.Phase == view.PhaseIdle && assistantAnswers(a) == 2 })
 		})
 	}
 }

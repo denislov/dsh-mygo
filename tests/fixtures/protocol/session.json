@@ -42,6 +42,7 @@
     "updatedAt": 2,
     "status": "idle",
     "archived": false,
+    "blank": false,
     "nextSeq": 3
   }
 }

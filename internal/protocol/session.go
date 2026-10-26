@@ -59,5 +59,6 @@ type SessionSummary struct {
 	UpdatedAt          int64   `json:"updatedAt"`
 	Status             string  `json:"status"`
 	Archived           bool    `json:"archived"`
+	Blank              bool    `json:"blank"`
 	NextSeq            *uint64 `json:"nextSeq"`
 }

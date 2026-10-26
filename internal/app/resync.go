@@ -215,6 +215,9 @@ func (a *App) resyncCommitted(snapshot historySnapshot, buffer []hostNotificatio
 		a.stream = snapshot.Stream
 	}
 	a.nextSeq = snapshot.NextSeq
+	if snapshot.NextSeq == 0 {
+		a.setSessionBlank(true)
+	}
 	a.historyComponent.commitSnapshot(snapshot.Status, snapshot.StatusRevision)
 	a.model.CopiedMessageID = ""
 	a.model.CopiedMessageText = ""

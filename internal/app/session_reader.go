@@ -23,7 +23,7 @@ func decodeSessionSummary(raw json.RawMessage) (protocol.SessionSummary, error) 
 	if json.Unmarshal(raw, &fields) != nil || json.Unmarshal(raw, &summary) != nil {
 		return summary, invalid
 	}
-	for _, key := range []string{"metadataIncomplete", "metadataCached"} {
+	for _, key := range []string{"metadataIncomplete", "metadataCached", "blank"} {
 		if value, present := fields[key]; present && !bytes.Equal(value, []byte("true")) && !bytes.Equal(value, []byte("false")) {
 			return summary, invalid
 		}
@@ -99,7 +99,7 @@ func readSessionList(ctx context.Context, client rpcClient, includeArchived ...b
 }
 
 func sessionSummaryView(summary protocol.SessionSummary) view.SessionSummary {
-	return view.SessionSummary{ID: summary.ID, Title: summary.Title, CWD: summary.CWD, CreatedAt: summary.CreatedAt, UpdatedAt: summary.UpdatedAt, Status: summary.Status, Archived: summary.Archived, MetadataIncomplete: summary.MetadataIncomplete, MetadataCached: summary.MetadataCached}
+	return view.SessionSummary{ID: summary.ID, Title: summary.Title, CWD: summary.CWD, Provider: summary.Provider, Model: summary.Model, Effort: summary.Effort, CreatedAt: summary.CreatedAt, UpdatedAt: summary.UpdatedAt, Status: summary.Status, Archived: summary.Archived, Blank: summary.Blank, MetadataIncomplete: summary.MetadataIncomplete, MetadataCached: summary.MetadataCached}
 }
 
 type historySnapshot struct {

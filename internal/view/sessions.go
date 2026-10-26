@@ -11,9 +11,13 @@ import (
 
 type SessionSummary struct {
 	MetadataIncomplete, MetadataCached bool
+	Blank                              bool
 	ID                                 string
 	Title                              string
 	CWD                                string
+	Provider                           string
+	Model                              string
+	Effort                             string
 	CreatedAt                          int64
 	UpdatedAt                          int64
 	Archived                           bool
@@ -51,6 +55,9 @@ func (model *Model) FilteredSessions() []SessionSummary {
 	query := strings.ToLower(strings.TrimSpace(model.SessionPanel.Search))
 	var sessions []SessionSummary
 	for _, session := range model.Sessions {
+		if session.Blank && session.ID != model.SessionID {
+			continue
+		}
 		if session.Archived && !model.SessionPanel.ShowArchived {
 			continue
 		}
@@ -367,10 +374,16 @@ func (model *Model) ResetTranscript(items []projection.Item) {
 }
 
 func sessionLabel(session SessionSummary) string {
+	if session.Blank {
+		return "New conversation"
+	}
 	if session.Title != "" {
 		return session.Title
 	}
-	identity := session.ID
+	identity := strings.TrimPrefix(session.ID, "session-")
+	if identity == "" {
+		identity = session.ID
+	}
 	if len(identity) > 12 {
 		identity = identity[:12]
 	}
@@ -378,6 +391,9 @@ func sessionLabel(session SessionSummary) string {
 }
 
 func (model *Model) sessionLabel(session SessionSummary) string {
+	if session.Blank {
+		return model.T("New conversation")
+	}
 	label := sessionLabel(session)
 	if session.Title == "" {
 		return model.T("Session ") + strings.TrimPrefix(label, "Session ")

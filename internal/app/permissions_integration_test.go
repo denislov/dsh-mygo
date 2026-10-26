@@ -56,6 +56,13 @@ func TestAgainstMygoPermissions(t *testing.T) {
 				t.Fatal("permission capability or startup snapshot missing")
 			}
 			original := a.sessionID
+			// A blank Session is reused by New conversation, so give the
+			// original a committed turn before asking for another one.
+			a.Send("seed the original session")
+			waitFor(t, a, updates, 30*time.Second, func() bool { return a.model.Phase == view.PhaseIdle && len(a.model.Items) >= 2 })
+			if a.sessionID != original {
+				t.Fatalf("seeding changed the session: %s -> %s", original, a.sessionID)
+			}
 			a.model.Draft = "keep permission draft"
 			choosePermission(t, a, updates, "danger-full-access")
 			if a.model.Draft != "keep permission draft" {

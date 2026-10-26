@@ -73,6 +73,12 @@ func TestAgainstMygoLargeHistoryAndReleasedSessions(t *testing.T) {
 		if a.sessionID == previous || a.model.SessionsError != "" {
 			t.Fatalf("navigation %d exhausted handles: %s", index, a.model.SessionsError)
 		}
+		// A blank Session is reused by New conversation; seed it so the next
+		// iteration still exercises a new Host session.
+		if index < 11 {
+			a.Send("seed navigation")
+			waitFor(t, a, updates, 30*time.Second, func() bool { return a.model.Phase == view.PhaseIdle && hasAssistantText(a.model.Items, "pong") })
+		}
 	}
 	a.SwitchSession("large-history")
 	completeSessionJob(t, a, updates)
@@ -118,10 +124,16 @@ func TestAgainstMygoCompleteTurnHistory(t *testing.T) {
 	a.Send("Tool-heavy complete prompt")
 	longAnswer := strings.Repeat("A complete long response. ", 500)
 	waitFor(t, a, updates, 60*time.Second, func() bool { return a.model.Phase == view.PhaseIdle && hasAssistantText(a.model.Items, longAnswer) })
-	for range 2 {
+	for index := range 2 {
 		previous := a.sessionID
 		a.NewSession()
 		waitFor(t, a, updates, 30*time.Second, func() bool { return !a.model.SessionBusy && a.sessionID != previous })
+		if index == 0 {
+			// A blank Session is reused by New conversation; seed it so the
+			// second iteration still creates a distinct Host session.
+			a.Send("seed next session")
+			waitFor(t, a, updates, 30*time.Second, func() bool { return a.model.Phase == view.PhaseIdle && hasAssistantText(a.model.Items, "pong") })
+		}
 	}
 	a.SwitchSession(original)
 	waitFor(t, a, updates, 30*time.Second, func() bool { return !a.model.SessionBusy })

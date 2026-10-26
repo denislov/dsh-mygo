@@ -130,7 +130,7 @@
 | `session/working-directory/get` | `{ sessionId }` | `{ cwd }` |
 | `session/working-directory/set` | `{ sessionId, path }` | `{ cwd }` |
 
-`SessionSummary` 包含：`id`、`title`、`cwd`、`provider`、`model`、`effort`、`createdAt`、`updatedAt`、`status`、`parentId?`、`archived`，以及可选 boolean `metadataCached` / `metadataIncomplete`；create/resume 结果额外带 `nextSeq`。缓存标志只描述目录提示的新鲜度，不构成事件边界或模型路由。
+`SessionSummary` 包含：`id`、`title`、`cwd`、`provider`、`model`、`effort`、`createdAt`、`updatedAt`、`status`、`parentId?`、`archived`、`blank`，以及可选 boolean `metadataCached` / `metadataIncomplete`；create/resume 结果额外带 `nextSeq`。`blank` 表示该会话尚无用户回合（`turn/start`）且未记录标题，仍处于新建未使用状态；列表仍返回它，但客户端只显示当前空白会话并标为本地化 New conversation，其他空白会话隐藏。`title` 为空表示 Host 未记录标题；客户端列表用短 id、标题栏用未命名提示，不把 id 当标题。缓存标志只描述目录提示的新鲜度，不构成事件边界或模型路由。
 
 ### 会话管理
 
@@ -145,7 +145,7 @@
 
 - `session.history` 同时保护 list/resume/history/fork；只有公开 sessionPersistence 的 list/stat/open/flush 和 agents.resume 可用时才协商，未协商调用返回 `protocol/capability-unavailable`。
 - list 范围为当前 DSH_HOME/profile 持久化服务可见的根/分叉会话，不按 cwd 筛选；排除 subagent 和 migration-required。仅投影白名单元数据，不转发完整 header、revision、凭据或请求配置。按 updatedAt 倒序、id 升序建立固定快照。
-- 目录使用自有 `mygoCatalog` 纯投影，通过公开 sessionProjections/sessionProjectionCache 保存与读取独立检查点；标题折叠最后一个 `session/title`，`updatedAt` 折叠创建/事件时间的最大值。列表不打开正文，活跃会话读取实时投影，冷会话读取身份与版本校验后的检查点并标记 metadataCached。缺失、损坏或不兼容的派生行只回退该会话的短 id/创建时间并标记 metadataIncomplete；打开会话后由 DSH 重放日志并重建检查点，不用一个大会话阻塞完整目录。冷缓存可落后于日志，不宣称精确最近活动；归档取 registry，不伪造事件时间。无投影服务的兼容 Host 可保留有界日志扫描路径。冷会话 status 为 stored，路由字段为空，不宣称其未被其他进程占用。
+- 目录使用自有 `mygoCatalog` 纯投影，通过公开 sessionProjections/sessionProjectionCache 保存与读取独立检查点；标题折叠最后一个 `session/title`，`updatedAt` 折叠创建/事件时间的最大值。列表不打开正文，活跃会话读取实时投影，冷会话读取身份与版本校验后的检查点并标记 metadataCached。`blank` 优先采用 DSH 自带的 `sessionListMetadata` 投影（与 DSH Web 相同）；该投影缺失时，无标题冷会话允许一次按 revision 缓存的有界前缀探测（最多 64 条事件）作兼容回退，标题、时间和其余正文仍只取检查点。旧客户端缓存若只有公开 `title` 投影，则只读复用该标题而不把 id 当标题。缺失、损坏或不兼容的派生行只回退该会话的空标题/创建时间并标记 metadataIncomplete，探测失败不隐藏会话；打开会话后由 DSH 重放日志并重建检查点，不用一个大会话阻塞完整目录。冷缓存可落后于日志，不宣称精确最近活动；归档取 registry，不伪造事件时间。无投影服务的兼容 Host 可保留有界日志扫描路径。冷会话 status 为 stored，路由字段为空，不宣称其未被其他进程占用。
 - 冷恢复要求显式 provider/model（可选 effort），或协商后的 useDefaultModel:true；继续使用持久 header.cwd（必须仍为已有绝对目录）。通过 agents.resume 获取单写者句柄，恢复/修复由 DSH 完成，不自行补造事件或扫描私有 JSONL。外来进程占用、未知会话、迁移或路由失败不暴露底层错误。subagent 不可恢复。
 - 已拥有且 idle 的 resume 幂等返回原有路由，不重新配置模型；正在恢复/运行返回 session/busy。恢复预占 maxSessions 名额（与 create 共用，默认 8）；失败释放，退出中止待恢复任务并回收迟到句柄。
 - `session.release` 与 `session.history-window` 独立协商，均依赖 session.history。release 幂等接受未拥有的合法 id；所属会话必须 idle、无审批/提问、取消、历史/目录/权限读取、模型/元数据/配置写入和未确认权限。释放期间持有预占，先 flush 与检查点写入，再通过公开 workspace/session-activity 检查后台工作；有活动时返回 busy 并解除预占，不停止子代理或 jobs。无活动才 drain 后代与 await dispose，成功才删除名额和本会话游标。派生检查点写入失败可降级为缓存提示，句柄释放失败保留名额和禁止其它操作的预占，只允许重试 release 或重启。shutdown 等待释放任务，不重复释放已完成句柄。

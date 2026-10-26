@@ -11,13 +11,36 @@ export function sessionID(value) {
   return value
 }
 
+// A Session stops being a blank New conversation once its log holds a prompt
+// (a user message or a turn start). The header alone and other system events
+// do not count. DSH's list projection folds turn/start; the user-message check
+// keeps the fallback correct before that event commits.
+function activeSessionBlank(session) {
+  if ((session.seq ?? 0) === 0) return true
+  if (typeof session.snapshotEvents !== 'function') return false
+  try {
+    return !session.snapshotEvents().some(event => event.type === 'user/message' || event.type === 'turn/start')
+  } catch {
+    return false
+  }
+}
+
 export function sessionSummary(header, record, metadata = record?.metadata ?? {}) {
+  // describe() may have read DSH's list projection; only sessions summarized
+  // without metadata fall back to the live log snapshot.
+  const blank = metadata.title
+    ? false
+    : typeof metadata.blank === 'boolean'
+      ? metadata.blank
+      : record?.handle
+        ? activeSessionBlank(record.handle.agent.session)
+        : false
   return {
-    id: sessionID(header.id), title: metadata.title || header.id.slice(0, 8), cwd: header.cwd ?? '',
+    id: sessionID(header.id), title: metadata.title || '', cwd: header.cwd ?? '',
     provider: record?.route?.provider ?? '', model: record?.route?.model ?? '', effort: record?.route?.effort ?? '',
     createdAt: header.createdAt, updatedAt: metadata.updatedAt ?? header.createdAt,
     status: record?.handle ? (record.busy ? 'running' : record.handle.agent.status) : 'stored',
-    archived: metadata.archived ?? false,
+    archived: metadata.archived ?? false, blank,
     ...(metadata.incomplete ? { metadataIncomplete: true } : {}),
     ...(metadata.cached ? { metadataCached: true } : {}),
     ...(header.parentSession === undefined ? {} : { parentId: header.parentSession }),
@@ -33,6 +56,7 @@ export class SessionHistory {
     this.reasoningBaseline = reasoningBaseline
     this.cursors = new Map()
     this.metadata = new Map()
+    this.blank = new Map()
   }
 
   async describe(header, record, snapshot) {
@@ -43,11 +67,33 @@ export class SessionHistory {
     if (projections && cache) {
       const live = record?.handle?.agent.session
       let block
-      try { block = live ? projections.snapshot(live, ['mygoCatalog']) : cache.cachedSnapshot(header, ['mygoCatalog']) } catch { /* A corrupt derived row must not hide the catalog. */ }
+      try { block = live ? projections.snapshot(live, ['mygoCatalog', 'sessionListMetadata']) : cache.cachedSnapshot(header, ['mygoCatalog', 'sessionListMetadata']) } catch { /* A corrupt derived row must not hide the catalog. */ }
       const value = block?.values?.mygoCatalog
       const valid = value && typeof value.title === 'string' && Buffer.byteLength(value.title) <= 1024 && !/[\u0000-\u001f\u007f]/.test(value.title) && Number.isSafeInteger(value.updatedAt) && value.updatedAt >= header.createdAt
+      // DSH's own list projection already folds turn/start into blank. It is
+      // authoritative whenever it exists; the bounded probe below only serves
+      // caches written before that projection was stored.
+      const listMetadata = block?.values?.sessionListMetadata
+      const projectedBlank = typeof listMetadata?.blank === 'boolean' ? listMetadata.blank : undefined
+      // Older caches written by DSH clients may carry the public title
+      // projection but not this app's mygoCatalog. Use it as a read-only
+      // fallback so a named conversation keeps its name after migration.
+      let legacyTitle = typeof block?.values?.title === 'string' ? block.values.title : ''
+      if (!valid && legacyTitle === '') {
+        try {
+          const legacy = live ? projections.snapshot(live, ['title']) : cache.cachedSnapshot(header, ['title'])
+          if (typeof legacy?.values?.title === 'string') legacyTitle = legacy.values.title
+        } catch { /* The title projection is optional. */ }
+      }
+      const title = valid && value.title !== '' ? value.title : legacyTitle
+      // Without the list projection, an untitled cold Session needs a bounded
+      // prefix probe: caches may predate a reset log or miss mygoCatalog
+      // entirely, so neither updatedAt nor an absent row proves blankness.
+      const blank = title !== ''
+        ? false
+        : projectedBlank ?? (live ? activeSessionBlank(live) : await this.probeBlank(header.id, snapshot?.revision ?? block?.asOfSeq))
       const archived = this.ctx.get('workspaceRegistry')?.archivedSessionIds.includes(header.id) ?? false
-      return sessionSummary(header, record, { ...(valid ? value : { title: '', updatedAt: header.createdAt, incomplete: true }), cached: !live && !!valid, archived })
+      return sessionSummary(header, record, { title, updatedAt: valid ? value.updatedAt : header.createdAt, ...(valid ? {} : { incomplete: true }), blank, cached: !live && !!valid, archived })
     }
     snapshot ??= await persistence.stat(header.id)
     const cached = this.metadata.get(header.id)
@@ -57,7 +103,7 @@ export class SessionHistory {
       metadata = cached.value
     } else {
       const handle = await persistence.open(header.id, 'read')
-      metadata = { title: '', updatedAt: header.createdAt }
+      metadata = { title: '', updatedAt: header.createdAt, blank: true }
       let offset = 0
       let bytes = 0
       const boundary = snapshot?.eventCount
@@ -72,6 +118,7 @@ export class SessionHistory {
             if (offset >= 20000 || bytes > 32 * 1024 * 1024) throw fault('session/catalog-too-large', 'Session metadata exceeds the supported history budget')
             if (event.seq !== offset || !Number.isSafeInteger(event.time) || event.time < 0) throw new Error('Invalid summary event')
             metadata.updatedAt = Math.max(metadata.updatedAt, event.time)
+            if (event.type === 'user/message' || event.type === 'turn/start') metadata.blank = false
             if (event.type === 'session/title') {
               const title = event.data?.title
               if (typeof title !== 'string' || Buffer.byteLength(title) > 1024 || /[\u0000-\u001f\u007f]/.test(title)) throw new Error('Invalid stored title')
@@ -88,6 +135,29 @@ export class SessionHistory {
     const archived = this.ctx.get('workspaceRegistry')?.archivedSessionIds.includes(header.id) ?? false
     if (record) record.metadata = { ...metadata, archived }
     return sessionSummary(header, record, { ...metadata, archived })
+  }
+
+  // A cold untitled Session without DSH's list projection is probed once per
+  // revision. Reading one bounded prefix distinguishes a truly blank log from
+  // a stale catalog row; titled or projected Sessions never take this path.
+  async probeBlank(id, revision) {
+    if (revision !== undefined) {
+      const cached = this.blank.get(id)
+      if (cached?.revision === revision) return cached.blank
+    }
+    let blank = false
+    try {
+      const handle = await this.ctx.get('sessionPersistence').open(id, 'read')
+      try {
+        const { events } = await handle.read(0, 64)
+        blank = !events.some(event => event.type === 'user/message' || event.type === 'turn/start')
+      } finally { await handle.close() }
+    } catch { /* An unreadable cold log is not proof of blankness. */ }
+    if (revision !== undefined) {
+      if (this.blank.size >= 1000) this.blank.delete(this.blank.keys().next().value)
+      this.blank.set(id, { revision, blank })
+    }
+    return blank
   }
 
   limit(params) {
@@ -212,5 +282,5 @@ export class SessionHistory {
     return { events: page, ...(backward ? { startSeq: offset } : {}), nextSeq: state.nextSeq, hasMore, ...(live ? { status: state.status, statusRevision: state.statusRevision } : {}), ...(state.assistantStream ? { assistantStream: state.assistantStream } : {}), ...(hasMore ? { nextCursor: this.save({ ...state, offset }) } : {}) }
   }
 
-  close() { this.cursors.clear(); this.metadata.clear() }
+  close() { this.cursors.clear(); this.metadata.clear(); this.blank.clear() }
 }

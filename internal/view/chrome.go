@@ -24,7 +24,13 @@ func titleBarHeight(c *mgo.Context) float32 {
 
 func activeSessionTitle(model *Model) string {
 	for _, session := range model.Sessions {
-		if session.ID == model.SessionID && session.Title != "" {
+		if session.ID != model.SessionID {
+			continue
+		}
+		if session.Blank {
+			return model.T("New conversation")
+		}
+		if session.Title != "" {
 			return session.Title
 		}
 	}

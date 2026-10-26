@@ -15,7 +15,12 @@ function runtime(management = false) {
   const reads = []
   const handles = []
   const header = { id: 'stored-1', cwd: process.cwd(), createdAt: 100, version: 1, isSeeded: false }
-  stored.set(header.id, { header, events: Array.from({ length: 5 }, (_, seq) => ({ seq, type: 'test/event', time: seq, data: {} })) })
+  stored.set(header.id, { header, events: Array.from({ length: 5 }, (_, seq) => ({
+    seq,
+    type: seq === 0 ? 'user/message' : 'test/event',
+    time: seq,
+    data: seq === 0 ? { source: { kind: 'user' }, content: [] } : {},
+  })) })
   const ctx = {
     get(name) { return this[name] },
     on() { return () => {} },
@@ -39,7 +44,7 @@ function runtime(management = false) {
       async resume({ resumeSessionId, agentOptions }) {
         const source = stored.get(resumeSessionId)
         const handle = {
-          agent: { session: { id: resumeSessionId, header: source.header, seq: source.events.length }, status: 'idle', options: agentOptions },
+          agent: { session: { id: resumeSessionId, header: source.header, seq: source.events.length, snapshotEvents: () => source.events }, status: 'idle', options: agentOptions },
           async dispose() { handle.disposed = true },
         }
         handles.push(handle)
@@ -74,6 +79,7 @@ test('shared history fixture drives list, forward history and release', async ()
   await server.handle('initialize', { ...handshake, capabilities: ['session.history', 'session.release'] })
   const list = await server.handle('session/list', fixture.listDefault)
   assert.equal(list.sessions.length, 1)
+  assert.equal(list.sessions[0].blank, false)
   await server.handle('session/resume', resume)
   const history = await server.handle('session/history', { ...fixture.forward, sessionId: resume.sessionId })
   assert.equal(history.nextSeq, 5)
@@ -140,20 +146,43 @@ test('release is negotiated, waits for disposal and reserves against concurrent 
   await server.shutdown()
 })
 
-test('indexed catalog never opens bodies; missing and stale indexes are explicit hints', async () => {
+test('indexed catalog reads titles without bodies and probes only untitled blanks', async () => {
   const { server, ctx, reads } = runtime()
   ctx.sessionProjections = { snapshot: () => ({ values: { mygoCatalog: { title: 'Live', updatedAt: 800 } } }) }
   ctx.sessionProjectionCache = { cachedSnapshot: () => ({ asOfSeq: 2, values: { mygoCatalog: { title: 'Indexed', updatedAt: 700 } } }) }
   await server.handle('initialize', handshake)
   const first = await server.handle('session/list', {})
   assert.equal(first.sessions[0].title, 'Indexed')
+  assert.equal(first.sessions[0].blank, false)
   assert.equal(reads.length, 0)
+  ctx.sessionProjectionCache.cachedSnapshot = () => ({ asOfSeq: 0, values: { mygoCatalog: { title: '', updatedAt: 100 } } })
+  const empty = await server.handle('session/list', {})
+  assert.equal(empty.sessions[0].blank, false) // stored-1 has events; an untitled cache forces one probe
+  assert.equal(reads.length, 1)
+  await server.handle('session/list', {})
+  assert.equal(reads.length, 1) // same revision reuses the probe result
   ctx.sessionProjectionCache.cachedSnapshot = () => undefined
   const missing = await server.handle('session/list', {})
   assert.equal(missing.sessions[0].metadataIncomplete, true)
-  assert.equal(reads.length, 0)
+  assert.equal(missing.sessions[0].blank, false)
+  assert.equal(reads.length, 2)
   ctx.sessionProjectionCache.cachedSnapshot = () => { throw new Error('private-token') }
   assert.equal((await server.handle('session/list', {})).sessions[0].metadataIncomplete, true)
+  await server.shutdown()
+})
+
+test('cold and live eventless Sessions report blank', async () => {
+  const { server, stored } = runtime()
+  stored.set('empty', { header: { id: 'empty', cwd: process.cwd(), createdAt: 50 }, events: [] })
+  await server.handle('initialize', handshake)
+  const list = await server.handle('session/list', {})
+  assert.equal(list.sessions.find(session => session.id === 'empty').blank, true)
+  assert.equal(list.sessions.find(session => session.id === 'stored-1').blank, false)
+  const resumed = await server.handle('session/resume', { sessionId: 'empty', provider: 'test', model: 'echo' })
+  assert.equal(resumed.session.blank, true)
+  // Raw seq growth is not a prompt; only a turn start leaves blank.
+  server.sessions.get('empty').handle.agent.session.seq = 1
+  assert.equal((await server.handle('session/resume', { sessionId: 'empty', provider: 'test', model: 'echo' })).session.blank, true)
   await server.shutdown()
 })
 
@@ -365,7 +394,7 @@ test('rename commits a user title and list reads durable metadata sorted by acti
   const result = await server.handle('session/list', {})
   assert.deepEqual(result.sessions.map(({ id }) => id), ['stored-1', 'newer'])
   assert.equal(result.sessions[0].title, '工作会话')
-  assert.equal(result.sessions[1].title, 'newer')
+  assert.equal(result.sessions[1].title, '')
   assert.equal(stored.get(resume.sessionId).events.at(-1).data.source.kind, 'user')
   await server.shutdown()
 })
@@ -640,4 +669,54 @@ test('shutdown aborts in-flight resume and disposes even a late runtime handle',
   await shutdown
   assert.equal(handles[0].disposed, true)
   assert.equal(server.sessions.size, 0)
+})
+
+test('DSH list projection decides blank without opening bodies', async () => {
+  const { server, ctx, stored, reads } = runtime()
+  stored.set('empty', { header: { id: 'empty', cwd: process.cwd(), createdAt: 50 }, events: [] })
+  const blank = events => !events.some(event => event.type === 'user/message' || event.type === 'turn/start')
+  ctx.sessionProjections = {
+    snapshot: session => ({ values: { mygoCatalog: { title: '', updatedAt: 50 }, sessionListMetadata: { blank: blank(session.events ?? []) } } }),
+  }
+  ctx.sessionProjectionCache = {
+    cachedSnapshot: header => ({
+      asOfSeq: 0,
+      values: { mygoCatalog: { title: '', updatedAt: 50 }, sessionListMetadata: { blank: blank(stored.get(header.id).events) } },
+    }),
+  }
+  await server.handle('initialize', handshake)
+  const list = await server.handle('session/list', {})
+  assert.equal(list.sessions.find(session => session.id === 'empty').blank, true)
+  assert.equal(list.sessions.find(session => session.id === 'stored-1').blank, false)
+  assert.equal(reads.length, 0)
+  await server.shutdown()
+})
+
+test('untitled catalog rows without a list projection probe logs', async () => {
+  const { server, ctx, stored } = runtime()
+  stored.set('empty', { header: { id: 'empty', cwd: process.cwd(), createdAt: 50 }, events: [] })
+  ctx.sessionProjections = { snapshot: () => ({ values: { mygoCatalog: { title: '', updatedAt: 50 } } }) }
+  ctx.sessionProjectionCache = {
+    cachedSnapshot: () => ({ asOfSeq: 0, values: { mygoCatalog: { title: '', updatedAt: 50 } } }),
+  }
+  await server.handle('initialize', handshake)
+  const list = await server.handle('session/list', {})
+  assert.equal(list.sessions.find(session => session.id === 'empty').blank, true)
+  assert.equal(list.sessions.find(session => session.id === 'stored-1').blank, false)
+  await server.shutdown()
+})
+
+test('legacy title projection keeps names when mygoCatalog is absent', async () => {
+  const { server, ctx, reads } = runtime()
+  ctx.sessionProjections = { snapshot: () => ({ values: {} }) }
+  ctx.sessionProjectionCache = {
+    cachedSnapshot: (_header, keys) => ({ asOfSeq: 1, values: keys.includes('title') ? { title: 'Legacy title' } : {} }),
+  }
+  await server.handle('initialize', handshake)
+  const list = await server.handle('session/list', {})
+  assert.equal(list.sessions[0].title, 'Legacy title')
+  assert.equal(list.sessions[0].blank, false)
+  assert.equal(list.sessions[0].metadataIncomplete, true)
+  assert.equal(reads.length, 0)
+  await server.shutdown()
 })

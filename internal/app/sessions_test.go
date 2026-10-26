@@ -381,3 +381,85 @@ func TestReadSessionHistoryRefusesMalformedAndUnboundedPages(t *testing.T) {
 		t.Fatalf("history failure was not safely reported: %v", err)
 	}
 }
+
+func TestNewSessionReusesCurrentBlankSession(t *testing.T) {
+	calls := 0
+	client := &sessionClient{request: func(_ context.Context, method string, _ any) (json.RawMessage, error) {
+		if method == protocol.MethodSessionCreate {
+			calls++
+			return json.RawMessage(`{"session":{"id":"new","title":"","cwd":"C:/work","provider":"test","model":"echo","effort":"","createdAt":1,"updatedAt":1,"status":"idle","archived":false,"blank":true,"nextSeq":0}}`), nil
+		}
+		return json.RawMessage(`{"events":[],"nextSeq":0,"hasMore":false}`), nil
+	}}
+	application, updates := sessionTestApp(client)
+	application.sessionBlank = true
+	application.model.Sessions = []view.SessionSummary{{ID: "original", Provider: "test", Model: "echo", Blank: true}}
+	application.NewSession()
+	if calls != 0 || application.model.SessionBusy {
+		t.Fatal("blank session was not reused")
+	}
+	application.sessionBlank = false
+	application.NewSession()
+	completeSessionJob(t, application, updates)
+	if calls != 1 || application.sessionID != "new" || !application.sessionBlank {
+		t.Fatalf("new blank session = calls %d, id %q, blank %v", calls, application.sessionID, application.sessionBlank)
+	}
+}
+
+func TestNewSessionCreatesWhenBlankDirectoryOrRouteDiffers(t *testing.T) {
+	for name, summary := range map[string]view.SessionSummary{
+		"directory": {ID: "original", CWD: "C:/other", Provider: "test", Model: "echo", Blank: true},
+		"route":     {ID: "original", CWD: "C:/work", Provider: "test", Model: "other", Blank: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			client := &sessionClient{request: func(_ context.Context, method string, _ any) (json.RawMessage, error) {
+				if method == protocol.MethodSessionCreate {
+					calls++
+					return json.RawMessage(`{"session":{"id":"new","title":"","cwd":"C:/work","provider":"test","model":"echo","effort":"","createdAt":1,"updatedAt":1,"status":"idle","archived":false,"blank":true,"nextSeq":0}}`), nil
+				}
+				return json.RawMessage(`{"events":[],"nextSeq":0,"hasMore":false}`), nil
+			}}
+			application, updates := sessionTestApp(client)
+			application.sessionBlank = true
+			application.model.SessionCWD = "C:/work"
+			application.model.Sessions = []view.SessionSummary{summary}
+			application.NewSession()
+			completeSessionJob(t, application, updates)
+			if calls != 1 || application.sessionID == "original" {
+				t.Fatalf("blank session was reused despite a different %s", name)
+			}
+		})
+	}
+}
+
+func TestCommittedEventClearsBlankSession(t *testing.T) {
+	application, _ := sessionTestApp(&fakeClient{})
+	application.sessionBlank = true
+	application.model.Sessions = []view.SessionSummary{{ID: "original", Blank: true}}
+	application.handleNotification("session/event", json.RawMessage(`{"sessionId":"original","seq":0,"event":{"seq":0,"time":1,"type":"user/message","data":{"source":{"kind":"user"},"content":[{"type":"text","text":"hello"}]}}}`))
+	if application.sessionBlank || application.model.Sessions[0].Blank {
+		t.Fatal("committed event left the session blank")
+	}
+}
+
+func TestNonPromptEventKeepsBlankSession(t *testing.T) {
+	application, _ := sessionTestApp(&fakeClient{})
+	application.sessionBlank = true
+	application.model.Sessions = []view.SessionSummary{{ID: "original", Blank: true}}
+	application.handleNotification("session/event", json.RawMessage(`{"sessionId":"original","seq":0,"event":{"seq":0,"time":1,"type":"session/notice","data":{}}}`))
+	if !application.sessionBlank || !application.model.Sessions[0].Blank {
+		t.Fatal("a non-prompt event cleared the blank session")
+	}
+}
+
+func TestSessionSummaryDecodeCarriesBlankAndRejectsInvalidFlag(t *testing.T) {
+	const summary = `{"id":"saved","title":"Saved","cwd":"C:/work","provider":"test","model":"echo","effort":"","createdAt":1,"updatedAt":1,"status":"idle","archived":false,"blank":true,"nextSeq":0}`
+	decoded, err := decodeSessionSummary(json.RawMessage(summary))
+	if err != nil || !decoded.Blank {
+		t.Fatalf("blank summary = %+v, %v", decoded, err)
+	}
+	if _, err := decodeSessionSummary(json.RawMessage(strings.Replace(summary, `"blank":true`, `"blank":"yes"`, 1))); err == nil {
+		t.Fatal("non-boolean blank was accepted")
+	}
+}

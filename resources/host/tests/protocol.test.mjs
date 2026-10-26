@@ -65,6 +65,7 @@ test('session create payloads match the shared Go wire fixture and reject mixed 
     assert.equal(created.session.provider, 'test')
     assert.equal(created.session.model, 'echo')
     assert.equal(created.session.effort, '')
+    assert.equal(created.session.blank, true)
     const withEffort = await server.handle('session/create', { ...fixture.createExplicitEffort, cwd: process.cwd() })
     assert.equal(withEffort.session.effort, 'high')
     await assert.rejects(server.handle('session/create', { ...fixture.createExplicit, cwd: process.cwd(), useDefaultModel: true }), { code: -32602 })

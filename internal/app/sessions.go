@@ -90,10 +90,16 @@ func (a *App) refreshSessions() {
 				return
 			}
 			a.model.Sessions = sessions
+			if summary, ok := a.currentSessionSummary(); ok {
+				a.sessionBlank = summary.Blank
+			}
 			a.model.SessionPanel.Uncertain = false
 			if needsHistory && nextSeq >= a.nextSeq {
 				a.transcript = transcript
 				a.nextSeq = nextSeq
+				if nextSeq == 0 {
+					a.setSessionBlank(true)
+				}
 				a.acceptHistoryWindow(history)
 				a.publishTranscript()
 			}
@@ -103,14 +109,77 @@ func (a *App) refreshSessions() {
 	}()
 }
 
-func (a *App) NewSession() { a.loadSession("") }
+func (a *App) NewSession() {
+	if a.canReuseBlankSession(a.model.SessionCWD) {
+		a.CloseSessions()
+		return
+	}
+	a.loadSession("")
+}
 
 // NewProjectSession only accepts a directory from the Host's visible catalog.
 func (a *App) NewProjectSession(cwd string) {
+	if a.canReuseBlankSession(cwd) {
+		a.CloseSessions()
+		return
+	}
 	for _, session := range a.model.Sessions {
 		if session.CWD == cwd && cwd != "" {
 			a.loadSessionInDirectory("", cwd)
 			return
+		}
+	}
+}
+
+// canReuseBlankSession keeps New conversation from accumulating empty logs.
+// A blank current Session already is the requested destination; reuse it
+// instead of creating another, but only when the directory also matches.
+func (a *App) canReuseBlankSession(cwd string) bool {
+	if !a.sessionBlank || a.sessionID == "" || a.model.SessionPanel.ActiveArchived {
+		return false
+	}
+	summary, found := a.currentSessionSummary()
+	if !found || summary.Provider == "" || summary.Model == "" || cwd != "" && summary.CWD != cwd {
+		return false
+	}
+	route, known := a.desiredSessionRoute()
+	if !known {
+		return false
+	}
+	return summary.Provider == route.Provider && summary.Model == route.Model && summary.Effort == route.Effort
+}
+
+func (a *App) currentSessionSummary() (view.SessionSummary, bool) {
+	for _, summary := range a.model.Sessions {
+		if summary.ID == a.sessionID {
+			return summary, true
+		}
+	}
+	return view.SessionSummary{}, false
+}
+
+// desiredSessionRoute reports the route a new Session would use, when it is
+// known on the client. Host defaults are only comparable after configuration
+// has been read; before that, creating is safer than reusing a stale route.
+func (a *App) desiredSessionRoute() (view.ModelRoute, bool) {
+	if a.options.UseHostDefaults && a.model.CanConfigure {
+		if !a.model.ConfigurationReady {
+			return view.ModelRoute{}, false
+		}
+		return a.model.Configuration.Defaults, true
+	}
+	return view.ModelRoute{Provider: a.options.Provider, Model: a.options.Model, Effort: a.options.ReasoningEffort}, true
+}
+
+// setSessionBlank keeps the app's reuse decision and the current catalog row
+// in step when history or a committed event proves the Session is no longer
+// empty.
+func (a *App) setSessionBlank(blank bool) {
+	a.sessionBlank = blank
+	for index := range a.model.Sessions {
+		if a.model.Sessions[index].ID == a.sessionID {
+			a.model.Sessions[index].Blank = blank
+			break
 		}
 	}
 }
@@ -257,6 +326,7 @@ type sessionSwitchResult struct {
 func (a *App) sessionChanged(result sessionSwitchResult) {
 	a.localComponent.setDraft(a.sessionID, a.model.Draft)
 	a.sessionID = result.summary.ID
+	a.sessionBlank = result.summary.Blank
 	a.retireSession(result.previousID)
 	delete(a.retiredSessions, result.summary.ID)
 	a.model.SessionID = result.summary.ID

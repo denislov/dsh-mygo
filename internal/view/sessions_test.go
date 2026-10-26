@@ -21,6 +21,35 @@ func sessionModel() *Model {
 	return model
 }
 
+func TestBlankSessionsUseNewConversationLabelAndHideNonCurrentRows(t *testing.T) {
+	model := NewModel()
+	model.Phase = PhaseIdle
+	model.SessionID = "current"
+	model.Sessions = []SessionSummary{
+		{ID: "current", Blank: true, Status: "idle"},
+		{ID: "empty-other", Blank: true, Status: "stored"},
+		{ID: "named", Title: "Named conversation", Status: "idle"},
+		{ID: "untitled", Status: "stored"},
+	}
+	filtered := model.FilteredSessions()
+	if len(filtered) != 3 || filtered[0].ID != "current" || filtered[1].ID != "named" || filtered[2].ID != "untitled" {
+		t.Fatalf("filtered sessions = %+v", filtered)
+	}
+	if got := model.sessionLabel(model.Sessions[0]); got != "New conversation" {
+		t.Fatalf("blank label = %q", got)
+	}
+	if got := activeSessionTitle(model); got != "New conversation" {
+		t.Fatalf("title bar = %q", got)
+	}
+	model.Prefs.Value.Locale = "zh-CN"
+	if got := model.sessionLabel(model.Sessions[0]); got != "新建会话" {
+		t.Fatalf("localized blank label = %q", got)
+	}
+	if got := activeSessionTitle(model); got != "新建会话" {
+		t.Fatalf("localized title bar = %q", got)
+	}
+}
+
 func TestSessionPickerOpensSelectsAndRestoresFocus(t *testing.T) {
 	model := sessionModel()
 	selected := ""

@@ -167,6 +167,7 @@ export class MygoServer {
           ...record.metadata,
           updatedAt: Math.max(record.metadata?.updatedAt ?? session.header.createdAt, event.time),
           ...(event.type === 'session/title' ? { title: event.data.title } : {}),
+          ...(event.type === 'turn/start' ? { blank: false } : {}),
         }
         if (event.type === 'tool/call') {
           if (typeof event.data.callId === 'string' && record.calls.size < 256) record.calls.set(event.data.callId, { name: event.data.name, arguments: event.data.arguments })
@@ -295,8 +296,9 @@ export class MygoServer {
         return { session: await this.history.describe(record.handle.agent.session.header, record) }
       }
       return { session: {
-        id: sessionId, title: sessionId.slice(0, 8), cwd, provider, model, effort: effort ?? '',
+        id: sessionId, title: '', cwd, provider, model, effort: effort ?? '',
         createdAt: Date.now(), updatedAt: Date.now(), status: 'idle', archived: false,
+        blank: (record.handle.agent.session.seq ?? 0) === 0,
         nextSeq: record.handle.agent.session.seq ?? 0,
       } }
     } catch {
