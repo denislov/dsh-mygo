@@ -260,11 +260,7 @@ func (a *App) loadSessionInDirectory(id, cwd string) {
 			a.hostStatus = ""
 			a.sessionTitleSeq = 0
 			a.sessionTitle = ""
-			a.promptID++
-			a.promptDone = nil
-			a.awaitingTurn = false
-			a.sawActivity = false
-			a.cancelIdle = false
+			a.turn.reset()
 			a.model.CancelPending = false
 			a.transcript = transcript
 			a.stream = projection.AssistantStream{}

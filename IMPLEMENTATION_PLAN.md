@@ -127,11 +127,12 @@ flowchart TD
 - **实施/交付**：形成事件/状态/副作用表，补足当前测试缺口；枚举提交、活动、idle、取消确认、失败、换会话、resync、Host 换代。先区分同代展示清空与新 Agent 版本重建。
 - **验收/回归**：覆盖 idle 早于 claim、取消等投递、idle 早于 cancel 响应、取消超时后迟到 idle、旧投递失败、resync 中取消确认；测试不能通过并发调用仅允许主线程的 setter 制造假 race。
 
-### 2.2 提取回合转换组件（高）
+### 2.2 提取回合转换组件（高，已完成）
 
 - **范围/依赖**：依赖 2.1；先在 app 内定义无 UI/I/O 的回合类型，证据充分后再决定是否单独拆包。
 - **实施/交付**：显式表达提交、运行、取消确认等状态及事件，返回由 app 执行的清理/刷新意图。prompt 身份与投递完成屏障继续保留；生命周期 Phase 不强行合成同一个枚举。
 - **验收/回归**：同一事件序列得到相同终态与副作用；Send/Cancel 不绕过共享门禁。各 reset 按“新 Host/换会话/失败/同代 resync”有明确语义；原回合、流式、草稿和真实取消测试保持。
+- **完成记录（2026-10-26）**：新增 `internal/app/turn.go` 的纯 `turnTracker`，持有 awaiting/activity/cancelIdle/promptID/delivery，显式提供提交、活动、idle 认领、取消开始/idle/完成/超时、reset、恢复与失败转换；App 保留 Phase、代理队列与投影副作用。初始化、换会话、Restart 统一走 reset；resync 快照恢复活动状态；投递/取消回调继续按 prompt 身份失效。实际检查：`go test ./internal/app` 253 项、`go test ./...` 732 项通过。
 
 ### 2.3 封装一代 Host 资源与关闭目标（高）
 

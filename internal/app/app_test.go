@@ -109,8 +109,8 @@ func TestHandleSessionEventProjectsOnlyTheOwnedSession(t *testing.T) {
 func TestIdleBeforeTurnActivityDoesNotEndTheTurn(t *testing.T) {
 	application := newTestApp(&fakeClient{})
 	application.model.Phase = view.PhaseRunning
-	application.awaitingTurn = true
-	application.sawActivity = false
+	application.turn.submit(nil)
+	application.turn.activity = false
 
 	application.applyStatus("idle")
 	if application.model.Phase != view.PhaseRunning {
@@ -128,7 +128,7 @@ func TestIdleBeforeTurnActivityDoesNotEndTheTurn(t *testing.T) {
 	if application.model.Phase != view.PhaseIdle {
 		t.Fatalf("phase = %v after the turn ended", application.model.Phase)
 	}
-	if application.awaitingTurn {
+	if application.turn.awaiting {
 		t.Fatal("awaitingTurn stayed set after the turn ended")
 	}
 }
@@ -167,8 +167,8 @@ func TestSendQueuesPromptAndClearsDraft(t *testing.T) {
 	if application.model.Draft != "" {
 		t.Fatalf("draft = %q", application.model.Draft)
 	}
-	if application.model.Phase != view.PhaseRunning || !application.awaitingTurn {
-		t.Fatalf("phase = %v, awaiting = %t", application.model.Phase, application.awaitingTurn)
+	if application.model.Phase != view.PhaseRunning || !application.turn.awaiting {
+		t.Fatalf("phase = %v, awaiting = %t", application.model.Phase, application.turn.awaiting)
 	}
 }
 
@@ -181,7 +181,7 @@ func TestPromptDeliveryFailureRestoresDraftAndClearsTurn(t *testing.T) {
 	application.model.Draft = "hello"
 	application.Send("hello")
 	waitFor(t, application, updates, 2*time.Second, func() bool { return application.model.Error != "" })
-	if application.model.Phase != view.PhaseIdle || application.awaitingTurn || application.sawActivity || application.model.CancelPending || application.model.Draft != "hello" {
+	if application.model.Phase != view.PhaseIdle || application.turn.awaiting || application.turn.activity || application.model.CancelPending || application.model.Draft != "hello" {
 		t.Fatalf("failed delivery state = %+v", application.model)
 	}
 }
@@ -226,7 +226,7 @@ func TestPromptUsesTheProtocolFieldSpelling(t *testing.T) {
 func TestSetFailureReportsHostState(t *testing.T) {
 	application := newTestApp(&fakeClient{})
 	application.model.Phase = view.PhaseRunning
-	application.awaitingTurn = true
+	application.turn.submit(nil)
 
 	application.setFailure("host exited", errors.New("exit status 1"))
 
@@ -236,7 +236,7 @@ func TestSetFailureReportsHostState(t *testing.T) {
 	if application.model.Error != "host exited" || application.model.ErrorDetail != "exit status 1" {
 		t.Fatalf("error = %q / %q", application.model.Error, application.model.ErrorDetail)
 	}
-	if application.awaitingTurn {
+	if application.turn.awaiting {
 		t.Fatal("awaitingTurn stayed set after failure")
 	}
 }
@@ -338,7 +338,7 @@ func TestCancelWaitsForHostPreservesDraftAndRejectsDuplicate(t *testing.T) {
 	application.model.CanCancel = true
 	application.model.Phase = view.PhaseRunning
 	application.model.Draft = "next prompt"
-	application.awaitingTurn = true
+	application.turn.submit(nil)
 	updates := make(chan func(), 8)
 	application.options.Post = func(fn func()) { updates <- fn }
 	application.Cancel()
@@ -428,8 +428,8 @@ func TestCancelBlocksANewTurnEvenAfterHostBecomesIdle(t *testing.T) {
 	application.options.SDKProtocol = false
 	application.model.CanCancel = true
 	application.model.Phase = view.PhaseRunning
-	application.awaitingTurn = true
-	application.sawActivity = true
+	application.turn.submit(nil)
+	application.turn.noteActivity()
 	updates := make(chan func(), 8)
 	application.options.Post = func(fn func()) { updates <- fn }
 	application.Cancel()
@@ -516,7 +516,7 @@ func TestCancelTimeoutStillAcceptsLaterHostIdle(t *testing.T) {
 	application.options.SDKProtocol = false
 	application.model.CanCancel = true
 	application.model.Phase = view.PhaseRunning
-	application.awaitingTurn = true
+	application.turn.submit(nil)
 	updates := make(chan func(), 1)
 	application.options.Post = func(fn func()) { updates <- fn }
 	application.Cancel()

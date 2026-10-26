@@ -214,12 +214,7 @@ func (a *App) readResync(job *resyncState) {
 			a.model.CopiedMessageID = ""
 			a.model.CopiedMessageText = ""
 			a.model.Phase = view.PhaseRunning
-			if snapshot.Status == "idle" {
-				a.awaitingTurn = false
-				a.sawActivity = false
-			} else {
-				a.sawActivity = true
-			}
+			a.turn.restore(snapshot.Status != "idle")
 			a.applyStatus(snapshot.Status)
 			buffer := job.buffer
 			a.cancelResync()

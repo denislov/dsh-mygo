@@ -126,13 +126,9 @@ type App struct {
 	notificationInput chan hostNotification
 
 	// These fields belong to the main thread.
-	awaitingTurn        bool
-	sawActivity         bool
-	promptID            uint64
+	turn                turnTracker
 	sessionID           string
 	nextSeq             uint64
-	promptDone          <-chan error
-	cancelIdle          bool
 	batchUpdating       bool
 	transcriptDirty     bool
 	sessionOperation    uint64
@@ -510,11 +506,7 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 			a.offerPreviousDraft(resumeID)
 		}
 		a.nextSeq = initialized.nextSeq
-		a.promptID++
-		a.promptDone = nil
-		a.awaitingTurn = false
-		a.sawActivity = false
-		a.cancelIdle = false
+		a.turn.reset()
 		a.model.CancelPending = false
 		a.clearApprovals()
 		a.clearQuestions()
@@ -628,11 +620,7 @@ func (a *App) Restart() {
 	a.clearQuestions()
 	a.clearStream()
 	a.model.ToolInspector = nil
-	a.awaitingTurn = false
-	a.sawActivity = false
-	a.cancelIdle = false
-	a.promptID++
-	a.promptDone = nil
+	a.turn.reset()
 	a.logf("restart requested")
 	resumeID := a.sessionID
 	if a.model.SessionPanel.ActiveArchived {
@@ -878,15 +866,11 @@ func (a *App) Send(text string) {
 	a.model.Phase = view.PhaseRunning
 	a.clearStream()
 	a.model.CancelPending = false
-	a.cancelIdle = false
-	a.awaitingTurn = true
-	a.sawActivity = false
-	a.promptID++
-	a.rememberSubmittedDraft(a.promptID, original)
 	delivery := make(chan error, 1)
-	a.promptDone = delivery
+	promptID := a.turn.submit(delivery)
+	a.rememberSubmittedDraft(promptID, original)
 	request := a.promptRequest(a.sessionID, blocks)
-	go a.prompt(client, request, text, a.promptID, delivery)
+	go a.prompt(client, request, text, promptID, delivery)
 }
 
 // promptRequest selects the custom channel or the explicit legacy SDK field
@@ -913,14 +897,13 @@ func (a *App) prompt(client rpcClient, request any, submitted string, promptID u
 		if !a.shuttingDown.Load() {
 			a.settleSubmittedDraft(promptID, err)
 		}
-		if err == nil && !a.shuttingDown.Load() && a.promptID == promptID {
+		if err == nil && !a.shuttingDown.Load() && a.turn.current(promptID) {
 			a.model.Attachments.Clear()
 		}
-		if a.shuttingDown.Load() || err == nil || a.model.Phase == view.PhaseFailed || a.promptID != promptID {
+		if a.shuttingDown.Load() || err == nil || a.model.Phase == view.PhaseFailed || !a.turn.current(promptID) {
 			return
 		}
-		a.awaitingTurn = false
-		a.sawActivity = false
+		a.turn.deliveryFailed()
 		a.model.Phase = view.PhaseIdle
 		a.model.CancelPending = false
 		a.model.Error = "Could not deliver the prompt"
@@ -941,10 +924,10 @@ func (a *App) Cancel() {
 		return
 	}
 	a.model.CancelPending = true
-	a.cancelIdle = false
+	a.turn.beginCancel()
 	a.model.Error = ""
 	a.model.ErrorDetail = ""
-	go a.cancelTurn(client, a.promptID, a.sessionID, a.promptDone)
+	go a.cancelTurn(client, a.turn.prompt, a.sessionID, a.turn.deliveryBarrier())
 }
 
 func (a *App) cancelTurn(client rpcClient, promptID uint64, sessionID string, delivery <-chan error) {
@@ -968,13 +951,12 @@ func (a *App) cancelTurn(client rpcClient, promptID uint64, sessionID string, de
 		result, err = client.Call(ctx, protocol.MethodSessionCancel, protocol.SessionCancelParams{SessionID: sessionID})
 	}
 	a.postAfterResync(func() {
-		if a.shuttingDown.Load() || a.promptID != promptID || a.model.Phase != view.PhaseRunning || !a.model.CancelPending {
+		if a.shuttingDown.Load() || !a.turn.current(promptID) || a.model.Phase != view.PhaseRunning || !a.model.CancelPending {
 			return
 		}
 		a.model.CancelPending = false
-		if a.cancelIdle {
-			a.awaitingTurn = false
-			a.sawActivity = false
+		if a.turn.cancelIdle {
+			a.turn.finishTurn()
 			a.model.Phase = view.PhaseIdle
 			return
 		}
@@ -985,14 +967,13 @@ func (a *App) cancelTurn(client rpcClient, promptID uint64, sessionID string, de
 		if err != nil {
 			var rpcError *channel.RPCError
 			if errors.As(err, &rpcError) && protocol.ErrorKind(rpcError.Data) == protocol.ErrorKindSessionCancelTimeout {
-				a.awaitingTurn = false
+				a.turn.cancelTimedOut()
 			}
 			a.model.Error = "Could not stop the turn"
 			a.model.ErrorDetail = clipDetail(err.Error(), maxErrorRunes)
 			return
 		}
-		a.awaitingTurn = false
-		a.sawActivity = false
+		a.turn.finishTurn()
 		a.model.Phase = view.PhaseIdle
 	})
 }
@@ -1109,7 +1090,7 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 			}
 		}
 		if isTurnActivity(event.Type) {
-			a.sawActivity = true
+			a.turn.noteActivity()
 		}
 		a.stream.Commit(event)
 		a.transcript.Apply(event)
@@ -1159,26 +1140,22 @@ func (a *App) applyStatus(status string) {
 			return
 		}
 		a.model.Phase = view.PhaseRunning
-		a.cancelIdle = false
+		a.turn.noteRunning()
 	case "idle":
 		if a.model.Phase == view.PhaseStarting || a.model.Phase == view.PhaseFailed {
 			return
 		}
-		if a.awaitingTurn {
-			// An idle status can be emitted before the queued prompt is
-			// claimed. Only the idle after turn activity ends our turn.
-			if !a.sawActivity {
-				return
-			}
-			a.awaitingTurn = false
-			a.sawActivity = false
+		// An idle status can be emitted before the queued prompt is claimed.
+		// Only the idle after turn activity ends our turn.
+		if !a.turn.acknowledgeIdle() {
+			return
 		}
 		a.questions.RemoveSession(a.sessionID)
 		a.clearStream()
 		a.publishQuestions()
 		if a.model.CancelPending {
 			a.clearApprovals()
-			a.cancelIdle = true
+			a.turn.noteIdleWhileCancelling()
 			return
 		}
 		a.model.Phase = view.PhaseIdle
@@ -1297,8 +1274,7 @@ func (a *App) setFailure(summary string, err error) {
 	a.switchMu.Unlock()
 	a.model.RecoveryError = ""
 	a.model.ToolInspector = nil
-	a.awaitingTurn = false
-	a.sawActivity = false
+	a.turn.clear()
 	a.captureCrash(summary, err)
 }
 
@@ -1319,8 +1295,7 @@ func (a *App) requireResync(err error) {
 	a.model.Error = "The host event stream has a gap"
 	a.model.ErrorDetail = "Restart the host to recover the session from its durable log. Automatic resynchronization is not available in this version."
 	a.model.RecoveryError = ""
-	a.awaitingTurn = false
-	a.sawActivity = false
+	a.turn.clear()
 	a.clearApprovals()
 	a.clearQuestions()
 	a.clearStream()

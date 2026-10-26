@@ -140,7 +140,7 @@ type GoalView struct { Objective string; Phase string; MaxRounds int; RoundsStar
 
 ## 回合生命周期
 
-回合状态只允许主线程转换；worker 只携带不可变身份并通过提交队列发布结果。`awaitingTurn` 表示 prompt 已提交但回合尚未结束；`sawActivity` 表示 Host 已认领该 prompt（出现回合活动）；`cancelIdle` 表示取消等待期间已收到 Host idle；`promptID` 标识投递/取消回调，`promptDone` 是投递确认屏障；`CancelPending` 表示取消请求仍在途。`Phase` 描述展示生命周期（idle/running/resyncing/failed），不与上述布尔状态合并成单一枚举。
+回合状态只允许主线程转换；worker 只携带不可变身份并通过提交队列发布结果。`awaitingTurn` 表示 prompt 已提交但回合尚未结束；`sawActivity` 表示 Host 已认领该 prompt（出现回合活动）；`cancelIdle` 表示取消等待期间已收到 Host idle；`promptID` 标识投递/取消回调，`promptDone` 是投递确认屏障；`CancelPending` 表示取消请求仍在途。`Phase` 描述展示生命周期（idle/running/resyncing/failed），不与上述布尔状态合并成单一枚举。回合布尔与身份由一个不依赖 UI/I/O 的转换组件持有，App 根据转换结果执行投影、队列、流与 Phase 副作用。
 
 | 事件 | 前置条件 | 状态转换 | 副作用 |
 | --- | --- | --- | --- |
