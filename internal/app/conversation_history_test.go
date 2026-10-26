@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+
+	"dsh-mygo/internal/protocol"
 )
 
 func TestConversationHistoryCompletesLongTurnFromFrozenCursor(t *testing.T) {
@@ -19,13 +21,16 @@ func TestConversationHistoryCompletesLongTurnFromFrozenCursor(t *testing.T) {
 	events[209]["type"], events[209]["data"] = "turn/end", map[string]any{"reason": map[string]any{"kind": "completed"}}
 	calls := 0
 	client := &sessionClient{request: func(_ context.Context, method string, params any) (json.RawMessage, error) {
-		p := params.(map[string]any)
+		request, ok := params.(protocol.SessionHistoryParams)
+		if method != "session/history" || !ok || request.Direction != protocol.HistoryDirectionBackward || request.Limit != 64 || !request.Live || !request.AssistantStream {
+			t.Fatalf("history request = %T %+v", params, params)
+		}
 		end := 210
 		if calls > 0 {
-			if p["beforeSeq"] != nil {
+			if request.BeforeSeq != nil {
 				t.Fatal("continuation started a new snapshot")
 			}
-			if _, err := fmt.Sscanf(p["cursor"].(string), "at-%d", &end); err != nil {
+			if _, err := fmt.Sscanf(request.Cursor, "at-%d", &end); err != nil {
 				t.Fatal(err)
 			}
 		}

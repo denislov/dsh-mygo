@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"dsh-mygo/internal/projection"
+	"dsh-mygo/internal/protocol"
 )
 
 // Each request has its own bounded read budget, independent of total log size.
@@ -29,58 +30,44 @@ func readHistoryWindow(ctx context.Context, client rpcClient, id string, minimum
 
 func readHistoryWindowPage(ctx context.Context, client rpcClient, id string, minimum uint64, before *uint64, live, wantStream bool, continuation string) (historyWindowPage, error) {
 	invalid := errors.New("Invalid history window")
-	params := map[string]any{"sessionId": id, "direction": "backward", "limit": 64}
+	params := protocol.SessionHistoryParams{
+		SessionID: id, Limit: 64, Direction: protocol.HistoryDirectionBackward,
+		Live: live, AssistantStream: wantStream, Cursor: continuation,
+	}
 	if !validSessionID(id) || minimum > maxSafeInteger {
 		return historyWindowPage{}, invalid
 	}
-	if continuation != "" {
-		params["cursor"] = continuation
-	} else if before != nil {
-		params["beforeSeq"] = *before
+	if continuation == "" && before != nil {
+		params.BeforeSeq = before
 	}
-	if live {
-		params["live"] = true
-	}
-	if wantStream {
-		params["assistantStream"] = true
-	}
-	raw, err := client.Call(ctx, "session/history", params)
+	raw, err := client.Call(ctx, protocol.MethodSessionHistory, params)
 	if err != nil {
 		return historyWindowPage{}, errors.New("Could not load history. Retry loading earlier messages")
 	}
-	var page struct {
-		Events   []json.RawMessage `json:"events"`
-		Start    *uint64           `json:"startSeq"`
-		Next     *uint64           `json:"nextSeq"`
-		More     *bool             `json:"hasMore"`
-		Cursor   json.RawMessage   `json:"nextCursor"`
-		Status   string            `json:"status"`
-		Revision *uint64           `json:"statusRevision"`
-		Stream   json.RawMessage   `json:"assistantStream"`
-	}
-	if len(raw) > maxSessionHistoryBytes || json.Unmarshal(raw, &page) != nil || page.Events == nil || len(page.Events) > 64 || page.Start == nil || page.Next == nil || page.More == nil || *page.Next > maxSafeInteger || *page.Next < minimum {
+	var page protocol.SessionHistoryResult
+	if len(raw) > maxSessionHistoryBytes || json.Unmarshal(raw, &page) != nil || page.Events == nil || len(page.Events) > 64 || page.StartSeq == nil || page.NextSeq == nil || page.HasMore == nil || *page.NextSeq > maxSafeInteger || *page.NextSeq < minimum {
 		return historyWindowPage{}, invalid
 	}
-	end := *page.Next
+	end := *page.NextSeq
 	if before != nil {
 		end = *before
 	}
-	if end > *page.Next || *page.Start > end || end-*page.Start != uint64(len(page.Events)) || *page.More != (*page.Start > 0) || end > 0 && len(page.Events) == 0 {
+	if end > *page.NextSeq || *page.StartSeq > end || end-*page.StartSeq != uint64(len(page.Events)) || *page.HasMore != (*page.StartSeq > 0) || end > 0 && len(page.Events) == 0 {
 		return historyWindowPage{}, invalid
 	}
-	cursor, err := pageCursor(page.Cursor)
-	if err != nil || (cursor != "") != *page.More {
+	cursor, err := pageCursor(page.NextCursor)
+	if err != nil || (cursor != "") != *page.HasMore {
 		return historyWindowPage{}, invalid
 	}
-	result := historySnapshot{NextSeq: *page.Next, StartSeq: *page.Start, Status: page.Status, Baseline: page.Stream}
+	result := historySnapshot{NextSeq: *page.NextSeq, StartSeq: *page.StartSeq, Status: page.Status, Baseline: page.AssistantStream}
 	if live {
-		if page.Status != "idle" && page.Status != "running" || page.Revision == nil || *page.Revision > maxSafeInteger {
+		if page.Status != "idle" && page.Status != "running" || page.StatusRevision == nil || *page.StatusRevision > maxSafeInteger {
 			return historyWindowPage{}, invalid
 		}
-		result.StatusRevision = *page.Revision
+		result.StatusRevision = *page.StatusRevision
 	}
 	if wantStream {
-		if err := result.Stream.Restore(page.Stream); err != nil {
+		if err := result.Stream.Restore(page.AssistantStream); err != nil {
 			return historyWindowPage{}, err
 		}
 	}
@@ -91,7 +78,7 @@ func readHistoryWindowPage(ctx context.Context, client rpcClient, id string, min
 			Seq  *uint64 `json:"seq"`
 			Time *int64  `json:"time"`
 		}
-		if json.Unmarshal(rawEvent, &event) != nil || json.Unmarshal(rawEvent, &required) != nil || required.Seq == nil || required.Time == nil || *required.Time < 0 || *required.Time > maxSafeInteger || event.Seq != *page.Start+uint64(index) || len(event.Type) == 0 || len(event.Type) > 256 || strings.ContainsRune(event.Type, '\x00') || len(event.Data) == 0 || event.Data[0] != '{' {
+		if json.Unmarshal(rawEvent, &event) != nil || json.Unmarshal(rawEvent, &required) != nil || required.Seq == nil || required.Time == nil || *required.Time < 0 || *required.Time > maxSafeInteger || event.Seq != *page.StartSeq+uint64(index) || len(event.Type) == 0 || len(event.Type) > 256 || strings.ContainsRune(event.Type, '\x00') || len(event.Data) == 0 || event.Data[0] != '{' {
 			return historyWindowPage{}, invalid
 		}
 		events = append(events, event)
@@ -171,7 +158,7 @@ func (a *App) loadHistoryPage(latest bool) {
 // previous UI commit. A failed target is retired too, never the active session.
 func releaseSessions(ctx context.Context, client rpcClient, ids []string) error {
 	for _, id := range ids {
-		raw, err := client.Call(ctx, "session/release", map[string]any{"sessionId": id})
+		raw, err := client.Call(ctx, protocol.MethodSessionRelease, protocol.SessionReleaseParams{SessionID: id})
 		var ack map[string]json.RawMessage
 		if err != nil || json.Unmarshal(raw, &ack) != nil || ack == nil || len(ack) != 0 {
 			return errors.New("Could not release an inactive session. Retry or restart the host")

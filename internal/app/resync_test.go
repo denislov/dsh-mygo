@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -35,7 +36,8 @@ func TestResyncRebuildsDurableHistoryAndRejectsOldIdleWithoutRestart(t *testing.
 		if method == "session/list" {
 			return json.RawMessage(`{"sessions":[]}`), nil
 		}
-		if method != "session/history" || params.(map[string]any)["live"] != true {
+		request, ok := params.(protocol.SessionHistoryParams)
+		if method != "session/history" || !ok || !request.Live {
 			t.Error("resync did not request live history")
 		}
 		close(started)

@@ -298,14 +298,18 @@ const storedSummary = `{"id":"saved","title":"","cwd":"C:/work","provider":"","m
 func TestReadSessionListPagesAndValidatesSummaries(t *testing.T) {
 	page := 0
 	client := &sessionClient{request: func(_ context.Context, method string, params any) (json.RawMessage, error) {
-		if method != "session/list" {
-			t.Fatalf("method = %s", method)
+		request, ok := params.(protocol.SessionListParams)
+		if method != "session/list" || !ok {
+			t.Fatalf("request = %T, method = %s", params, method)
 		}
 		page++
 		if page == 1 {
+			if request.Cursor != "" || request.Limit != 64 || request.IncludeArchived {
+				t.Fatalf("first page = %+v", request)
+			}
 			return json.RawMessage(`{"sessions":[` + storedSummary + `],"nextCursor":"next"}`), nil
 		}
-		if params.(map[string]any)["cursor"] != "next" {
+		if request.Cursor != "next" {
 			t.Fatal("cursor was not forwarded")
 		}
 		return json.RawMessage(`{"sessions":[]}`), nil
@@ -330,14 +334,18 @@ func TestReadSessionListPagesAndValidatesSummaries(t *testing.T) {
 func TestReadSessionHistoryPagesBeforePublishing(t *testing.T) {
 	page := 0
 	client := &sessionClient{request: func(_ context.Context, method string, params any) (json.RawMessage, error) {
-		if method != "session/history" || params.(map[string]any)["sessionId"] != "saved" {
+		request, ok := params.(protocol.SessionHistoryParams)
+		if method != "session/history" || !ok || request.SessionID != "saved" {
 			t.Fatal("history identity was not forwarded")
 		}
 		page++
 		if page == 1 {
+			if request.Direction != protocol.HistoryDirectionForward || request.Limit != 64 || request.Live || request.AssistantStream {
+				t.Fatalf("first page = %+v", request)
+			}
 			return json.RawMessage(`{"events":[{"seq":0,"time":1,"type":"user/message","data":{"source":{"kind":"user"},"content":[{"type":"text","text":"hello"}]}}],"nextSeq":2,"hasMore":true,"nextCursor":"next"}`), nil
 		}
-		if params.(map[string]any)["cursor"] != "next" {
+		if request.Cursor != "next" {
 			t.Fatal("history cursor was not forwarded")
 		}
 		return json.RawMessage(`{"events":[{"seq":1,"time":2,"type":"assistant/message","data":{"message":{"content":[{"type":"text","text":"pong"}]}}}],"nextSeq":2,"hasMore":false}`), nil

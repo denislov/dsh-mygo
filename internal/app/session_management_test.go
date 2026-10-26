@@ -2,11 +2,13 @@ package app
 
 import (
 	"context"
-	"dsh-mygo/internal/projection"
 	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
+
+	"dsh-mygo/internal/projection"
+	"dsh-mygo/internal/protocol"
 )
 
 func TestSessionArchiveFailureRequiresReadbackAndPreservesDraft(t *testing.T) {
@@ -14,7 +16,7 @@ func TestSessionArchiveFailureRequiresReadbackAndPreservesDraft(t *testing.T) {
 		if method == "session/archive" {
 			return nil, errors.New("private-token")
 		}
-		if params.(map[string]any)["includeArchived"] != true {
+		if !params.(protocol.SessionListParams).IncludeArchived {
 			t.Error("refresh omitted archived state")
 		}
 		return json.RawMessage(`{"sessions":[` + strings.Replace(storedSummary, `"id":"saved"`, `"id":"original"`, 1) + `]}`), nil

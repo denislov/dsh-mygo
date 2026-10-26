@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"dsh-mygo/internal/projection"
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -75,8 +76,8 @@ func historyWindowJSON(start, end, next uint64) json.RawMessage {
 
 func TestHistoryWindowUsesLargeOffsetsAndRejectsMalformedBoundaries(t *testing.T) {
 	client := &sessionClient{request: func(_ context.Context, method string, params any) (json.RawMessage, error) {
-		p := params.(map[string]any)
-		if method != "session/history" || p["direction"] != "backward" || p["beforeSeq"] != uint64(30000) {
+		request, ok := params.(protocol.SessionHistoryParams)
+		if method != "session/history" || !ok || request.Direction != protocol.HistoryDirectionBackward || request.Limit != 64 || request.Cursor != "" || request.BeforeSeq == nil || *request.BeforeSeq != 30000 {
 			t.Error("wrong history parameters")
 		}
 		return historyWindowJSON(29998, 30000, 31000), nil
@@ -105,9 +106,12 @@ func TestLoadEarlierPreservesDraftRealtimeBoundaryAndRetryState(t *testing.T) {
 		if fail {
 			return nil, errors.New("private-token")
 		}
-		before, older := params.(map[string]any)["beforeSeq"]
-		if older {
-			if before != uint64(64) {
+		request, ok := params.(protocol.SessionHistoryParams)
+		if !ok {
+			t.Error("history request was not typed")
+		}
+		if request.BeforeSeq != nil {
+			if *request.BeforeSeq != 64 {
 				t.Error("wrong older anchor")
 			}
 			return historyWindowJSON(0, 64, 128), nil
@@ -154,6 +158,10 @@ func TestInactiveReleaseFailureKeepsCurrentSessionAndRetries(t *testing.T) {
 	fail := true
 	client := &sessionClient{request: func(_ context.Context, method string, params any) (json.RawMessage, error) {
 		if method == "session/release" {
+			request, ok := params.(protocol.SessionReleaseParams)
+			if !ok || request.SessionID != "inactive" {
+				t.Errorf("release request = %T %+v", params, params)
+			}
 			releases++
 			if fail {
 				return nil, errors.New("private-token")

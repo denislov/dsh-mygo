@@ -1,0 +1,65 @@
+{
+  "listDefault": {
+    "limit": 64
+  },
+  "list": {
+    "limit": 64,
+    "includeArchived": true,
+    "cursor": "next"
+  },
+  "forward": {
+    "sessionId": "s1",
+    "limit": 64,
+    "direction": "forward"
+  },
+  "forwardLive": {
+    "sessionId": "s1",
+    "limit": 64,
+    "direction": "forward",
+    "live": true
+  },
+  "backward": {
+    "sessionId": "s1",
+    "limit": 64,
+    "direction": "backward",
+    "beforeSeq": 128
+  },
+  "backwardCursor": {
+    "sessionId": "s1",
+    "limit": 64,
+    "direction": "backward",
+    "cursor": "older",
+    "live": true,
+    "assistantStream": true
+  },
+  "backwardLiveStream": {
+    "sessionId": "s1",
+    "limit": 64,
+    "direction": "backward",
+    "live": true,
+    "assistantStream": true
+  },
+  "release": {
+    "sessionId": "s1"
+  },
+  "listResult": {
+    "sessions": [
+      { "id": "s1" }
+    ],
+    "nextCursor": "next"
+  },
+  "historyResult": {
+    "events": [
+      { "seq": 0, "time": 1, "type": "test/event", "data": {} }
+    ],
+    "startSeq": 0,
+    "nextCursor": "next",
+    "hasMore": true,
+    "nextSeq": 1,
+    "status": "running",
+    "statusRevision": 2,
+    "assistantStream": {
+      "revision": 3
+    }
+  }
+}

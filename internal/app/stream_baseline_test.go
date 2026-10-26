@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -17,7 +18,8 @@ func TestResyncRestoresStreamAndReplaysOnlyNewerChunks(t *testing.T) {
 		if method == "session/list" {
 			return json.RawMessage(`{"sessions":[]}`), nil
 		}
-		if params.(map[string]any)["assistantStream"] != true {
+		request, ok := params.(protocol.SessionHistoryParams)
+		if !ok || !request.AssistantStream {
 			t.Error("baseline not requested")
 		}
 		close(started)

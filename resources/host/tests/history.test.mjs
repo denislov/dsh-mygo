@@ -68,6 +68,21 @@ function runtime(management = false) {
 
 const resume = { sessionId: 'stored-1', provider: 'test', model: 'echo' }
 
+test('shared history fixture drives list, forward history and release', async () => {
+  const fixture = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/history.json', import.meta.url), 'utf8'))
+  const { server } = runtime()
+  await server.handle('initialize', { ...handshake, capabilities: ['session.history', 'session.release'] })
+  const list = await server.handle('session/list', fixture.listDefault)
+  assert.equal(list.sessions.length, 1)
+  await server.handle('session/resume', resume)
+  const history = await server.handle('session/history', { ...fixture.forward, sessionId: resume.sessionId })
+  assert.equal(history.nextSeq, 5)
+  assert.deepEqual(history.events.map(event => event.seq), [0, 1, 2, 3, 4])
+  await server.handle('session/release', { ...fixture.release, sessionId: resume.sessionId })
+  assert.equal(server.sessions.size, 0)
+  await server.shutdown()
+})
+
 test('backward windows read a large tail, keep the cut and bind direction', async () => {
   const fixture = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/session.json', import.meta.url), 'utf8'))
   const { server, stored } = runtime()

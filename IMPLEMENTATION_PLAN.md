@@ -1,7 +1,7 @@
 # 后续重构完整实施计划（审阅稿）
 
 > 制定日期：2026-10-26。代码基线：`3d07c0e`。
-> 当前状态：已审阅并按阶段实施。阶段 1 任务 1.1–1.2 已完成，其余任务未开始。
+> 当前状态：已审阅并按阶段实施。阶段 1 任务 1.1–1.3 已完成，其余任务未开始。
 > 本文件覆盖代码审查方案的全部剩余重构，不再每完成一个小批次就重建或删除。整个计划完成后删除本文件及 AGENTS 中的临时入口，完成记录保留在 git 与路线图。
 
 ## 一、范围、基线与执行约定
@@ -63,7 +63,7 @@ flowchart TD
 **目标**: 核心请求、响应、通知信封与错误 kind 有清晰的具名表达，app 不再重复翻译相同 schema。
 **成功标准**: 相同 wire 在迁移前后编码语义一致，原有缺失/null/空字符串、必填布尔、安全整数、身份与预算校验保持；未知能力/字段仍按各方法原契约处理，SDK 兼容保持。
 **测试**: 每任务的编码/非法载荷表、双端 fixture、相关 Go/Node 单元与 fake/真实 Host；详见第三部分验证分组。
-**状态**: 进行中（1.1–1.2 已完成）
+**状态**: 进行中（1.1–1.3 已完成）
 
 ### 1.1 session/create、session/resume 与摘要（中，已完成）
 
@@ -79,11 +79,12 @@ flowchart TD
 - **验收/回归**：文本/附件-only、canonical base64、单图/总预算与顺序保持；无效 messageId 不丢草稿。cancel 的必填 cancelled、idle、超时 kind 保持；等待 prompt 被接受之后才取消，提前 idle 不越过取消确认屏障，旧响应不结束新回合。真实附件、取消、流式回归通过。
 - **完成记录（2026-10-26）**：`internal/protocol/prompt.go` 增加 custom/SDK prompt、独立文本/图片块、`PromptResult`、取消请求与必填 `cancelled` 结果；`tests/fixtures/protocol/prompt.json` 由 Go/Node 共用。App 发送、附件块与取消确认改用具名载荷，原有投递确认、取消屏障和草稿恢复保持。实际检查：全量/纯 Go 各 690 项、race 582 项、Node 91 项、真实 Host 25 项（含子用例）通过；MyGo vet、Go vet、格式与差异检查通过。剩余：后续任务 1.3–1.7 未开始。
 
-### 1.3 列表、历史、历史窗口与 release（高）
+### 1.3 列表、历史、历史窗口与 release（高，已完成）
 
 - **范围/依赖**：依赖 1.1/1.2；涉及 `session_reader.go`、`history_window.go`、`conversation_history.go`、`resync.go`。
 - **实施/交付**：分别定义目录分页、旧全量历史、向后窗口、live snapshot、流式 baseline、release 的载荷。共同字段可以复用，方向、cursor、固定 cut、statusRevision 和流版本的上下文校验仍由各读取流程负责。
 - **验收/回归**：大 offset、安全整数、空数组与缺失数组、分页固定边界、跨会话/cursor 拒绝、单事件超限、连续 seq 保持；任何一页失败不发布半份投影。保留完整回合补齐、阅读锚点、后台读取无全局禁用、退休句柄释放与冷恢复。覆盖真实大会话、释放后重开及 resync。
+- **完成记录（2026-10-26）**：`internal/protocol/history.go` 增加 list/history/release 方法、共享请求/结果信封与方向常量；`tests/fixtures/protocol/history.json` 由 Go/Node 共用。目录、forward、backward、live/stream、resync 与 release 调用点完成迁移，边界校验与原始嵌套载荷保持。实际检查：全量/纯 Go 各 699 项、race 591 项、Node 92 项、真实 Host 24 项（含子用例）通过；MyGo vet、Go vet、格式与差异检查通过。剩余：后续任务 1.4–1.7 未开始。
 
 ### 1.4 模型、配置与权限载荷（高）
 

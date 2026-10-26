@@ -245,3 +245,12 @@
 - 教训：同构请求外壳可以共用，但异构内容块不要压成一个带全部可选字段的结构；确认字段必须保留“缺失”与“零值”的区别。
 - 做法：ContentBlock 接口配 TextBlock/ImageBlock 构造器，custom/SDK 请求分别命名；cancel 结果用 `*bool` 保留必填；双端 fixture 固定文本/图片顺序、SDK 字段名与取消结果，扩展现有草稿和取消时序回归。
 - 固化：未固化
+
+## L-025 共享历史信封不等于共享读取上下文
+
+- 出现次数：1
+- 来源：2026-10-26 目录/历史/历史窗口/release 载荷类型化
+- 现象：list/history 共用部分字段，但 forward、backward、live、stream baseline 与 release 对 cursor、beforeSeq、方向、固定 cut 和版本字段的要求不同；结果中的 events、cursor 与 baseline 仍需原样交给 projection/stream 解码。
+- 教训：可以共用 wire 结构，但不能把上下文校验合并成一次通用检查；原始嵌套载荷不要为了类型化提前解析。
+- 做法：单一具名请求/结果信封按 flow 构造字段子集，各读取函数保留固定边界与跨页校验；双端 fixture 固定 wire，Go flow 测试断言类型与边界，Node 复用 list/forward/release。
+- 固化：未固化

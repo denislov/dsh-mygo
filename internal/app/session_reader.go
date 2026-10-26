@@ -68,22 +68,13 @@ func readSessionList(ctx context.Context, client rpcClient, includeArchived ...b
 	cursor := ""
 	totalBytes := 0
 	for pageCount := 0; pageCount < 1001; pageCount++ {
-		params := map[string]any{"limit": 64}
-		if len(includeArchived) > 0 && includeArchived[0] {
-			params["includeArchived"] = true
-		}
-		if cursor != "" {
-			params["cursor"] = cursor
-		}
-		raw, err := client.Call(ctx, "session/list", params)
+		params := protocol.SessionListParams{Limit: 64, IncludeArchived: len(includeArchived) > 0 && includeArchived[0], Cursor: cursor}
+		raw, err := client.Call(ctx, protocol.MethodSessionList, params)
 		if err != nil {
 			return nil, errors.New("Could not load sessions. Refresh to retry")
 		}
 		totalBytes += len(raw)
-		var page struct {
-			Sessions   []json.RawMessage `json:"sessions"`
-			NextCursor json.RawMessage   `json:"nextCursor"`
-		}
+		var page protocol.SessionListResult
 		if totalBytes > 1024*1024 || json.Unmarshal(raw, &page) != nil || page.Sessions == nil || len(page.Sessions) > 64 || len(sessions)+len(page.Sessions) > 1000 {
 			return nil, errors.New("Invalid or oversized session list")
 		}
@@ -140,30 +131,16 @@ func readHistorySnapshot(ctx context.Context, client rpcClient, id string, minim
 	var statusRevision uint64
 	totalBytes := 0
 	for pageCount := 0; pageCount < 1024; pageCount++ {
-		params := map[string]any{"sessionId": id, "limit": 64, "direction": "forward"}
-		if live {
-			params["live"] = true
+		params := protocol.SessionHistoryParams{
+			SessionID: id, Limit: 64, Direction: protocol.HistoryDirectionForward,
+			Live: live, AssistantStream: wantStream, Cursor: cursor,
 		}
-		if wantStream {
-			params["assistantStream"] = true
-		}
-		if cursor != "" {
-			params["cursor"] = cursor
-		}
-		raw, err := client.Call(ctx, "session/history", params)
+		raw, err := client.Call(ctx, protocol.MethodSessionHistory, params)
 		if err != nil {
 			return historySnapshot{}, errors.New("Could not load history. Wait for the session to be idle and retry")
 		}
 		totalBytes += len(raw)
-		var page struct {
-			Events          []json.RawMessage `json:"events"`
-			NextSeq         *uint64           `json:"nextSeq"`
-			HasMore         *bool             `json:"hasMore"`
-			NextCursor      json.RawMessage   `json:"nextCursor"`
-			Status          string            `json:"status"`
-			StatusRevision  *uint64           `json:"statusRevision"`
-			AssistantStream json.RawMessage   `json:"assistantStream"`
-		}
+		var page protocol.SessionHistoryResult
 		if totalBytes > maxSessionHistoryBytes || json.Unmarshal(raw, &page) != nil || page.Events == nil || len(page.Events) > 64 || page.NextSeq == nil || *page.NextSeq > maxSessionEvents || page.HasMore == nil {
 			return historySnapshot{}, errors.New("Invalid history page or history exceeds the supported budget")
 		}
