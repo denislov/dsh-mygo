@@ -226,10 +226,7 @@ func (a *App) loadSessionInDirectory(id, cwd string) {
 				}
 				return
 			}
-			if a.drafts == nil {
-				a.drafts = make(map[string]string)
-			}
-			a.drafts[a.sessionID] = a.model.Draft
+			a.localComponent.setDraft(a.sessionID, a.model.Draft)
 			a.sessionID = summary.ID
 			a.retireSession(currentID)
 			delete(a.retiredSessions, summary.ID)
@@ -254,7 +251,7 @@ func (a *App) loadSessionInDirectory(id, cwd string) {
 			a.stream = projection.AssistantStream{}
 			a.model.ResetTranscript(transcript.Items())
 			a.acceptHistoryWindow(history)
-			a.model.Draft = a.drafts[summary.ID]
+			a.model.Draft = a.localComponent.draft(summary.ID)
 			if a.local != nil {
 				a.local.lastSession = summary.ID
 			}

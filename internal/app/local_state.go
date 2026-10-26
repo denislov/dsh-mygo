@@ -262,12 +262,12 @@ func (a *App) settleSubmittedDraft(id uint64, err error) {
 	}
 	a.persistLocalState()
 }
-func (a *App) ReadyToQuit() bool { return a.quitReady }
+func (a *App) ReadyToQuit() bool { return a.quit.isReady() }
 
 // RequestQuit captures final UI edits, then flushes and stops in a worker.
 // A failed save leaves the window open; discarding requires an explicit action.
 func (a *App) RequestQuit(discard bool) {
-	if a.model.LocalState.Closing || a.shuttingDown.Load() {
+	if a.shuttingDown.Load() || !a.quit.begin() {
 		return
 	}
 	a.persistLocalState()
@@ -288,7 +288,11 @@ func (a *App) RequestQuit(discard bool) {
 			}
 		}
 		if err != nil {
-			a.post(func() { a.model.LocalState.Closing = false; a.model.LocalState.Error = err.Error() })
+			a.post(func() {
+				a.quit.fail()
+				a.model.LocalState.Closing = false
+				a.model.LocalState.Error = err.Error()
+			})
 			return
 		}
 		if a.local != nil && discard {
@@ -296,7 +300,7 @@ func (a *App) RequestQuit(discard bool) {
 		}
 		a.Shutdown(5 * time.Second)
 		a.options.Post(func() {
-			a.quitReady = true
+			a.quit.complete()
 			if a.options.Quit != nil {
 				a.options.Quit()
 			}

@@ -184,11 +184,12 @@ flowchart TD
 - **验收/回归**：完整回合前插、布局提交后的触顶检测、尾部返回、历史/实时去重、已提交预览清理及 reasoning baseline 保持；同代恢复不清版本高水位，新 Agent 才重建。真实缺帧与大会话读取通过。
 - **完成记录（2026-10-26）**：新增 `historyComponent`，拥有 resync 固定 cut、状态 revision/host status 与历史/流 baseline 能力；start/cancel/commit 都经组件，宿主换代显式重置，快照提交不降低同代高水位。窗口读取边界/锚点与 projection 仍由既有 flow/纯投影负责。实际检查：`go test ./internal/app` 265 项通过；新增 cut 取消、换代重置与 revision 单调用例。
 
-### 3.4 本机编辑状态、草稿与退出协调（高）
+### 3.4 本机编辑状态、草稿与退出协调（高，已完成）
 
 - **范围/依赖**：依赖 3.2、2.3；来源 `local_state.go` 与 preferences writer，保留 preferences 存储公开行为。
 - **实施/交付**：组件拥有按会话草稿、投递待确认快照、加载/冲突/保存状态；独立退出协调器先捕获最后 UI 编辑，再 flush、关闭资源、退出。领域组件通过明确结果参与，不在 View build 中启动退出工作。
 - **验收/回归**：确认前不丢原稿，新编辑不被旧响应覆盖；恢复失败仍可找回旧草稿。预算、冲突、加载失败时保留窗口，显式放弃才绕过保存；Host、writer 和终端只释放一次，关闭流程可重试。
+- **完成记录（2026-10-26）**：新增 `localComponent` 拥有按会话草稿与 preferences writer，`quitCoordinator` 负责单飞/失败可重试/完成状态；RequestQuit 先捕获编辑再 flush、Shutdown 和调用退出回调，ViewModel 仍只读展示。实际检查：`go test ./internal/app` 267 项通过；新增草稿隔离与退出重试用例。
 
 ### 3.5 Runtime 引导、切换与 first-use 协调（高）
 

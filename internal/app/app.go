@@ -112,6 +112,7 @@ type App struct {
 	settingsComponent
 	sessionComponent
 	historyComponent
+	localComponent
 	workspace  workspaceResources
 	hostLocale atomic.Value
 	options    Options
@@ -134,9 +135,6 @@ type App struct {
 	transcriptDirty   bool
 	attachmentLimits  *attachment.Limits
 	mentionSeq        atomic.Uint64
-	drafts            map[string]string
-	local             *localEditingState
-	quitReady         bool
 	runtimeGeneration uint64
 	runtimeCancel     context.CancelFunc
 	switchMu          sync.Mutex
@@ -452,16 +450,13 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 		}
 		previousID := a.sessionID
 		if a.sessionID != "" && a.sessionID != initialized.sessionID {
-			if a.drafts == nil {
-				a.drafts = make(map[string]string)
-			}
-			a.drafts[a.sessionID] = a.model.Draft
-			a.model.Draft = a.drafts[initialized.sessionID]
+			a.localComponent.setDraft(a.sessionID, a.model.Draft)
+			a.model.Draft = a.localComponent.draft(initialized.sessionID)
 		}
 		a.sessionID = initialized.sessionID
 		if a.local != nil && a.local.ready {
 			if previousID != initialized.sessionID {
-				a.model.Draft = a.drafts[initialized.sessionID]
+				a.model.Draft = a.localComponent.draft(initialized.sessionID)
 			}
 			a.local.lastSession = initialized.sessionID
 		}
