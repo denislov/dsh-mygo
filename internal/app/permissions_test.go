@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"dsh-mygo/internal/protocol"
 )
 
 const permissionJSON = `{"sessionId":"original","current":"workspace-write","sandbox":"workspace-write","approval":"ask","nextSeq":0,"options":[{"id":"workspace-write","name":"Workspace","description":"","sandbox":"workspace-write","approval":"ask","requiresConfirmation":false},{"id":"danger-full-access","name":"Full","description":"","sandbox":"danger-full-access","approval":"never","requiresConfirmation":true}]}`
@@ -23,12 +25,17 @@ func TestPermissionSnapshotValidatesIdentityKnobsAndConfirmation(t *testing.T) {
 func TestPermissionApplyRequiresConfirmationAndFailedWriteMustRefresh(t *testing.T) {
 	writes := 0
 	client := &sessionClient{request: func(_ context.Context, method string, params any) (json.RawMessage, error) {
-		if method == "permission/get" {
+		if method == protocol.MethodPermissionGet {
+			request, ok := params.(protocol.PermissionGetParams)
+			if !ok || request.SessionID != "original" {
+				t.Errorf("permission read = %T %+v", params, params)
+			}
 			return json.RawMessage(permissionJSON), nil
 		}
 		writes++
-		if method != "permission/select" || params.(map[string]any)["confirmDangerous"] != true {
-			t.Error("permission confirmation missing")
+		request, ok := params.(protocol.PermissionSelectParams)
+		if method != protocol.MethodPermissionSelect || !ok || !request.ConfirmDangerous || request.Preset != "danger-full-access" {
+			t.Errorf("permission selection = %T %+v", params, params)
 		}
 		return nil, errors.New("private-token")
 	}}

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -14,7 +15,7 @@ func validPermissionKnobs(sandbox, approval string) bool {
 	return (sandbox == "read-only" || sandbox == "workspace-write" || sandbox == "danger-full-access") && (approval == "ask" || approval == "never")
 }
 func decodePermissions(raw json.RawMessage, id string) (view.PermissionSnapshot, error) {
-	var snapshot view.PermissionSnapshot
+	var snapshot protocol.PermissionSnapshot
 	var required struct {
 		NextSeq *uint64 `json:"nextSeq"`
 		Options []struct {
@@ -24,7 +25,7 @@ func decodePermissions(raw json.RawMessage, id string) (view.PermissionSnapshot,
 	}
 	invalid := errors.New("Invalid session permissions. Refresh to retry")
 	if len(raw) > 32*1024 || json.Unmarshal(raw, &required) != nil || required.NextSeq == nil || *required.NextSeq > maxSafeInteger {
-		return snapshot, invalid
+		return view.PermissionSnapshot{}, invalid
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
@@ -45,10 +46,26 @@ func decodePermissions(raw json.RawMessage, id string) (view.PermissionSnapshot,
 	if !found {
 		return view.PermissionSnapshot{}, invalid
 	}
-	return snapshot, nil
+	return permissionSnapshotView(snapshot), nil
 }
+
+func permissionSnapshotView(snapshot protocol.PermissionSnapshot) view.PermissionSnapshot {
+	result := view.PermissionSnapshot{
+		SessionID: snapshot.SessionID, Current: snapshot.Current, Sandbox: snapshot.Sandbox,
+		Approval: snapshot.Approval, NextSeq: snapshot.NextSeq,
+		Options: make([]view.PermissionOption, 0, len(snapshot.Options)),
+	}
+	for _, option := range snapshot.Options {
+		result.Options = append(result.Options, view.PermissionOption{
+			ID: option.ID, Name: option.Name, Description: option.Description, Sandbox: option.Sandbox,
+			Approval: option.Approval, RequiresConfirmation: option.RequiresConfirmation,
+		})
+	}
+	return result
+}
+
 func readPermissions(ctx context.Context, client rpcClient, id string) (view.PermissionSnapshot, error) {
-	raw, err := client.Call(ctx, "permission/get", map[string]any{"sessionId": id})
+	raw, err := client.Call(ctx, protocol.MethodPermissionGet, protocol.PermissionGetParams{SessionID: id})
 	if err != nil {
 		return view.PermissionSnapshot{}, errors.New("Could not read session permissions. Refresh to retry")
 	}
@@ -66,7 +83,9 @@ func (a *App) ApplyPermission() {
 	expected := *option
 	before := state.Snapshot
 	changed := before.Current != expected.ID || before.Sandbox != expected.Sandbox || before.Approval != expected.Approval
-	params := map[string]any{"sessionId": a.sessionID, "preset": option.ID, "expectedNextSeq": a.nextSeq, "confirmDangerous": state.Confirm}
+	params := protocol.PermissionSelectParams{
+		SessionID: a.sessionID, Preset: option.ID, ExpectedNextSeq: a.nextSeq, ConfirmDangerous: state.Confirm,
+	}
 	state.Confirm = false
 	ctx, operation := a.beginSettingsOperationTimeout(60 * time.Second)
 	a.model.SettingsApplying = true
@@ -74,7 +93,7 @@ func (a *App) ApplyPermission() {
 	client, id, cancel, startSeq := a.currentClient(), a.sessionID, a.settingsCancel, a.nextSeq
 	go func() {
 		defer cancel()
-		raw, err := client.Call(ctx, "permission/select", params)
+		raw, err := client.Call(ctx, protocol.MethodPermissionSelect, params)
 		var snapshot view.PermissionSnapshot
 		if err == nil {
 			snapshot, err = decodePermissions(raw, id)

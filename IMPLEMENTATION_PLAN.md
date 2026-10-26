@@ -1,7 +1,7 @@
 # 后续重构完整实施计划（审阅稿）
 
 > 制定日期：2026-10-26。代码基线：`3d07c0e`。
-> 当前状态：已审阅并按阶段实施。阶段 1 任务 1.1–1.3 已完成，其余任务未开始。
+> 当前状态：已审阅并按阶段实施。阶段 1 任务 1.1–1.4 已完成，其余任务未开始。
 > 本文件覆盖代码审查方案的全部剩余重构，不再每完成一个小批次就重建或删除。整个计划完成后删除本文件及 AGENTS 中的临时入口，完成记录保留在 git 与路线图。
 
 ## 一、范围、基线与执行约定
@@ -63,7 +63,7 @@ flowchart TD
 **目标**: 核心请求、响应、通知信封与错误 kind 有清晰的具名表达，app 不再重复翻译相同 schema。
 **成功标准**: 相同 wire 在迁移前后编码语义一致，原有缺失/null/空字符串、必填布尔、安全整数、身份与预算校验保持；未知能力/字段仍按各方法原契约处理，SDK 兼容保持。
 **测试**: 每任务的编码/非法载荷表、双端 fixture、相关 Go/Node 单元与 fake/真实 Host；详见第三部分验证分组。
-**状态**: 进行中（1.1–1.3 已完成）
+**状态**: 进行中（1.1–1.4 已完成）
 
 ### 1.1 session/create、session/resume 与摘要（中，已完成）
 
@@ -86,11 +86,12 @@ flowchart TD
 - **验收/回归**：大 offset、安全整数、空数组与缺失数组、分页固定边界、跨会话/cursor 拒绝、单事件超限、连续 seq 保持；任何一页失败不发布半份投影。保留完整回合补齐、阅读锚点、后台读取无全局禁用、退休句柄释放与冷恢复。覆盖真实大会话、释放后重开及 resync。
 - **完成记录（2026-10-26）**：`internal/protocol/history.go` 增加 list/history/release 方法、共享请求/结果信封与方向常量；`tests/fixtures/protocol/history.json` 由 Go/Node 共用。目录、forward、backward、live/stream、resync 与 release 调用点完成迁移，边界校验与原始嵌套载荷保持。实际检查：全量/纯 Go 各 699 项、race 591 项、Node 92 项、真实 Host 24 项（含子用例）通过；MyGo vet、Go vet、格式与差异检查通过。剩余：后续任务 1.4–1.7 未开始。
 
-### 1.4 模型、配置与权限载荷（高）
+### 1.4 模型、配置与权限载荷（高，已完成）
 
 - **范围/依赖**：依赖 1.1；涉及 `settings.go`、`configuration.go`、`permissions.go` 和 Node models/configuration/permissions。
 - **实施/交付**：按模型目录/选择、默认模型/凭据、权限读写三个小提交迁移；wire 类型不依赖 View 表单类型。凭据写入载荷仅用于传输，不作为 fmt/log/error 参数，诊断只投影白名单状态，不延长 secret 在状态中的寿命。
 - **验收/回归**：revision/expectedNextSeq、已提交事件确认、固定字段白名单与失败后不确定屏障保持；空 effort 可清除旧值。持久默认不改当前会话，凭据只写不读，危险权限按实际 sandbox/approval 确认，未协商不调用。真实模型、配置、权限持久化与策略执行通过。
+- **完成记录（2026-10-26）**：按模型（`5f791a4`）、配置（`7c56040`）、权限三个连续提交完成。`internal/protocol` 增加 model/configuration/permission 请求与快照 DTO，`tests/fixtures/protocol/{model,configuration,permission}.json` 由 Go/Node 共用；App 读取/写入路径转换到 view 类型，凭据 value 在 RPC 返回后清空。实际检查：全量/纯 Go 各 715 项、race 607 项、Node 95 项、真实 Host 17 项（含子用例）通过；MyGo vet、Go vet、格式与差异检查通过。剩余：后续任务 1.5–1.7 未开始。
 
 ### 1.5 审批与用户提问载荷（中）
 

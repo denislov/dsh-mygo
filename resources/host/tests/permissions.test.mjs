@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { test } from 'node:test'
 import { MygoServer } from '../server.mjs'
 
@@ -30,6 +31,19 @@ function runtime() {
   const server = new MygoServer(ctx, { notify() {}, createUserMessage: (v) => v, dshVersion: '0.2.1-rc.2' })
   return { server, ctx }
 }
+
+test('shared permission fixture drives read and select payloads', async () => {
+  const fixture = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/permission.json', import.meta.url), 'utf8'))
+  const { server } = runtime()
+  await server.handle('initialize', handshake)
+  const { session } = await server.handle('session/create', { cwd: process.cwd(), provider: 'test', model: 'echo' })
+  const snapshot = await server.handle('permission/get', { ...fixture.get, sessionId: session.id })
+  assert.equal(snapshot.current, 'safe')
+  await assert.rejects(server.handle('permission/select', { ...fixture.selectSafe, sessionId: session.id, preset: 'wide', expectedNextSeq: 0 }), { kind: 'permission/confirmation-required' })
+  const selected = await server.handle('permission/select', { ...fixture.select, sessionId: session.id, preset: 'wide', expectedNextSeq: 0 })
+  assert.equal(selected.current, 'wide')
+  await server.shutdown()
+})
 
 test('permission capability is service gated, snapshot whitelisted and dangerous bundles confirmed', async () => {
   const { server, ctx } = runtime()

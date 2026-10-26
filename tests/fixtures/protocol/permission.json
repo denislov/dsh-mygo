@@ -1,0 +1,42 @@
+{
+  "get": {
+    "sessionId": "s1"
+  },
+  "select": {
+    "sessionId": "s1",
+    "preset": "danger-full-access",
+    "expectedNextSeq": 7,
+    "confirmDangerous": true
+  },
+  "selectSafe": {
+    "sessionId": "s1",
+    "preset": "workspace-write",
+    "expectedNextSeq": 7,
+    "confirmDangerous": false
+  },
+  "snapshot": {
+    "sessionId": "s1",
+    "current": "workspace-write",
+    "sandbox": "workspace-write",
+    "approval": "ask",
+    "nextSeq": 7,
+    "options": [
+      {
+        "id": "workspace-write",
+        "name": "Workspace",
+        "description": "",
+        "sandbox": "workspace-write",
+        "approval": "ask",
+        "requiresConfirmation": false
+      },
+      {
+        "id": "danger-full-access",
+        "name": "Full",
+        "description": "",
+        "sandbox": "danger-full-access",
+        "approval": "never",
+        "requiresConfirmation": true
+      }
+    ]
+  }
+}

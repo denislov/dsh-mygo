@@ -254,3 +254,12 @@
 - 教训：可以共用 wire 结构，但不能把上下文校验合并成一次通用检查；原始嵌套载荷不要为了类型化提前解析。
 - 做法：单一具名请求/结果信封按 flow 构造字段子集，各读取函数保留固定边界与跨页校验；双端 fixture 固定 wire，Go flow 测试断言类型与边界，Node 复用 list/forward/release。
 - 固化：未固化
+
+## L-026 凭据 wire DTO 只承载传输，view 类型留在边界外
+
+- 出现次数：1
+- 来源：2026-10-26 模型、配置与权限载荷类型化
+- 现象：配置/权限响应此前直接解码到 view 类型；凭据 value 需要只在 set 请求中存在，且不能进入 App 状态、fmt/log/error；模型目录还要求字段存在性校验，而 view 字段与其并不完全一致。
+- 教训：wire DTO 与 View 表单类型分离，才能在不改变校验的前提下控制 secret 生命周期；空 effort、revision 等必填/清空语义不能用统一 omitempty 处理。
+- 做法：protocol 定义 model/config/permission 请求与快照，app 保留 required/预算/身份校验并转换 view；凭据请求使用指针 value，RPC 返回后立即置空，双端 fixture 固定 wire。
+- 固化：未固化
