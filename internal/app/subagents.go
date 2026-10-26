@@ -4,12 +4,7 @@ import (
 	"encoding/json"
 
 	"dsh-mygo/internal/protocol"
-	"dsh-mygo/internal/view"
 )
-
-// maxTrackedSubagents bounds the transient child status list; the newest child
-// wins once the cap is reached.
-const maxTrackedSubagents = 8
 
 var subagentReasons = map[string]bool{
 	protocol.SubagentReasonCompleted: true, protocol.SubagentReasonAborted: true, protocol.SubagentReasonError: true,
@@ -20,37 +15,9 @@ var subagentReasons = map[string]bool{
 // children of the current session are tracked; stale or foreign parents are
 // dropped so a notification window cannot leak between sessions.
 func (a *App) handleSubagentNotification(params json.RawMessage, finished bool) {
-	var payload protocol.SubagentStatusParams
-	if json.Unmarshal(params, &payload) != nil {
-		return
+	if a.subagents.applyStatus(params, finished) {
+		a.model.Subagents = a.subagents.summariesView()
 	}
-	if payload.ParentSessionID == "" || payload.ParentSessionID != a.model.SessionID {
-		return
-	}
-	if !safeSubagentID(payload.ChildSessionID) {
-		return
-	}
-	state := view.SubagentState{ID: payload.ChildSessionID, Running: !finished}
-	if safeSubagentID(payload.Provider) {
-		state.Provider = payload.Provider
-	}
-	if finished {
-		if subagentReasons[payload.Reason] {
-			state.Reason = payload.Reason
-		} else {
-			state.Reason = "error"
-		}
-	}
-	for index := range a.model.Subagents {
-		if a.model.Subagents[index].ID == state.ID {
-			a.model.Subagents[index] = state
-			return
-		}
-	}
-	if len(a.model.Subagents) >= maxTrackedSubagents {
-		a.model.Subagents = a.model.Subagents[1:]
-	}
-	a.model.Subagents = append(a.model.Subagents, state)
 }
 
 // safeSubagentID mirrors the Host's identifier bound before display.

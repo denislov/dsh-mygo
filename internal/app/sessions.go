@@ -231,7 +231,8 @@ func (a *App) loadSessionInDirectory(id, cwd string) {
 			a.retireSession(currentID)
 			delete(a.retiredSessions, summary.ID)
 			a.model.SessionID = summary.ID
-			a.model.Subagents = nil
+			a.subagents.sessionChanged(summary.ID)
+			a.model.Subagents = a.subagents.summariesView()
 			a.model.SessionCWD = summary.CWD
 			a.syncWorkspace()
 			a.model.Setup.WorkspaceRequired = workspaceRequired

@@ -136,7 +136,7 @@ type App struct {
 	transcriptDirty  bool
 	attachmentLimits *attachment.Limits
 	mentionSeq       atomic.Uint64
-	inspectionRead   operationSlot
+	subagents        subagentComponent
 	restarting       bool
 
 	hostGeneration atomic.Uint64
@@ -157,6 +157,7 @@ func New(options Options) *App {
 	}
 	app := &App{options: options, sessionID: options.SessionID, stopped: make(chan struct{}), pendingUI: make(chan struct{}, maxPendingUIUpdates), diag: newDiagnostics(options.LogDir)}
 	app.model = view.NewModel()
+	app.subagents.sessionOf = func() string { return app.model.SessionID }
 	app.configureWorkspace()
 	app.model.AppVersion = channel.ReleaseVersion
 	app.model.Setup.ChooseFolder = app.ChooseProjectFolder
@@ -478,8 +479,8 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 			a.model.ResetTranscript(nil)
 		}
 		a.model.SessionID = initialized.sessionID
-		a.model.Subagents = nil
-		a.CloseSubagents()
+		a.subagents.reset(initialized.sessionID)
+		a.model.Subagents = a.subagents.summariesView()
 		a.model.Inspection.Available = initialized.caps.InspectSubagents
 		a.model.SessionCWD = initialized.cwd
 		a.syncWorkspace()

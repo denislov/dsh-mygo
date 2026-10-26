@@ -5,7 +5,6 @@ import (
 	"errors"
 	"github.com/egoist/mygo/ui"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"dsh-mygo/internal/projection"
@@ -93,7 +92,7 @@ func decodeSubagentHistory(raw json.RawMessage, parent, child string, before *ui
 }
 
 func (a *App) cancelSubagentRead() {
-	a.inspectionRead.invalidate()
+	a.subagents.finishRead()
 	a.model.Inspection.Busy = false
 }
 
@@ -102,6 +101,7 @@ func (a *App) OpenSubagents() {
 		return
 	}
 	a.CloseSubagents()
+	a.subagents.openFor(a.model.SessionID)
 	a.model.Inspection.Open = true
 	a.model.Inspection.ParentID = a.model.SessionID
 	a.RefreshSubagents()
@@ -109,10 +109,11 @@ func (a *App) OpenSubagents() {
 
 func (a *App) CloseSubagents() {
 	a.cancelSubagentRead()
+	a.subagents.close()
 	p := &a.model.Inspection
 	p.Open, p.Selected, p.Content, p.Children, p.Error = false, "", nil, nil, ""
 	p.List = ui.ListState{}
-	p.EndReason, p.Earlier = "", false
+	p.EndReason, p.Earlier, p.HasMore = "", false, false
 }
 
 func (a *App) SelectSubagent(id string) {
@@ -121,12 +122,14 @@ func (a *App) SelectSubagent(id string) {
 		return
 	}
 	if id == "" {
-		p.Selected, p.Content, p.EndReason = "", nil, ""
+		a.subagents.selectChild("")
+		p.Selected, p.Content, p.EndReason, p.Earlier = "", nil, "", false
 		a.RefreshSubagents()
 		return
 	}
 	for _, entry := range p.Children {
 		if entry.ID == id {
+			a.subagents.selectChild(id)
 			p.Selected, p.Content, p.EndReason, p.Error, p.Earlier = id, nil, "", "", false
 			if entry.Mode != "external" && entry.Mode != "unknown" {
 				a.RefreshSubagents()
@@ -143,7 +146,10 @@ func (a *App) EarlierSubagentHistory() {
 	if !p.HasMore || p.Content == nil {
 		return
 	}
-	before := p.Start
+	before, ok := a.subagents.before()
+	if !ok {
+		return
+	}
 	a.readSubagents(&before)
 }
 
@@ -157,31 +163,34 @@ func (a *App) readSubagents(before *uint64) {
 		return
 	}
 	a.cancelSubagentRead()
-	ctx, operation, cancel := a.inspectionRead.begin(20 * time.Second)
-	generation, parent, child := a.hostGeneration.Load(), p.ParentID, p.Selected
+	generation := a.hostGeneration.Load()
+	ctx, read, cancel, ok := a.subagents.beginRead(generation, before != nil)
+	if !ok {
+		return
+	}
 	p.Busy, p.Error = true, ""
 	go func() {
 		defer cancel()
 		var children []view.SubagentSummary
 		var history subagentHistoryPage
 		var err error
-		if child == "" {
+		if read.child == "" {
 			var raw json.RawMessage
-			raw, err = client.Call(ctx, protocol.MethodSubagentList, protocol.SubagentListParams{ParentSessionID: parent})
+			raw, err = client.Call(ctx, protocol.MethodSubagentList, protocol.SubagentListParams{ParentSessionID: read.parent})
 			if err == nil {
-				children, err = decodeSubagentCatalog(raw, parent)
+				children, err = decodeSubagentCatalog(raw, read.parent)
 			}
 		} else {
-			params := protocol.SubagentHistoryParams{ParentSessionID: parent, ChildSessionID: child, BeforeSeq: before}
+			params := protocol.SubagentHistoryParams{ParentSessionID: read.parent, ChildSessionID: read.child, BeforeSeq: before}
 			var raw json.RawMessage
 			raw, err = client.Call(ctx, protocol.MethodSubagentHistory, params)
 			if err == nil {
-				history, err = decodeSubagentHistory(raw, parent, child, before)
+				history, err = decodeSubagentHistory(raw, read.parent, read.child, before)
 			}
 		}
 		a.post(func() {
 			p := &a.model.Inspection
-			if a.shuttingDown.Load() || !a.inspectionRead.valid(operation) || generation != a.hostGeneration.Load() || !p.Open || parent != a.model.SessionID || child != p.Selected {
+			if a.shuttingDown.Load() || !a.subagents.acceptRead(read, a.hostGeneration.Load()) {
 				return
 			}
 			a.cancelSubagentRead()
@@ -189,21 +198,19 @@ func (a *App) readSubagents(before *uint64) {
 				p.Error = "Could not load subagents. Refresh to retry"
 				return
 			}
-			if child == "" {
+			if read.child == "" {
 				p.Children = children
 				return
 			}
-			if before != nil && p.Inherited != history.Inherited {
+			page, ok := a.subagents.commitPage(read, history)
+			if !ok {
 				p.Error = "Could not load subagents. Refresh to retry"
 				return
 			}
 			content := view.NewModel()
-			content.SessionID = child
+			content.SessionID = read.child
 			content.ResetTranscript(history.Items)
-			p.Content, p.Start, p.Inherited, p.HasMore, p.Earlier = content, history.Start, history.Inherited, history.HasMore, before != nil
-			if before == nil {
-				p.EndReason = history.EndReason
-			}
+			p.Content, p.Start, p.Inherited, p.HasMore, p.Earlier, p.EndReason = content, page.start, page.inherited, page.hasMore, page.earlier, page.endReason
 		})
 	}()
 }
