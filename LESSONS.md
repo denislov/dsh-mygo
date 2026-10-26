@@ -317,3 +317,12 @@
 - 教训：可以共用版本/取消原语，但会话 id、Host 代、父子/路径身份与写入不确定状态必须留在领域；Host 帧携带来源实例，本机回调不携带，不能随换代一起丢弃。
 - 做法：operationSlot 只做 id/cancel；各领域保留身份校验与策略；hostNotification 携带 host，processNotification 统一有序提交并过滤旧代，apply 回调无 host 继续执行；诊断组件集中日志/文件/锁/脱敏。
 - 固化：未固化
+
+## L-033 组件先收拢状态所有权，App 只保留跨领域发布顺序
+
+- 出现次数：1
+- 来源：2026-10-26 阶段 3 领域组件迁移
+- 现象：设置、会话目录、历史/resync、草稿/退出、运行时切换、子代理详情、工作区资源与附件暂存的状态与取消令牌分散在 App；把字段搬进结构体但让每个组件持有 App，无法证明独立重置或 fake。
+- 教训：组件应拥有自己的状态、令牌和生命周期入口（close/hostChanged/sessionChanged），只通过显式参数或单一 provider 读取当前身份；跨领域的发布顺序属于 App 协调，不能藏在一组无序回调里。
+- 做法：各领域组件匿名嵌入或作为窄字段接入 App，App 保留 hostReady/sessionChanged/resyncCommitted/requestQuit 四个显式入口并固定顺序；运行时切换显式分准备/停止/初始化/提交/回滚；组件测试直接构造组件并 fake 时间线，跨域全链路仍由 fake/真实 Host 回归验证。
+- 固化：未固化

@@ -443,107 +443,126 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 		configurationCancel()
 	}
 	a.post(func() {
-		if a.shuttingDown.Load() || a.model.Phase == view.PhaseFailed || !a.isCurrentHost(instance) {
-			return
-		}
-		previousID := a.sessionID
-		if a.sessionID != "" && a.sessionID != initialized.sessionID {
-			a.localComponent.setDraft(a.sessionID, a.model.Draft)
+		a.hostReady(instance, initialized, initialConfiguration, recover, resumeID, switchedID)
+	})
+}
+
+// hostReady publishes one initialized Host snapshot. Order matters: adopt the
+// session identity and draft first, reset turn/interaction/projection, then
+// replace session-scoped resources and capabilities, and only then let the
+// catalog and persistence observe the new state.
+func (a *App) hostReady(instance *hostInstance, initialized initializedSession, initialConfiguration *view.Configuration, recover bool, resumeID, switchedID string) {
+	if a.shuttingDown.Load() || a.model.Phase == view.PhaseFailed || !a.isCurrentHost(instance) {
+		return
+	}
+	// Session identity and the local draft handoff.
+	previousID := a.sessionID
+	if a.sessionID != "" && a.sessionID != initialized.sessionID {
+		a.localComponent.setDraft(a.sessionID, a.model.Draft)
+		a.model.Draft = a.localComponent.draft(initialized.sessionID)
+	}
+	a.sessionID = initialized.sessionID
+	if a.local != nil && a.local.ready {
+		if previousID != initialized.sessionID {
 			a.model.Draft = a.localComponent.draft(initialized.sessionID)
 		}
-		a.sessionID = initialized.sessionID
-		if a.local != nil && a.local.ready {
-			if previousID != initialized.sessionID {
-				a.model.Draft = a.localComponent.draft(initialized.sessionID)
-			}
-			a.local.lastSession = initialized.sessionID
-		}
-		if initialized.restoreNotice != "" {
-			a.model.LocalState.Notice = initialized.restoreNotice
-			a.offerPreviousDraft(resumeID)
-		}
-		a.nextSeq = initialized.nextSeq
-		a.turn.reset()
-		a.settingsHostChanged()
-		a.model.CancelPending = false
-		a.clearApprovals()
-		a.clearQuestions()
-		a.clearStream()
-		a.stream = projection.AssistantStream{}
-		a.model.ToolInspector = nil
-		if initialized.transcript != nil {
-			a.transcript = *initialized.transcript
-			a.model.ResetTranscript(a.transcript.Items())
-		} else if recover {
-			a.transcript = projection.Transcript{}
-			a.model.ResetTranscript(nil)
-		}
-		a.model.SessionID = initialized.sessionID
-		a.subagents.reset(initialized.sessionID)
-		a.model.Subagents = a.subagents.summariesView()
-		a.model.Inspection.Available = initialized.caps.InspectSubagents
-		a.model.SessionCWD = initialized.cwd
-		a.syncWorkspace()
-		a.model.CanHistory = initialized.caps.History
-		a.historyComponent.hostChanged()
-		a.canHistoryWindow = initialized.caps.HistoryWindow
-		a.canRelease = initialized.caps.Release
-		a.model.History.Available = initialized.caps.HistoryWindow
-		a.acceptHistoryWindow(initialized.history)
-		a.model.CanResync = initialized.caps.Resync
-		a.model.Permission.Available = initialized.permissions != nil
-		a.model.Permission.Ready = false
-		a.model.Permission.Uncertain = false
-		a.model.Permission.Confirm = false
-		if initialized.permissions != nil {
-			a.model.Permission.Accept(*initialized.permissions)
-		}
-		a.canStreamBaseline = initialized.caps.StreamBaseline
-		a.acceptAttachments(initialized.attachments)
-		a.model.SessionPanel.CanRename = initialized.caps.Rename
-		a.model.SessionPanel.CanArchive = initialized.caps.Archive
-		a.model.SessionPanel.Uncertain = false
-		a.model.SessionPanel.ActiveArchived = false
-		a.sessionCatalog.reset()
-		a.CancelSessionEdit()
-		a.model.CanModels = initialized.caps.Models
-		a.model.CanConfigure = initialized.caps.Configure
-		a.model.ConfigurationReady = initialConfiguration != nil
-		if initialConfiguration != nil {
-			a.model.Configuration = *initialConfiguration
-		}
-		a.model.Setup.Picking, a.model.Setup.Error = false, ""
-		a.model.Setup.WorkspaceRequired = a.options.RequireWorkspace && len(a.model.Items) == 0
-		a.model.Runtime.SetupRequired = false
-		a.model.Runtime.Switching = false
-		a.model.Runtime.Busy = false
-		a.model.Runtime.Progress = 0
-		a.model.Runtime.Status = ""
-		a.model.Runtime.Error = ""
-		a.model.Runtime.Notice = ""
-		if switchedID != "" {
-			a.model.SettingsNotice = "Runtime switched."
-			a.refreshRuntimeChoicesLocked()
-		}
-		if initialized.route.Provider != "" {
-			a.model.SetActiveRoute(initialized.route)
-		}
-		a.model.CanCancel = initialized.caps.Cancel
-		a.model.CanApprove = initialized.caps.Approval
-		a.model.CanQuestion = initialized.caps.Question
-		a.model.CanStream = initialized.caps.Stream
-		a.model.Detail = initialized.detail
-		a.model.Error = ""
-		a.model.ErrorDetail = ""
-		a.model.RecoveryOpen = false
-		a.model.RecoveryError = ""
-		a.model.Restarting = false
-		if a.model.Phase == view.PhaseStarting || a.model.Phase == view.PhaseResyncing {
-			a.model.Phase = view.PhaseIdle
-		}
-		a.refreshSessions()
-		a.persistLocalState()
-	})
+		a.local.lastSession = initialized.sessionID
+	}
+	if initialized.restoreNotice != "" {
+		a.model.LocalState.Notice = initialized.restoreNotice
+		a.offerPreviousDraft(resumeID)
+	}
+
+	// Turn, interaction and transcript state belong to the previous connection.
+	a.nextSeq = initialized.nextSeq
+	a.turn.reset()
+	a.settingsHostChanged()
+	a.model.CancelPending = false
+	a.clearApprovals()
+	a.clearQuestions()
+	a.clearStream()
+	a.stream = projection.AssistantStream{}
+	a.model.ToolInspector = nil
+	if initialized.transcript != nil {
+		a.transcript = *initialized.transcript
+		a.model.ResetTranscript(a.transcript.Items())
+	} else if recover {
+		a.transcript = projection.Transcript{}
+		a.model.ResetTranscript(nil)
+	}
+
+	// Session-scoped resources and their Host capabilities.
+	a.model.SessionID = initialized.sessionID
+	a.subagents.reset(initialized.sessionID)
+	a.model.Subagents = a.subagents.summariesView()
+	a.model.Inspection.Available = initialized.caps.InspectSubagents
+	a.model.SessionCWD = initialized.cwd
+	a.syncWorkspace()
+	a.model.CanHistory = initialized.caps.History
+	a.historyComponent.hostChanged()
+	a.canHistoryWindow = initialized.caps.HistoryWindow
+	a.canRelease = initialized.caps.Release
+	a.model.History.Available = initialized.caps.HistoryWindow
+	a.acceptHistoryWindow(initialized.history)
+	a.model.CanResync = initialized.caps.Resync
+	a.model.Permission.Available = initialized.permissions != nil
+	a.model.Permission.Ready = false
+	a.model.Permission.Uncertain = false
+	a.model.Permission.Confirm = false
+	if initialized.permissions != nil {
+		a.model.Permission.Accept(*initialized.permissions)
+	}
+	a.canStreamBaseline = initialized.caps.StreamBaseline
+	a.acceptAttachments(initialized.attachments)
+
+	// Settings, setup and runtime state are published with the same snapshot.
+	a.model.SessionPanel.CanRename = initialized.caps.Rename
+	a.model.SessionPanel.CanArchive = initialized.caps.Archive
+	a.model.SessionPanel.Uncertain = false
+	a.model.SessionPanel.ActiveArchived = false
+	a.sessionCatalog.reset()
+	a.CancelSessionEdit()
+	a.model.CanModels = initialized.caps.Models
+	a.model.CanConfigure = initialized.caps.Configure
+	a.model.ConfigurationReady = initialConfiguration != nil
+	if initialConfiguration != nil {
+		a.model.Configuration = *initialConfiguration
+	}
+	a.model.Setup.Picking, a.model.Setup.Error = false, ""
+	a.model.Setup.WorkspaceRequired = a.options.RequireWorkspace && len(a.model.Items) == 0
+	a.model.Runtime.SetupRequired = false
+	a.model.Runtime.Switching = false
+	a.model.Runtime.Busy = false
+	a.model.Runtime.Progress = 0
+	a.model.Runtime.Status = ""
+	a.model.Runtime.Error = ""
+	a.model.Runtime.Notice = ""
+	if switchedID != "" {
+		a.model.SettingsNotice = "Runtime switched."
+		a.refreshRuntimeChoicesLocked()
+	}
+	if initialized.route.Provider != "" {
+		a.model.SetActiveRoute(initialized.route)
+	}
+
+	// Capabilities and the visible lifecycle state.
+	a.model.CanCancel = initialized.caps.Cancel
+	a.model.CanApprove = initialized.caps.Approval
+	a.model.CanQuestion = initialized.caps.Question
+	a.model.CanStream = initialized.caps.Stream
+	a.model.Detail = initialized.detail
+	a.model.Error = ""
+	a.model.ErrorDetail = ""
+	a.model.RecoveryOpen = false
+	a.model.RecoveryError = ""
+	a.model.Restarting = false
+	if a.model.Phase == view.PhaseStarting || a.model.Phase == view.PhaseResyncing {
+		a.model.Phase = view.PhaseIdle
+	}
+
+	// Catalog and persistence observe the complete snapshot last.
+	a.refreshSessions()
+	a.persistLocalState()
 }
 
 // Restart stops a failed host and resumes the current session on a new one.

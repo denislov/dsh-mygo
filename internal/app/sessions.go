@@ -226,51 +226,78 @@ func (a *App) loadSessionInDirectory(id, cwd string) {
 				}
 				return
 			}
-			a.localComponent.setDraft(a.sessionID, a.model.Draft)
-			a.sessionID = summary.ID
-			a.retireSession(currentID)
-			delete(a.retiredSessions, summary.ID)
-			a.model.SessionID = summary.ID
-			a.subagents.sessionChanged(summary.ID)
-			a.model.Subagents = a.subagents.summariesView()
-			// Staged uploads are conversation-local and never follow a switch.
-			a.model.Attachments.Clear()
-			a.model.SessionCWD = summary.CWD
-			a.syncWorkspace()
-			a.model.Setup.WorkspaceRequired = workspaceRequired
-			a.model.Setup.Error = ""
-			if canPermissions {
-				a.model.Permission.Accept(permissions)
-			}
-			a.model.SessionPanel.ActiveArchived = summary.Archived
-			a.upsertSession(sessionSummaryView(summary))
-			a.nextSeq = nextSeq
-			a.statusRevision = 0
-			a.hostStatus = ""
-			a.sessionCatalog.clearTitle()
-			a.turn.reset()
-			a.model.CancelPending = false
-			a.transcript = transcript
-			a.stream = projection.AssistantStream{}
-			a.model.ResetTranscript(transcript.Items())
-			a.acceptHistoryWindow(history)
-			a.model.Draft = a.localComponent.draft(summary.ID)
-			if a.local != nil {
-				a.local.lastSession = summary.ID
-			}
-			a.persistLocalState()
-			a.model.SetActiveRoute(view.ModelRoute{Provider: summary.Provider, Model: summary.Model, Effort: summary.Effort})
-			a.model.Error = ""
-			a.model.ErrorDetail = ""
-			a.model.SessionsOpen = false
-			for _, notification := range buffer {
-				if notification.method != protocol.NotificationSessionAssistantStream {
-					a.processNotification(notification)
-				}
-			}
-			a.publishTranscript()
+			a.sessionChanged(sessionSwitchResult{
+				summary: summary, transcript: transcript, nextSeq: nextSeq,
+				history: history, permissions: permissions, canPermissions: canPermissions,
+				workspaceRequired: workspaceRequired, buffer: buffer, previousID: currentID,
+			})
 		})
 	}()
+}
+
+// sessionSwitchResult is the complete validated replacement for the visible
+// conversation. Notifications buffered during the read are replayed after the
+// new identity is installed.
+type sessionSwitchResult struct {
+	summary           protocol.SessionSummary
+	transcript        projection.Transcript
+	nextSeq           uint64
+	history           historySnapshot
+	permissions       view.PermissionSnapshot
+	canPermissions    bool
+	workspaceRequired bool
+	buffer            []hostNotification
+	previousID        string
+}
+
+// sessionChanged publishes one session replacement. Order matters: save the
+// outgoing draft, replace identity, reset conversation-scoped resources and
+// projection, then expose the new route/session state and replay buffered
+// notifications.
+func (a *App) sessionChanged(result sessionSwitchResult) {
+	a.localComponent.setDraft(a.sessionID, a.model.Draft)
+	a.sessionID = result.summary.ID
+	a.retireSession(result.previousID)
+	delete(a.retiredSessions, result.summary.ID)
+	a.model.SessionID = result.summary.ID
+	a.subagents.sessionChanged(result.summary.ID)
+	a.model.Subagents = a.subagents.summariesView()
+	// Staged uploads are conversation-local and never follow a switch.
+	a.model.Attachments.Clear()
+	a.model.SessionCWD = result.summary.CWD
+	a.syncWorkspace()
+	a.model.Setup.WorkspaceRequired = result.workspaceRequired
+	a.model.Setup.Error = ""
+	if result.canPermissions {
+		a.model.Permission.Accept(result.permissions)
+	}
+	a.model.SessionPanel.ActiveArchived = result.summary.Archived
+	a.upsertSession(sessionSummaryView(result.summary))
+	a.nextSeq = result.nextSeq
+	a.statusRevision = 0
+	a.hostStatus = ""
+	a.sessionCatalog.clearTitle()
+	a.turn.reset()
+	a.model.CancelPending = false
+	a.transcript = result.transcript
+	a.stream = projection.AssistantStream{}
+	a.model.ResetTranscript(result.transcript.Items())
+	a.acceptHistoryWindow(result.history)
+	a.model.Draft = a.localComponent.draft(result.summary.ID)
+	if a.local != nil {
+		a.local.lastSession = result.summary.ID
+	}
+	a.persistLocalState()
+	a.model.SetActiveRoute(view.ModelRoute{Provider: result.summary.Provider, Model: result.summary.Model, Effort: result.summary.Effort})
+	a.model.Error = ""
+	a.model.ErrorDetail = ""
+	a.model.SessionsOpen = false
+	for _, notification := range result.buffer {
+		if notification.method != protocol.NotificationSessionAssistantStream {
+			a.processNotification(notification)
+		}
+	}
+	a.publishTranscript()
 }
 
 func (a *App) bufferSessionNotificationFrom(source *hostInstance, method string, params json.RawMessage) bool {

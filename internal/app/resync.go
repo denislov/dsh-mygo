@@ -199,41 +199,48 @@ func (a *App) readResync(job *resyncState) {
 				a.readResync(job)
 				return
 			}
-			a.transcript = snapshot.Transcript
-			a.acceptHistoryWindow(snapshot)
-			if wantStream {
-				a.stream = snapshot.Stream
-			}
-			a.nextSeq = snapshot.NextSeq
-			a.historyComponent.commitSnapshot(snapshot.Status, snapshot.StatusRevision)
-			a.model.CopiedMessageID = ""
-			a.model.CopiedMessageText = ""
-			a.model.Phase = view.PhaseRunning
-			a.turn.restore(snapshot.Status != "idle")
-			a.applyStatus(snapshot.Status)
-			buffer := job.buffer
-			a.cancelResync()
-			for _, notification := range buffer {
-				a.processNotification(notification)
-				if a.model.Phase == view.PhaseFailed || a.resync != nil {
-					break
-				}
-			}
-			if a.model.Phase == view.PhaseFailed || a.resync != nil {
-				return
-			}
-			// RPC callbacks may predate the snapshot. The newest versioned Host
-			// status still decides whether work is running after they settle.
-			if a.hostStatus == "running" {
-				a.model.Phase = view.PhaseRunning
-			} else if !a.model.CancelPending {
-				a.model.Phase = view.PhaseIdle
-			}
-			if a.model.Phase == view.PhaseIdle {
-				a.clearStream()
-			}
-			a.publishTranscript()
-			a.logf("history resync completed")
+			a.resyncCommitted(snapshot, job.buffer, wantStream)
 		})
 	}()
+}
+
+// resyncCommitted installs one continuous snapshot, then releases the buffer
+// through the normal ordered notification boundary. Order matters: state and
+// the revision barrier commit first, buffered frames replay second, and only
+// then does the latest Host status decide the idle/running phase.
+func (a *App) resyncCommitted(snapshot historySnapshot, buffer []hostNotification, wantStream bool) {
+	a.transcript = snapshot.Transcript
+	a.acceptHistoryWindow(snapshot)
+	if wantStream {
+		a.stream = snapshot.Stream
+	}
+	a.nextSeq = snapshot.NextSeq
+	a.historyComponent.commitSnapshot(snapshot.Status, snapshot.StatusRevision)
+	a.model.CopiedMessageID = ""
+	a.model.CopiedMessageText = ""
+	a.model.Phase = view.PhaseRunning
+	a.turn.restore(snapshot.Status != "idle")
+	a.applyStatus(snapshot.Status)
+	a.cancelResync()
+	for _, notification := range buffer {
+		a.processNotification(notification)
+		if a.model.Phase == view.PhaseFailed || a.resync != nil {
+			break
+		}
+	}
+	if a.model.Phase == view.PhaseFailed || a.resync != nil {
+		return
+	}
+	// RPC callbacks may predate the snapshot. The newest versioned Host status
+	// still decides whether work is running after they settle.
+	if a.hostStatus == "running" {
+		a.model.Phase = view.PhaseRunning
+	} else if !a.model.CancelPending {
+		a.model.Phase = view.PhaseIdle
+	}
+	if a.model.Phase == view.PhaseIdle {
+		a.clearStream()
+	}
+	a.publishTranscript()
+	a.logf("history resync completed")
 }

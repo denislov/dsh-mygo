@@ -138,6 +138,10 @@ node scripts/smoke-installer.mjs                # 未运行：本机已安装 ds
 
 本批验证：全量/纯 Go 各 739 项、protocol/projection/app/channel/interaction/view race 647 项、Node Host 96 项通过；MyGo vet、Go vet、格式与差异检查通过。显式设置 DSH_MYGO_DSH_DIR，真实 composition、Restart、resync、流式、取消、审批/提问、会话切换/管理与子代理冷恢复相关 56 项（含子用例）通过，使用 mock provider。wire、protocolVersion、能力与 Node handlers 不变；原生窗口、安装器与 macOS 未重验，本批没有布局/输入绑定改动。阶段 2 的 2.1–2.5 全部完成，后续按计划进入阶段 3。
 
+2026-10-26 阶段 3 领域所有权与 App 装配收口：设置、会话导航/目录、历史/resync、本机草稿/退出、Runtime 切换、子代理详情、工作区资源与附件暂存分别由组件拥有状态和生命周期入口；`hostReady`、`sessionChanged`、`resyncCommitted`、`requestQuit` 成为显式跨领域发布顺序，组件不持有 App，跨域依赖通过窄 provider 或显式参数传入。Runtime 切换显式分准备/停止/候选初始化/提交/回滚，候选成功前不写设备选择；会话切换清空暂存附件与子代理状态；工作区项目代际与面板请求分离，关闭面板不销毁资源。
+
+本批验证：`go test ./...`、`CGO_ENABLED=0 go test ./...`、`go test -race ./...` 各 750 项通过；Node Host 96 项、scripts 10 项通过；`TestAgainstMygoRealComposition` 与 `node scripts/test-real-host.mjs --runtime` 通过（mock provider）；MyGo vet、Go vet、gofmt、`git diff --check` 通过。wire、protocolVersion、能力与 Node handlers 不变；原生窗口、安装器、macOS 与显式原生终端 smoke 未重验。阶段 3 的 3.1–3.9 全部完成，后续按计划进入阶段 4；发布阻塞与产品体验缺口不变。
+
 ## 4. 缺口
 
 ### 4.1 发布阻塞（没有它不能称为产品）
