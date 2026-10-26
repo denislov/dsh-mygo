@@ -115,7 +115,9 @@ try {
       hostPid = readHostPid(logPath)
       if (hostPid) pass(`found the host process (pid ${hostPid})`)
       else fail('could not read the host pid from the application log')
-      await delay(1500)
+      const sessionID = readSessionID(logPath)
+      await waitFor(() => hasSavedSession(uiState, sessionID), 30000, 'persisted session selection')
+      pass('session selection was saved before stopping the app')
     }
   } catch (error) {
     fail(error.message)
@@ -204,6 +206,22 @@ function readSessionID(logPath) {
     return matches.length ? matches[matches.length - 1][1] : ''
   } catch {
     return ''
+  }
+}
+
+function hasSavedSession(directory, sessionID) {
+  if (!sessionID) return false
+  try {
+    return readdirSync(directory).filter((name) => /^editing-[a-f0-9]{32}\.json$/.test(name)).some((name) => {
+      try {
+        const snapshot = JSON.parse(readFileSync(join(directory, name), 'utf8'))
+        return snapshot.version === 2 && snapshot.lastSessionId === sessionID
+      } catch {
+        return false
+      }
+    })
+  } catch {
+    return false
   }
 }
 
