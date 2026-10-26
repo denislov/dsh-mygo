@@ -56,7 +56,7 @@ func (a *App) SetSessionArchived(id string, archived bool) {
 }
 
 func (a *App) canWriteSession() bool {
-	return !a.options.SDKProtocol && !a.shuttingDown.Load() && a.currentClient() != nil && a.model.CanRefreshSessions() && !a.model.SessionPanel.Uncertain
+	return a.protocol.richUI() && !a.shuttingDown.Load() && a.currentClient() != nil && a.model.CanRefreshSessions() && !a.model.SessionPanel.Uncertain
 }
 
 func decodeManagedSession(raw json.RawMessage, id string) (protocol.SessionSummary, error) {

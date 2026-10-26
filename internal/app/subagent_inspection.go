@@ -97,7 +97,7 @@ func (a *App) cancelSubagentRead() {
 }
 
 func (a *App) OpenSubagents() {
-	if a.options.SDKProtocol || a.shuttingDown.Load() || a.currentClient() == nil || !a.model.CanInspectSubagents() {
+	if a.protocol.enabled() || a.shuttingDown.Load() || a.currentClient() == nil || !a.model.CanInspectSubagents() {
 		return
 	}
 	a.CloseSubagents()

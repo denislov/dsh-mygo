@@ -12,11 +12,11 @@ import (
 )
 
 func (a *App) canChooseSession() bool {
-	return !a.options.SDKProtocol && !a.shuttingDown.Load() && a.model.CanChooseSession() && a.currentClient() != nil
+	return a.protocol.richUI() && !a.shuttingDown.Load() && a.model.CanChooseSession() && a.currentClient() != nil
 }
 
 func (a *App) OpenSessions() {
-	if a.options.SDKProtocol || a.shuttingDown.Load() || a.currentClient() == nil || !a.model.CanRefreshSessions() {
+	if a.protocol.enabled() || a.shuttingDown.Load() || a.currentClient() == nil || !a.model.CanRefreshSessions() {
 		return
 	}
 	a.model.SessionsOpen = true
@@ -59,7 +59,7 @@ func (a *App) RefreshSessions() {
 }
 
 func (a *App) refreshSessions() {
-	if a.options.SDKProtocol || a.shuttingDown.Load() || !a.model.CanRefreshSessions() || a.currentClient() == nil {
+	if a.protocol.enabled() || a.shuttingDown.Load() || !a.model.CanRefreshSessions() || a.currentClient() == nil {
 		return
 	}
 	ctx, operation, cancel := a.beginSessionOperation()

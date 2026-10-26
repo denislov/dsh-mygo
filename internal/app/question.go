@@ -56,7 +56,7 @@ func (a *App) handleQuestionNotification(method string, params json.RawMessage) 
 }
 
 func (a *App) RespondQuestion(requestID string, cancelQuestion bool) {
-	if a.shuttingDown.Load() || a.options.SDKProtocol || !a.model.CanQuestion || a.model.CancelPending || a.model.Phase != view.PhaseRunning && a.model.Phase != view.PhaseIdle || len(a.model.Approvals) > 0 {
+	if a.shuttingDown.Load() || a.protocol.enabled() || !a.model.CanQuestion || a.model.CancelPending || a.model.Phase != view.PhaseRunning && a.model.Phase != view.PhaseIdle || len(a.model.Approvals) > 0 {
 		return
 	}
 	items := a.questions.Items()

@@ -14,7 +14,7 @@ const mentionCandidates = 40
 // the typed prefix. Reads run on a goroutine and publish through Post; results
 // for a superseded prefix or another session are dropped.
 func (a *App) QueryMentions(prefix string) {
-	if a.options.SDKProtocol {
+	if a.protocol.enabled() {
 		return
 	}
 	cwd := a.model.SessionCWD

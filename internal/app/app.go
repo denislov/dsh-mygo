@@ -118,6 +118,7 @@ type App struct {
 	workspace   workspaceComponent
 	hostLocale  atomic.Value
 	options     Options
+	protocol    sdkAdapter
 	model       *view.Model
 	transcript  projection.Transcript
 	approvals   interaction.ApprovalQueue
@@ -155,6 +156,7 @@ func New(options Options) *App {
 		options.Profile = "mygo"
 	}
 	app := &App{options: options, sessionID: options.SessionID, stopped: make(chan struct{}), pendingUI: make(chan struct{}, maxPendingUIUpdates), diag: newDiagnostics(options.LogDir)}
+	app.protocol = newSDKAdapter(&app.options)
 	app.model = view.NewModel()
 	app.subagents.sessionOf = func() string { return app.model.SessionID }
 	app.attachments.sessionOf = func() string { return app.model.SessionID }
@@ -407,7 +409,7 @@ func (a *App) startHost(recover bool, resumeID string, route view.ModelRoute) {
 			a.failRuntimeSwitch(err)
 			return
 		}
-		if !a.options.SDKProtocol && !recover {
+		if a.protocol.richUI() && !recover {
 			err = fmt.Errorf("%w\n\nCheck that the mygo profile contains dsh-base and @dsh-mygo/host. Initialize a new development profile with resources/host/setup-profile.mjs --dsh-home <absolute-directory>", err)
 		}
 		summary := msgHostInitialize
@@ -650,20 +652,8 @@ type sessionInitialization struct {
 }
 
 func (a *App) initializeSession(ctx context.Context, client rpcClient, request sessionInitialization) (initializedSession, error) {
-	if a.options.SDKProtocol {
-		params := protocol.SDKInitializeParams{
-			CWD: a.options.CWD, Provider: a.options.Provider, Model: a.options.Model,
-			ReasoningEffort: a.options.ReasoningEffort,
-		}
-		result, err := client.Call(ctx, protocol.MethodInitialize, params)
-		if err != nil {
-			return initializedSession{}, err
-		}
-		var initialized protocol.SDKInitializeResult
-		if json.Unmarshal(result, &initialized) != nil || initialized.ServerInfo.Name == "" {
-			return initializedSession{}, errors.New("invalid SDK host handshake")
-		}
-		return initializedSession{sessionID: a.options.SessionID, cwd: a.options.CWD, detail: strings.TrimSpace(initialized.ServerInfo.Name + " " + initialized.ServerInfo.Version)}, nil
+	if a.protocol.enabled() {
+		return a.protocol.initialize(ctx, client)
 	}
 	result, err := client.Call(ctx, protocol.MethodInitialize, protocol.InitializeParams{
 		ProtocolVersion: channel.ProtocolVersion,
@@ -850,8 +840,8 @@ func (a *App) Send(text string) {
 // promptRequest selects the custom channel or the explicit legacy SDK field
 // spelling. The session identity is captured on the main thread.
 func (a *App) promptRequest(sessionID string, blocks []protocol.ContentBlock) any {
-	if a.options.SDKProtocol {
-		return protocol.SDKPromptParams{SessionID: sessionID, ContentBlocks: blocks}
+	if a.protocol.enabled() {
+		return a.protocol.promptRequest(sessionID, blocks)
 	}
 	return protocol.SessionPromptParams{SessionID: sessionID, Content: blocks}
 }
@@ -890,7 +880,7 @@ func (a *App) prompt(client rpcClient, request any, submitted string, promptID u
 }
 
 func (a *App) Cancel() {
-	if a.shuttingDown.Load() || a.options.SDKProtocol || !a.model.CanCancel || a.model.Phase != view.PhaseRunning || a.model.CancelPending {
+	if a.shuttingDown.Load() || a.protocol.enabled() || !a.model.CanCancel || a.model.Phase != view.PhaseRunning || a.model.CancelPending {
 		return
 	}
 	client := a.currentClient()
@@ -978,7 +968,7 @@ func (a *App) handleNotificationFrom(source *hostInstance, method string, params
 			return
 		}
 	}
-	if !a.options.SDKProtocol {
+	if a.protocol.richUI() {
 		if a.bufferSessionNotificationFrom(source, method, params) {
 			return
 		}
@@ -999,9 +989,9 @@ func (a *App) handleNotificationFrom(source *hostInstance, method string, params
 			a.handleSubagentNotification(params, true)
 			return
 		case protocol.NotificationSessionEvent:
-			method = protocol.NotificationSDKSessionEvent
+			method = a.protocol.notificationMethod(method)
 		case protocol.NotificationSessionStatus:
-			method = protocol.NotificationSDKSessionStatus
+			method = a.protocol.notificationMethod(method)
 		case protocol.NotificationHostFatal:
 			a.setFailure(msgHostAgentFailure, errors.New("Restart the host before retrying"))
 			go a.stopHost()
@@ -1025,7 +1015,7 @@ func (a *App) handleNotificationFrom(source *hostInstance, method string, params
 func (a *App) handleSessionEventNotification(source *hostInstance, params json.RawMessage) {
 	var envelope protocol.SessionEventNotification
 	if json.Unmarshal(params, &envelope) != nil || envelope.SessionID == "" {
-		if !a.options.SDKProtocol {
+		if a.protocol.richUI() {
 			a.setFailure(msgHostInvalidEvent, errors.New("The host sent an invalid session event"))
 			go a.stopHost()
 		}
@@ -1033,7 +1023,7 @@ func (a *App) handleSessionEventNotification(source *hostInstance, params json.R
 	}
 	event, eventSeq, err := projection.DecodeEvent(envelope.Event)
 	if err != nil {
-		if !a.options.SDKProtocol {
+		if a.protocol.richUI() {
 			a.setFailure(msgHostInvalidEvent, errors.New("The host sent an invalid session event"))
 			go a.stopHost()
 		}
@@ -1042,7 +1032,7 @@ func (a *App) handleSessionEventNotification(source *hostInstance, params json.R
 	if envelope.SessionID != a.sessionID {
 		return
 	}
-	if !a.options.SDKProtocol {
+	if a.protocol.richUI() {
 		if envelope.Seq == nil || eventSeq == nil || *envelope.Seq != event.Seq {
 			a.setFailure(msgHostInvalidSequence, errors.New("The host sent an inconsistent session event sequence"))
 			go a.stopHost()
@@ -1096,7 +1086,7 @@ func (a *App) handleSessionEventNotification(source *hostInstance, params json.R
 func (a *App) handleSessionStatusNotification(params json.RawMessage) {
 	var notification protocol.SessionStatusNotification
 	if json.Unmarshal(params, &notification) != nil {
-		if !a.options.SDKProtocol {
+		if a.protocol.richUI() {
 			a.setFailure(msgHostInvalidStatus, errors.New("The host sent an invalid session status"))
 			go a.stopHost()
 		}
@@ -1105,7 +1095,7 @@ func (a *App) handleSessionStatusNotification(params json.RawMessage) {
 	if notification.SessionID != a.sessionID {
 		return
 	}
-	if !a.options.SDKProtocol && notification.Status != "idle" && notification.Status != "running" {
+	if a.protocol.richUI() && notification.Status != "idle" && notification.Status != "running" {
 		a.setFailure(msgHostInvalidStatus, errors.New("The host sent an unknown session status"))
 		go a.stopHost()
 		return
@@ -1251,14 +1241,14 @@ func (a *App) setFailure(summary string, err error) {
 	if err != nil {
 		detail = err.Error()
 	}
-	if a.options.SDKProtocol {
+	if a.protocol.enabled() {
 		if tail := a.stderrTail(); tail != "" {
 			detail += "\n\nHost stderr:\n" + tail
 		}
 	}
 	a.model.ErrorDetail = clipDetail(detail, maxErrorRunes)
 	a.model.RecoveryOpen = true
-	a.model.Recoverable = !a.options.SDKProtocol && !a.shuttingDown.Load()
+	a.model.Recoverable = a.protocol.richUI() && !a.shuttingDown.Load()
 	a.model.Restarting = false
 	a.model.Runtime.Switching = false
 	a.runtimeComponent.clearSwitch()
@@ -1280,7 +1270,7 @@ func (a *App) requireResync(err error) {
 	}
 	a.model.Phase = view.PhaseResyncing
 	a.model.RecoveryOpen = true
-	a.model.Recoverable = !a.options.SDKProtocol && !a.shuttingDown.Load()
+	a.model.Recoverable = a.protocol.richUI() && !a.shuttingDown.Load()
 	a.model.Restarting = false
 	a.model.Error = msgHostEventGap
 	a.model.ErrorDetail = "Restart the host to recover the session from its durable log. Automatic resynchronization is not available in this version."

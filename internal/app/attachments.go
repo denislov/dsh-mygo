@@ -106,7 +106,7 @@ func attachmentThumbnail(data []byte) *ui.Bitmap {
 // goroutine and publish through Post; staged uploads belong to the session they
 // were read for.
 func (a *App) AttachFiles(paths []string) {
-	if len(paths) == 0 || a.options.SDKProtocol {
+	if len(paths) == 0 || a.protocol.enabled() {
 		return
 	}
 	if !a.model.Attachments.Supported {
@@ -140,7 +140,7 @@ func (a *App) AttachFiles(paths []string) {
 // pickAttachment opens the native image picker on a goroutine, as MyGo's dialog
 // blocks until the user decides.
 func (a *App) pickAttachment() {
-	if a.options.SDKProtocol {
+	if a.protocol.enabled() {
 		return
 	}
 	sessionID := a.attachments.session()
@@ -271,7 +271,7 @@ func (a *App) promptBlocks(text string) ([]protocol.ContentBlock, error) {
 	if len(pending) == 0 {
 		return []protocol.ContentBlock{protocol.NewTextBlock(text)}, nil
 	}
-	if a.options.SDKProtocol {
+	if a.protocol.enabled() {
 		return nil, attachment.ErrUnsupported
 	}
 	limits, ok := a.attachments.limitsValue()

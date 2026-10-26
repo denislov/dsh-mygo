@@ -22,7 +22,7 @@ type localEditingState struct {
 }
 
 func (a *App) configureLocalState() {
-	if (a.options.PreferencesPath == "" && !a.options.PreferencesUnavailable) || a.options.SDKProtocol {
+	if (a.options.PreferencesPath == "" && !a.options.PreferencesUnavailable) || a.protocol.enabled() {
 		return
 	}
 	local := &localEditingState{store: preferences.NewStore(a.options.PreferencesPath), pending: make(map[uint64]pendingDraft)}

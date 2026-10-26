@@ -56,7 +56,7 @@ func (a *App) handleApprovalNotification(method string, params json.RawMessage) 
 }
 
 func (a *App) RespondApproval(requestID, decision string) {
-	if a.shuttingDown.Load() || a.options.SDKProtocol || !a.model.CanApprove || a.model.CancelPending || a.model.Phase != view.PhaseRunning || decision != protocol.ApprovalDecisionAllow && decision != protocol.ApprovalDecisionDeny {
+	if a.shuttingDown.Load() || a.protocol.enabled() || !a.model.CanApprove || a.model.CancelPending || a.model.Phase != view.PhaseRunning || decision != protocol.ApprovalDecisionAllow && decision != protocol.ApprovalDecisionDeny {
 		return
 	}
 	client := a.currentClient()

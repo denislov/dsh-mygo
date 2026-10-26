@@ -101,7 +101,7 @@ func modelCatalogView(catalog protocol.ModelCatalog) view.ModelCatalog {
 }
 
 func (a *App) canEditSettings() bool {
-	return !a.options.SDKProtocol && !a.shuttingDown.Load() && a.model.CanEditSettings() && a.currentClient() != nil
+	return a.protocol.richUI() && !a.shuttingDown.Load() && a.model.CanEditSettings() && a.currentClient() != nil
 }
 
 func (a *App) OpenSettings() {
