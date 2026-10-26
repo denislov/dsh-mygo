@@ -1,7 +1,6 @@
 package view
 
 import (
-	"fmt"
 	mgo "github.com/egoist/mygo/ui"
 )
 
@@ -59,16 +58,11 @@ func composerToolbar(c *mgo.Context, model *Model) {
 				Tooltip(model.ModelLabel).Disabled(!model.CanEditSettings() || model.SettingsOpen).OnClick(func() { model.openQuickSelector("model") })
 			quickSelector(c, model, anchor, "model")
 		}
-		if text := usageContextLabel(model); text != "" {
-			label := model.T("Context")
-			if model.Context.Window > 0 {
-				label = formatTokens(model.Context.Window)
-				if model.Usage.HasUsage {
-					used := min(maxReportedTokens, model.Usage.InputTokens+model.Usage.OutputTokens)
-					label = fmt.Sprintf("%d%% · %s", used*100/model.Context.Window, label)
-				}
-			}
-			mgo.Text(c.Key("composer-context"), label).FontSize(textMicro).TextColor(tokens.TextFaint).Tooltip(text)
+		if contextUsageAvailable(model) {
+			anchor := contextUsageChip(c, model)
+			contextUsagePopover(c, model, anchor)
+		} else {
+			model.ContextUsageOpen = false
 		}
 	})
 }

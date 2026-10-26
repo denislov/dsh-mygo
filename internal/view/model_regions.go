@@ -33,14 +33,16 @@ type ChatState struct {
 	CanResync           bool
 }
 
-// ComposerState owns the unsent input and the capabilities that gate it.
+// ComposerState owns the unsent input, the context usage panel and the
+// capabilities that gate them.
 type ComposerState struct {
-	Draft         string
-	Attachments   AttachmentState
-	Mention       MentionState
-	CanCancel     bool
-	CanStream     bool
-	CancelPending bool
+	Draft            string
+	Attachments      AttachmentState
+	Mention          MentionState
+	ContextUsageOpen bool
+	CanCancel        bool
+	CanStream        bool
+	CancelPending    bool
 	ComposerActions
 }
 

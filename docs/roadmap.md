@@ -17,7 +17,7 @@
 | 提交 | 拆分工作从 `9faa9b6` 起至 `06bf5dd`；2026-10-24 → 2026-10-25 |
 | 规模 | `docs/` 21 篇；Go 生产/测试与 Node Host/测试继续增长；runtime lock 约 400 KB |
 | 版本 | identifier `com.denislov.dshmygo`；app/host `0.1.1`、`protocolVersion 1`、DSH `0.2.1-rc.2`、`appCompatibility 0.1.1 <= app < 0.2.0`、MyGo `v0.6.2`、Node 24+、runtime Node `24.14.0` |
-| 测试 | 2026-10-27 复核：Go 全量/纯 Go 各 768 项、app/view/channel/protocol race 601 项、Node Host 97、scripts 11；source 真实白名单 17 项与 packaged smoke 通过；先前 source/runtime 完整组合记录见下文 |
+| 测试 | 2026-10-27 复核：Go 全量/纯 Go 各 772 项、view/app/i18n race 468 项；Node Host 97、scripts 11、source 真实白名单 17 项与 packaged smoke 记录见下文 |
 | 构建产物 | 2026-10-26 本机构建：应用 exe 15.3 MB、安装器 5.8 MB；runtime `.tgz` 222,545,475 B（约 212.2 MiB）与 catalog；未发布新资产。线上仍为旧 v0.1.1 单体安装器 |
 | 工程基线 | 公共 GitHub remote（2026-10-25 切换）；tag `v0.1.1` 指向 `728a3ed`；发布提交的 Windows 全量与 Linux Go CI 全绿 |
 
@@ -26,6 +26,11 @@
 - Node 路由表只分发自身声明的方法，拒绝 `toString`、`constructor` 等原型属性名，恢复 `protocol/method-not-found` / `-32601`。新增回归先复现失败，修正后 `node --test resources/host/tests/*.test.mjs` 97 项通过。
 - Host 故障清理在派发 goroutine 前捕获实例；重复停止等待同一次清理完成，detach 后保留待清理实例供 Restart/Runtime/Shutdown 等待，旧代迟到清理不覆盖新代诊断。两个新增回归先复现失败；修正后全量/纯 Go 各 768 项、app/view/channel/protocol race 601 项、source 真实 composition/Restart/lifecycle/cancellation/resync 17 项（含子用例）通过；Go/MyGo vet 与差异检查通过。
 - packaged smoke 在停止应用前轮询确认 `editing-*.json` 的 `lastSessionId` 已落盘，替代固定 1.5 秒等待。`go tool mygo build`、`node scripts/smoke-packaged.mjs` 通过（首启引导、显式 runtime、落盘、连续启动恢复、Host 回收）；scripts 11 项、repository artifact check 与脚本语法检查通过。使用现有 runtime；本次未重建 runtime、发布资产或执行安装验收。
+
+### 上下文用量展示（2026-10-27）
+
+- composer 的上下文指示改为百分比/容量入口，点击展开原生 Popover：已用/容量、输入/输出分段占用条、In / Out / cache / reasoning / 剩余明细与“按最新回合统计”说明；75% 与 90% 起分别使用警告/危险色。会话详情复用同一面板，空指标显示占位；弹层与详情同帧时使用独立元素 key。
+- 验证：`go test ./...` 与 `CGO_ENABLED=0 go test ./...` 各 772 项，`go test -race ./internal/view ./internal/app ./internal/i18n` 468 项，`go tool mygo vet .`、`go vet ./...`、`gofmt -l`、`git diff --check` 通过。Windows 原生窗口用 fake Host `--usage` 发送消息并通过 UI Automation 打开面板，确认 Context used / 1% / 1.6k / 128k / In / Out / Cache read / Free / Latest turn only 可见并检查截图布局；未验证 macOS 与真实模型。
 
 ### 2.1 当前验证组合
 

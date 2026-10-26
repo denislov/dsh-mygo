@@ -26,7 +26,7 @@ func TestDetailsPaneOpensOnDemandOnWideWindows(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
-	for _, text := range []string{"Progress", "Environment", "Context", "C:/work/project", "host-build-fixture", "Context 128k"} {
+	for _, text := range []string{"Progress", "Environment", "Context", "C:/work/project", "host-build-fixture", "Context window", "128k"} {
 		if !tt.HasText(text) {
 			t.Fatalf("details pane missing %q in %v", text, tt.Texts())
 		}

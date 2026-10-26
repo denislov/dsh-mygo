@@ -19,12 +19,10 @@ func detailsBody(c *mgo.Context, model *Model) {
 			}
 		})
 		detailSection(c, "context", model.T("Context"), iconInfo, &model.Shell.ContextOpen, func() {
-			if model.Context.Window > 0 && model.Usage.HasUsage {
-				ratio := min(1, float64(model.Usage.InputTokens+model.Usage.OutputTokens)/float64(model.Context.Window))
-				mgo.Progress(c.Key("context-usage"), ratio).FillWidth()
-			}
-			if usage := usageContextLabel(model); usage != "" {
-				mgo.Text(c, usage).FontSize(textCaption)
+			if contextUsageAvailable(model) {
+				contextUsagePanel(c, model, "details")
+			} else {
+				mgo.Text(c, model.T("No context metrics yet")).FontSize(textMicro).TextColor(tokensFor(c.Theme()).TextFaint)
 			}
 			contextDetails(c, model)
 		})
@@ -68,9 +66,6 @@ func progressDetails(c *mgo.Context, model *Model) {
 		}
 		mgo.Text(c, model.T(phaseLabel(model.Phase))).FontSize(textCaption).TextColor(tokens.TextMuted)
 	})
-	if usage := usageContextLabel(model); usage != "" {
-		mgo.Text(c, usage).FontSize(textMicro).TextColor(tokens.TextMuted).LineHeight(1.4)
-	}
 	done, total := taskProgress(model.Tasks)
 	if total > 0 {
 		ratio := float64(done) / float64(total)

@@ -25,14 +25,14 @@ func TestConversationDetailsDiscloseDiagnosticsAndKeepDraft(t *testing.T) {
 	model.Draft = "unfinished prompt"
 	model.Context = projection.ContextView{Window: 128000}
 	tt := tester(model)
-	if tt.HasText(model.Detail) || tt.HasText(model.SessionCWD) || tt.HasText("Context 128k") {
+	if tt.HasText(model.Detail) || tt.HasText(model.SessionCWD) || tt.HasText("Context window") {
 		t.Fatal("diagnostics crowd the conversation before disclosure")
 	}
 	if err := tt.Click("Toggle Session rail"); err != nil {
 		t.Fatal(err)
 	}
 	tt.Advance(300 * time.Millisecond)
-	for _, text := range []string{model.Detail, model.SessionCWD, "Context 128k"} {
+	for _, text := range []string{model.Detail, model.SessionCWD, "Context window", "128k"} {
 		if !tt.HasText(text) {
 			t.Fatalf("details missing %q: %v", text, tt.Texts())
 		}
