@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"dsh-mygo/internal/preferences"
+	"dsh-mygo/internal/protocol"
 )
 
 func TestUIPreferencesSaveWithDraftAndHandshakeLocale(t *testing.T) {
@@ -36,7 +37,7 @@ func TestUIPreferencesSaveWithDraftAndHandshakeLocale(t *testing.T) {
 	if _, err := a.initialize(context.Background(), client, ""); err != nil {
 		t.Fatal(err)
 	}
-	if client.params[0].(map[string]any)["client"].(map[string]string)["locale"] != "zh-CN" {
+	if client.params[0].(protocol.InitializeParams).Client.Locale != "zh-CN" {
 		t.Fatal("locale did not reach handshake")
 	}
 	// A restarted app loads locale before queued UI callbacks are drained.

@@ -4,12 +4,83 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"runtime"
 	"testing"
 	"time"
 
 	"dsh-mygo/internal/channel"
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
+
+func TestInitializeRequestEncodingKeepsCustomAndSDKShapes(t *testing.T) {
+	caps, err := json.Marshal(protocol.ClientCapabilities())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, effort, want string
+		sdk                bool
+	}{
+		{"custom", "high", fmt.Sprintf(`{"protocolVersion":%d,"client":{"name":"dsh-mygo","version":%q,"platform":%q,"locale":"zh-CN"},"capabilities":%s}`, channel.ProtocolVersion, channel.ReleaseVersion, runtime.GOOS, caps), false},
+		{"SDK default effort", "", `{"cwd":"C:/work","provider":"test","model":"echo"}`, true},
+		{"SDK explicit effort", "high", `{"cwd":"C:/work","provider":"test","model":"echo","reasoningEffort":"high"}`, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := &fakeClient{result: json.RawMessage(`{}`)}
+			application := New(Options{SDKProtocol: test.sdk, CWD: "C:/work", Provider: "test", Model: "echo", ReasoningEffort: test.effort})
+			application.hostLocale.Store("zh-CN")
+			// Invalid response stops after the first RPC; inspect the outgoing wire.
+			if _, err := application.initialize(context.Background(), client, ""); err == nil {
+				t.Fatal("invalid response accepted")
+			}
+			if calls := client.called(); len(calls) != 1 || calls[0] != "initialize" {
+				t.Fatalf("calls = %v", calls)
+			}
+			data, err := json.Marshal(client.params[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got, want any
+			if err := json.Unmarshal(data, &got); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal([]byte(test.want), &want); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("request changed: %s, want %s", data, test.want)
+			}
+		})
+	}
+}
+
+func TestSDKInitializeResponseCompatibility(t *testing.T) {
+	for _, test := range []struct {
+		name, wire string
+		valid      bool
+	}{
+		{"name only", `{"serverInfo":{"name":"sdk"}}`, true},
+		{"null optional version", `{"serverInfo":{"name":"sdk","version":null}}`, true},
+		{"unknown field", `{"serverInfo":{"name":"sdk","future":true}}`, true},
+		{"null server info", `{"serverInfo":null}`, false},
+		{"null name", `{"serverInfo":{"name":null}}`, false},
+		{"empty name", `{"serverInfo":{"name":""}}`, false},
+		{"wrong name type", `{"serverInfo":{"name":1}}`, false},
+		{"wrong version type", `{"serverInfo":{"name":"sdk","version":1}}`, false},
+		{"custom response", `{"server":{"name":"custom"}}`, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := &fakeClient{result: json.RawMessage(test.wire)}
+			application := New(Options{SDKProtocol: true, SessionID: "sdk-session"})
+			result, err := application.initialize(context.Background(), client, "")
+			if (err == nil) != test.valid || test.valid && result.sessionID != "sdk-session" {
+				t.Fatalf("SDK initialize = %+v, %v", result, err)
+			}
+		})
+	}
+}
 
 func selectStartupTestRoute(t *testing.T, application *App, updates <-chan func(), provider string) view.ModelRoute {
 	t.Helper()

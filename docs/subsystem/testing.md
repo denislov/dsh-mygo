@@ -69,9 +69,12 @@ go tool mygo vet .
 tests/fixtures/protocol/
   invalid-frames.json
   capabilities.json
+  initialize.json
 ```
 
 Go channel 与 Node transport 共用非法帧 fixture。Go protocol 与 Node server 共用能力 fixture，固定客户端声明的名称/顺序以及基础服务、历史服务的协商子集；单项能力、独立 reasoning baseline、未知名称与重复声明分别验证，解析不能代替握手载荷校验。
+
+initialize fixture 固定 custom 请求与 Host 响应，由 Go 载荷编码/解码和 Node handler 共用；Go 侧同时验证 SDK 请求的 effort 省略与显式空字符串。编码比较使用解析后的 JSON 对象，字段排列不作为协议语义；channel 回归另行固定缺失/null/空值、版本回退、字段类型与大小边界的既有接受范围。
 
 `resources/host/tests/protocol.test.mjs` 覆盖握手门槛、版本/能力协商、非法 JSON/帧、超长输入、未终止 EOF、输出背压、请求串行、shutdown 与错误信息隔离；`history.test.mjs`、`models.test.mjs`、`configuration.test.mjs`、`approval.test.mjs`、`question.test.mjs` 分别覆盖对应子系统的边界与预算。目标态还需覆盖 `$/cancel`、`subagent/*`、附件帧、`session/rename|archive|delete|fork` 与 resync。
 

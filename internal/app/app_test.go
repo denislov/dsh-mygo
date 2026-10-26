@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"dsh-mygo/internal/channel"
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -219,8 +220,7 @@ func TestMygoInitializeCreatesSessionAfterValidHandshake(t *testing.T) {
 				t.Fatalf("initialized = %+v", initialized)
 			}
 			if test.valid {
-				params := client.params[0].(map[string]any)
-				capabilities := params["capabilities"].([]string)
+				capabilities := client.params[0].(protocol.InitializeParams).Capabilities
 				if strings.Join(capabilities, ",") != "session.cancel,approval,question,session.assistant-stream,session.history,session.history-window,session.release,session.resync,session.assistant-stream-baseline,session.assistant-stream-baseline-reasoning,session.rename,session.archive,model.selection,settings.configuration,session.permissions,attachments,subagent.inspection" {
 					t.Fatal("unimplemented capabilities advertised")
 				}

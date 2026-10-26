@@ -1,0 +1,20 @@
+{
+  "request": {
+    "protocolVersion": 1,
+    "client": { "name": "dsh-mygo", "version": "0.1.1", "platform": "test", "locale": "zh-CN" },
+    "capabilities": ["approval", "session.history"]
+  },
+  "response": {
+    "server": {
+      "name": "dsh-mygo-host", "version": "0.1.1", "dshVersion": "0.2.1-rc.2",
+      "appMin": "0.1.1", "appMaxExclusive": "0.2.0"
+    },
+    "protocolVersion": 1,
+    "capabilities": ["approval"]
+  },
+  "sdkRequests": [
+    { "cwd": "C:/work", "provider": "test", "model": "echo" },
+    { "cwd": "C:/work", "provider": "test", "model": "echo", "reasoningEffort": "high" }
+  ],
+  "sdkResponse": { "serverInfo": { "name": "sdk", "version": "1.0.0" } }
+}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"dsh-mygo/internal/attachment"
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -195,7 +196,7 @@ func TestMygoInitializeParsesAttachmentPolicy(t *testing.T) {
 	if strings.Join(initialized.attachments.MediaTypes, ",") != "image/png,image/jpeg" || initialized.attachments.MaxImageBytes != 6291456 {
 		t.Fatalf("limits = %+v", *initialized.attachments)
 	}
-	capabilities := client.params[0].(map[string]any)["capabilities"].([]string)
+	capabilities := client.params[0].(protocol.InitializeParams).Capabilities
 	if !strings.Contains(strings.Join(capabilities, ","), "attachments") {
 		t.Fatalf("capabilities = %v", capabilities)
 	}

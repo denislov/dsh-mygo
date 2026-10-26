@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"slices"
 
-	"dsh-mygo/internal/attachment"
 	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/version"
 )
@@ -16,9 +15,7 @@ const DSHVersion = version.DSH
 
 // AttachmentPolicy is the image policy a host advertises with the attachments
 // capability. It is absent when the host does not accept uploads.
-type AttachmentPolicy struct {
-	Image attachment.Limits `json:"image"`
-}
+type AttachmentPolicy = protocol.AttachmentPolicy
 
 // HostIdentity is the exact runtime identity a launch plan expects the host to
 // report during initialize.
@@ -27,18 +24,8 @@ type HostIdentity struct {
 	DSHVersion string
 }
 
-type InitializeResult struct {
-	ProtocolVersion int `json:"protocolVersion"`
-	Server          struct {
-		Name            string `json:"name"`
-		Version         string `json:"version"`
-		DSHVersion      string `json:"dshVersion"`
-		AppMin          string `json:"appMin"`
-		AppMaxExclusive string `json:"appMaxExclusive"`
-	} `json:"server"`
-	Capabilities []string          `json:"capabilities"`
-	Attachments  *AttachmentPolicy `json:"attachments"`
-}
+// InitializeResult remains an alias for callers of the channel decoder.
+type InitializeResult = protocol.InitializeResult
 
 // DecodeInitialize validates the handshake against this app's built-in host
 // identity. Runtime-selected launches use DecodeInitializeExpecting.

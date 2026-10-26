@@ -689,29 +689,24 @@ type sessionInitialization struct {
 
 func (a *App) initializeSession(ctx context.Context, client rpcClient, request sessionInitialization) (initializedSession, error) {
 	if a.options.SDKProtocol {
-		params := map[string]any{"cwd": a.options.CWD, "provider": a.options.Provider, "model": a.options.Model}
-		if a.options.ReasoningEffort != "" {
-			params["reasoningEffort"] = a.options.ReasoningEffort
+		params := protocol.SDKInitializeParams{
+			CWD: a.options.CWD, Provider: a.options.Provider, Model: a.options.Model,
+			ReasoningEffort: a.options.ReasoningEffort,
 		}
-		result, err := client.Call(ctx, "initialize", params)
+		result, err := client.Call(ctx, protocol.MethodInitialize, params)
 		if err != nil {
 			return initializedSession{}, err
 		}
-		var initialized struct {
-			ServerInfo struct {
-				Name    string `json:"name"`
-				Version string `json:"version"`
-			} `json:"serverInfo"`
-		}
+		var initialized protocol.SDKInitializeResult
 		if json.Unmarshal(result, &initialized) != nil || initialized.ServerInfo.Name == "" {
 			return initializedSession{}, errors.New("invalid SDK host handshake")
 		}
 		return initializedSession{sessionID: a.options.SessionID, cwd: a.options.CWD, detail: strings.TrimSpace(initialized.ServerInfo.Name + " " + initialized.ServerInfo.Version)}, nil
 	}
-	result, err := client.Call(ctx, "initialize", map[string]any{
-		"protocolVersion": channel.ProtocolVersion,
-		"client":          map[string]string{"name": "dsh-mygo", "version": channel.ReleaseVersion, "platform": runtime.GOOS, "locale": a.currentLocale()},
-		"capabilities":    protocol.ClientCapabilities(),
+	result, err := client.Call(ctx, protocol.MethodInitialize, protocol.InitializeParams{
+		ProtocolVersion: channel.ProtocolVersion,
+		Client:          protocol.ClientInfo{Name: "dsh-mygo", Version: channel.ReleaseVersion, Platform: runtime.GOOS, Locale: a.currentLocale()},
+		Capabilities:    protocol.ClientCapabilities(),
 	})
 	if err != nil {
 		return initializedSession{}, err

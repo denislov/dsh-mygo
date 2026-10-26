@@ -45,6 +45,17 @@ const handshake = {
   capabilities: ['approval', 'session.history'],
 }
 
+test('initialize payload matches the shared Go wire fixture', async () => {
+  const fixture = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/initialize.json', import.meta.url), 'utf8'))
+  const { server } = runtime()
+  try {
+    const result = await server.handle('initialize', fixture.request)
+    assert.deepEqual(result, fixture.response)
+  } finally {
+    await server.shutdown()
+  }
+})
+
 test('shared client offer negotiates only supported capabilities, including independent reasoning baseline', async () => {
   const fixture = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/capabilities.json', import.meta.url), 'utf8'))
   for (const history of [false, true]) {
