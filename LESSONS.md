@@ -272,3 +272,12 @@
 - 教训：wire 回答/关闭信封可以具名化，但 FIFO、身份指纹、草稿与载荷校验必须继续由 interaction/app 拥有；空 selected、custom 和空 sessionId 是不同语义。
 - 做法：protocol 只增加 respond/cancel 参数、答案和 closed 外层；interaction 保留队列与表单并用具名 closed 解码，app 转换表单答案后发送，双端 fixture 覆盖审批、提问与全局关闭。
 - 固化：未固化
+
+## L-028 管理写操作与只读子查询共用信封，不合并身份范围
+
+- 出现次数：1
+- 来源：2026-10-26 会话管理与子代理查询载荷类型化
+- 现象：rename/archive 与 subagent list/history 都携带父/子 id，但前者面向可管理的根/分叉会话并要求提交事实确认，后者只允许当前父会话的直接子任务且必须保持 fork 前缀、展示白名单与观察句柄释放；归档 boolean 还有“省略即默认 true”的语义。
+- 教训：可以共用 protocol 包和结果信封风格，但不能把地址校验、能力门槛或读取流程合并成一个通用身份检查；可选 boolean 与边界字段仍需指针保留缺失语义。
+- 做法：protocol 分别定义管理请求与子代理请求/结果，App 保留两套 id 校验和各自流程；双端 management fixture 固定 wire，Node 驱动 rename/archive 与子代理分页，Go 校验指针存在性与实时状态解码，真实会话管理和冷恢复子代理详情回归通过。
+- 固化：未固化

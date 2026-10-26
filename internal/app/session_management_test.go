@@ -13,7 +13,10 @@ import (
 
 func TestSessionArchiveFailureRequiresReadbackAndPreservesDraft(t *testing.T) {
 	client := &sessionClient{request: func(_ context.Context, method string, params any) (json.RawMessage, error) {
-		if method == "session/archive" {
+		if method == protocol.MethodSessionArchive {
+			if fields := requestFields(t, params); fields["sessionId"] != "original" || fields["archived"] != true {
+				t.Errorf("archive params = %v", fields)
+			}
 			return nil, errors.New("private-token")
 		}
 		if !params.(protocol.SessionListParams).IncludeArchived {
@@ -74,8 +77,13 @@ func TestRenameFailureReadbackRepairsSequenceAndKeepsDraft(t *testing.T) {
 
 func TestSessionRenameRejectsInvalidTitleAndMissingCommittedEvent(t *testing.T) {
 	calls := 0
-	client := &sessionClient{request: func(_ context.Context, method string, _ any) (json.RawMessage, error) {
+	client := &sessionClient{request: func(_ context.Context, method string, params any) (json.RawMessage, error) {
 		calls++
+		if method == protocol.MethodSessionRename {
+			if fields := requestFields(t, params); fields["sessionId"] != "original" || fields["title"] != "Renamed" {
+				t.Errorf("rename params = %v", fields)
+			}
+		}
 		if method == "session/list" {
 			return json.RawMessage(`{"sessions":[{"id":"original","title":"Renamed","cwd":"C:/work","provider":"test","model":"echo","effort":"","createdAt":1,"updatedAt":2,"status":"idle","archived":false}]}`), nil
 		}

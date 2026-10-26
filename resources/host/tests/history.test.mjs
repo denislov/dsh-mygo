@@ -353,11 +353,12 @@ test('session management negotiates each available service independently', async
 const managementHandshake = { ...handshake, capabilities: ['session.history', 'session.rename', 'session.archive'] }
 
 test('rename commits a user title and list reads durable metadata sorted by activity', async () => {
+  const management = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/management.json', import.meta.url), 'utf8'))
   const { server, stored } = runtime(true)
   stored.set('newer', { header: { id: 'newer', cwd: process.cwd(), createdAt: 200 }, events: [] })
   await server.handle('initialize', managementHandshake)
   await server.handle('session/resume', resume)
-  const renamed = await server.handle('session/rename', { sessionId: resume.sessionId, title: '  工作会话  ' })
+  const renamed = await server.handle('session/rename', management.rename)
   assert.equal(renamed.session.title, '工作会话')
   assert.equal(renamed.session.updatedAt, 500)
   assert.equal(renamed.session.nextSeq, 6)
@@ -370,19 +371,20 @@ test('rename commits a user title and list reads durable metadata sorted by acti
 })
 
 test('archive hides stored sessions by default and keeps an explicit archived listing', async () => {
+  const management = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/management.json', import.meta.url), 'utf8'))
   const { server, stored } = runtime(true)
   const original = structuredClone(stored.get(resume.sessionId).events)
   await server.handle('initialize', managementHandshake)
   await server.handle('session/resume', resume)
-  assert.deepEqual(await server.handle('session/archive', { sessionId: resume.sessionId }), {})
+  assert.deepEqual(await server.handle('session/archive', management.archiveDefault), {})
   assert.deepEqual((await server.handle('session/list', {})).sessions, [])
   const all = await server.handle('session/list', { includeArchived: true })
   assert.equal(all.sessions[0].archived, true)
   assert.deepEqual(stored.get(resume.sessionId).events, original)
-  assert.deepEqual(await server.handle('session/archive', { sessionId: resume.sessionId }), {})
+  assert.deepEqual(await server.handle('session/archive', management.archive), {})
   await assert.rejects(server.handle('session/resume', resume), { kind: 'session/archived' })
   await assert.rejects(server.handle('session/prompt', { sessionId: resume.sessionId, content: [{ type: 'text', text: 'hello' }] }), { kind: 'session/archived' })
-  await server.handle('session/archive', { sessionId: resume.sessionId, archived: false })
+  await server.handle('session/archive', management.unarchive)
   assert.equal((await server.handle('session/list', {})).sessions[0].archived, false)
   await server.handle('session/resume', resume)
   await server.shutdown()

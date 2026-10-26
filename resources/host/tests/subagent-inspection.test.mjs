@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { test } from 'node:test'
 import { MygoServer } from '../server.mjs'
 
 const handshake = { protocolVersion: 1, client: { name: 'test', version: '0.1.1', platform: 'test', locale: 'en-US' }, capabilities: ['subagent.inspection'] }
+const management = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/management.json', import.meta.url), 'utf8'))
 
 function fixture() {
   const entries = [{ id: 'child', mode: 'continuable', label: 'Inspect the repository', createdAt: 1 }]
@@ -24,7 +26,7 @@ function fixture() {
 test('inspection negotiates independently and rejects old compositions', async () => {
   const f = fixture()
   assert.deepEqual((await f.server.handle('initialize', handshake)).capabilities, ['subagent.inspection'])
-  const result = await f.server.handle('subagent/list', { parentSessionId: 'parent' })
+  const result = await f.server.handle('subagent/list', management.subagentList)
   assert.equal(result.parentSessionId, 'parent')
   assert.equal(result.children[0].label, 'Inspect the repository')
   assert.equal(result.children[0].status, 'stored')
@@ -51,7 +53,7 @@ test('inspection authorizes the owned direct parent before reading child history
 test('inspection pages the child own suffix without resuming an agent', async () => {
   const f = fixture()
   await f.server.handle('initialize', handshake)
-  const params = { parentSessionId: 'parent', childSessionId: 'child' }
+  const params = management.subagentHistoryLatest
   const tail = await f.server.handle('subagent/history', params)
   assert.equal(tail.startSeq, 61)
   assert.equal(tail.endSeq, 125)
@@ -59,7 +61,7 @@ test('inspection pages the child own suffix without resuming an agent', async ()
   assert.equal(tail.inheritedEventCount, 5)
   assert.equal(tail.events.length, 64)
   assert.equal(tail.hasMore, true)
-  const older = await f.server.handle('subagent/history', { ...params, beforeSeq: tail.startSeq })
+  const older = await f.server.handle('subagent/history', management.subagentHistory)
   assert.equal(older.startSeq, 5)
   assert.equal(older.endSeq, 61)
   assert.equal(older.hasMore, false)

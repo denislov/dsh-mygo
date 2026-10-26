@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"dsh-mygo/internal/projection"
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -29,30 +30,20 @@ type subagentHistoryPage struct {
 
 func decodeSubagentCatalog(raw json.RawMessage, parent string) ([]view.SubagentSummary, error) {
 	invalid := errors.New("Invalid or oversized subagent catalog")
-	var result struct {
-		Parent   string            `json:"parentSessionId"`
-		Children []json.RawMessage `json:"children"`
-	}
-	if len(raw) > maxSubagentPageBytes || !utf8.Valid(raw) || json.Unmarshal(raw, &result) != nil || result.Parent != parent || result.Children == nil || len(result.Children) > 128 {
+	var result protocol.SubagentListResult
+	if len(raw) > maxSubagentPageBytes || !utf8.Valid(raw) || json.Unmarshal(raw, &result) != nil || result.ParentSessionID != parent || result.Children == nil || len(result.Children) > 128 {
 		return nil, invalid
 	}
 	children := make([]view.SubagentSummary, 0, len(result.Children))
 	seen := make(map[string]bool)
-	for _, data := range result.Children {
-		var child struct {
-			ID        string  `json:"id"`
-			Label     *string `json:"label"`
-			Mode      string  `json:"mode"`
-			Status    string  `json:"status"`
-			CreatedAt *int64  `json:"createdAt"`
-		}
-		if json.Unmarshal(data, &child) != nil || !safeSubagentID(child.ID) || seen[child.ID] || child.Label == nil || len(*child.Label) > 1024 || strings.IndexFunc(*child.Label, func(r rune) bool { return r < 32 || r == 127 }) >= 0 || child.CreatedAt == nil || *child.CreatedAt < 0 || *child.CreatedAt > maxSafeInteger {
+	for _, child := range result.Children {
+		if !safeSubagentID(child.ID) || seen[child.ID] || child.Label == nil || len(*child.Label) > 1024 || strings.IndexFunc(*child.Label, func(r rune) bool { return r < 32 || r == 127 }) >= 0 || child.CreatedAt == nil || *child.CreatedAt < 0 || *child.CreatedAt > maxSafeInteger {
 			return nil, invalid
 		}
-		if child.Mode != "one-shot" && child.Mode != "continuable" && child.Mode != "external" && child.Mode != "unknown" {
+		if child.Mode != protocol.SubagentModeOneShot && child.Mode != protocol.SubagentModeContinuable && child.Mode != protocol.SubagentModeExternal && child.Mode != protocol.SubagentModeUnknown {
 			return nil, invalid
 		}
-		if child.Status != "stored" && child.Status != "idle" && child.Status != "running" && child.Status != "external" || (child.Mode == "external") != (child.Status == "external") {
+		if child.Status != protocol.SubagentStatusStored && child.Status != protocol.SubagentStatusIdle && child.Status != protocol.SubagentStatusRunning && child.Status != protocol.SubagentStatusExternal || (child.Mode == protocol.SubagentModeExternal) != (child.Status == protocol.SubagentStatusExternal) {
 			return nil, invalid
 		}
 		seen[child.ID] = true
@@ -63,26 +54,17 @@ func decodeSubagentCatalog(raw json.RawMessage, parent string) ([]view.SubagentS
 
 func decodeSubagentHistory(raw json.RawMessage, parent, child string, before *uint64) (subagentHistoryPage, error) {
 	invalid := errors.New("Invalid or oversized subagent history")
-	var page struct {
-		Parent    string            `json:"parentSessionId"`
-		Child     string            `json:"childSessionId"`
-		Start     *uint64           `json:"startSeq"`
-		End       *uint64           `json:"endSeq"`
-		Next      *uint64           `json:"nextSeq"`
-		Inherited *uint64           `json:"inheritedEventCount"`
-		More      *bool             `json:"hasMore"`
-		Events    []json.RawMessage `json:"events"`
-	}
-	if len(raw) > maxSubagentPageBytes || !utf8.Valid(raw) || json.Unmarshal(raw, &page) != nil || page.Parent != parent || page.Child != child || page.Start == nil || page.End == nil || page.Next == nil || page.Inherited == nil || page.More == nil || page.Events == nil || len(page.Events) > 64 {
+	var page protocol.SubagentHistoryResult
+	if len(raw) > maxSubagentPageBytes || !utf8.Valid(raw) || json.Unmarshal(raw, &page) != nil || page.ParentSessionID != parent || page.ChildSessionID != child || page.StartSeq == nil || page.EndSeq == nil || page.NextSeq == nil || page.InheritedEventCount == nil || page.HasMore == nil || page.Events == nil || len(page.Events) > 64 {
 		return subagentHistoryPage{}, invalid
 	}
-	if *page.Next > maxSafeInteger || *page.Inherited > *page.Start || *page.Start > *page.End || *page.End > *page.Next || *page.End-*page.Start != uint64(len(page.Events)) || *page.More != (*page.Start > *page.Inherited) || *page.End > *page.Inherited && len(page.Events) == 0 {
+	if *page.NextSeq > maxSafeInteger || *page.InheritedEventCount > *page.StartSeq || *page.StartSeq > *page.EndSeq || *page.EndSeq > *page.NextSeq || *page.EndSeq-*page.StartSeq != uint64(len(page.Events)) || *page.HasMore != (*page.StartSeq > *page.InheritedEventCount) || *page.EndSeq > *page.InheritedEventCount && len(page.Events) == 0 {
 		return subagentHistoryPage{}, invalid
 	}
-	if before == nil && *page.End != *page.Next || before != nil && *page.End != *before {
+	if before == nil && *page.EndSeq != *page.NextSeq || before != nil && *page.EndSeq != *before {
 		return subagentHistoryPage{}, invalid
 	}
-	result := subagentHistoryPage{Start: *page.Start, End: *page.End, Next: *page.Next, Inherited: *page.Inherited, HasMore: *page.More}
+	result := subagentHistoryPage{Start: *page.StartSeq, End: *page.EndSeq, Next: *page.NextSeq, Inherited: *page.InheritedEventCount, HasMore: *page.HasMore}
 	var transcript projection.Transcript
 	for index, data := range page.Events {
 		var event projection.Event
@@ -196,17 +178,14 @@ func (a *App) readSubagents(before *uint64) {
 		var err error
 		if child == "" {
 			var raw json.RawMessage
-			raw, err = client.Call(ctx, "subagent/list", map[string]any{"parentSessionId": parent})
+			raw, err = client.Call(ctx, protocol.MethodSubagentList, protocol.SubagentListParams{ParentSessionID: parent})
 			if err == nil {
 				children, err = decodeSubagentCatalog(raw, parent)
 			}
 		} else {
-			params := map[string]any{"parentSessionId": parent, "childSessionId": child}
-			if before != nil {
-				params["beforeSeq"] = *before
-			}
+			params := protocol.SubagentHistoryParams{ParentSessionID: parent, ChildSessionID: child, BeforeSeq: before}
 			var raw json.RawMessage
-			raw, err = client.Call(ctx, "subagent/history", params)
+			raw, err = client.Call(ctx, protocol.MethodSubagentHistory, params)
 			if err == nil {
 				history, err = decodeSubagentHistory(raw, parent, child, before)
 			}

@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -11,19 +12,15 @@ import (
 const maxTrackedSubagents = 8
 
 var subagentReasons = map[string]bool{
-	"completed": true, "aborted": true, "error": true, "max-tokens": true, "refusal": true,
+	protocol.SubagentReasonCompleted: true, protocol.SubagentReasonAborted: true, protocol.SubagentReasonError: true,
+	protocol.SubagentReasonMaxTokens: true, protocol.SubagentReasonRefusal: true,
 }
 
 // handleSubagentNotification applies one live child status from the Host. Only
 // children of the current session are tracked; stale or foreign parents are
 // dropped so a notification window cannot leak between sessions.
 func (a *App) handleSubagentNotification(params json.RawMessage, finished bool) {
-	var payload struct {
-		ParentSessionID string `json:"parentSessionId"`
-		ChildSessionID  string `json:"childSessionId"`
-		Provider        string `json:"provider"`
-		Reason          string `json:"reason"`
-	}
+	var payload protocol.SubagentStatusParams
 	if json.Unmarshal(params, &payload) != nil {
 		return
 	}

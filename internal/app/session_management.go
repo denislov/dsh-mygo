@@ -94,14 +94,14 @@ func (a *App) writeSession(id, title string, archived *bool) {
 				}
 			}
 			if err == nil {
-				raw, renameErr := client.Call(ctx, "session/rename", map[string]any{"sessionId": id, "title": title})
+				raw, renameErr := client.Call(ctx, protocol.MethodSessionRename, protocol.SessionRenameParams{SessionID: id, Title: title})
 				err = renameErr
 				if err == nil {
 					summary, err = decodeManagedSession(raw, id)
 				}
 			}
 		} else if err == nil {
-			raw, archiveErr := client.Call(ctx, "session/archive", map[string]any{"sessionId": id, "archived": *archived})
+			raw, archiveErr := client.Call(ctx, protocol.MethodSessionArchive, protocol.SessionArchiveParams{SessionID: id, Archived: archived})
 			err = archiveErr
 			var ack map[string]json.RawMessage
 			if err == nil && (json.Unmarshal(raw, &ack) != nil || ack == nil || len(ack) != 0) {

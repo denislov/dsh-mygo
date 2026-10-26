@@ -1,0 +1,87 @@
+{
+  "rename": {
+    "sessionId": "stored-1",
+    "title": "  工作会话  "
+  },
+  "archive": {
+    "sessionId": "stored-1",
+    "archived": true
+  },
+  "unarchive": {
+    "sessionId": "stored-1",
+    "archived": false
+  },
+  "archiveDefault": {
+    "sessionId": "stored-1"
+  },
+  "subagentList": {
+    "parentSessionId": "parent"
+  },
+  "subagentHistory": {
+    "parentSessionId": "parent",
+    "childSessionId": "child",
+    "beforeSeq": 61
+  },
+  "subagentHistoryLatest": {
+    "parentSessionId": "parent",
+    "childSessionId": "child"
+  },
+  "subagentListResult": {
+    "parentSessionId": "parent",
+    "children": [
+      {
+        "id": "child",
+        "label": "Inspect files",
+        "mode": "continuable",
+        "status": "stored",
+        "createdAt": 1
+      }
+    ]
+  },
+  "subagentHistoryResult": {
+    "parentSessionId": "parent",
+    "childSessionId": "child",
+    "startSeq": 5,
+    "endSeq": 7,
+    "nextSeq": 7,
+    "inheritedEventCount": 5,
+    "hasMore": false,
+    "events": [
+      {
+        "seq": 5,
+        "time": 1,
+        "type": "assistant/message",
+        "data": {
+          "message": {
+            "content": [
+              {
+                "type": "text",
+                "text": "Child result"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "seq": 6,
+        "time": 2,
+        "type": "turn/end",
+        "data": {
+          "reason": {
+            "kind": "completed"
+          }
+        }
+      }
+    ]
+  },
+  "subagentStarted": {
+    "parentSessionId": "parent",
+    "childSessionId": "child",
+    "provider": "in-process"
+  },
+  "subagentFinished": {
+    "parentSessionId": "parent",
+    "childSessionId": "child",
+    "reason": "completed"
+  }
+}

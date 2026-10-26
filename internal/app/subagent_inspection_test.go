@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -68,10 +69,16 @@ func TestSubagentInspectionReadCloseSwitchAndFailureIsolation(t *testing.T) {
 	if len(a.model.Inspection.Children) != 1 {
 		t.Fatal("children not loaded while parent running")
 	}
+	if list, ok := client.params[len(client.params)-1].(protocol.SubagentListParams); !ok || list.ParentSessionID != "s1" {
+		t.Fatalf("list params = %#v", client.params[len(client.params)-1])
+	}
 	a.SelectSubagent("child")
 	waitFor(t, a, updates, 3*time.Second, func() bool { return !a.model.Inspection.Busy })
 	if a.model.Inspection.EndReason != "completed" || a.model.Inspection.Content.Items[0].Text != "Child result" || a.model.Draft != "keep the parent draft" {
 		t.Fatal("inspection changed the parent or lost the child output")
+	}
+	if history, ok := client.params[len(client.params)-1].(protocol.SubagentHistoryParams); !ok || history.ParentSessionID != "s1" || history.ChildSessionID != "child" || history.BeforeSeq != nil {
+		t.Fatalf("history params = %#v", client.params[len(client.params)-1])
 	}
 	a.RefreshSubagents()
 	var late func()

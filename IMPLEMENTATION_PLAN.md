@@ -63,7 +63,7 @@ flowchart TD
 **目标**: 核心请求、响应、通知信封与错误 kind 有清晰的具名表达，app 不再重复翻译相同 schema。
 **成功标准**: 相同 wire 在迁移前后编码语义一致，原有缺失/null/空字符串、必填布尔、安全整数、身份与预算校验保持；未知能力/字段仍按各方法原契约处理，SDK 兼容保持。
 **测试**: 每任务的编码/非法载荷表、双端 fixture、相关 Go/Node 单元与 fake/真实 Host；详见第三部分验证分组。
-**状态**: 进行中（1.1–1.5 已完成）
+**状态**: 进行中（1.1–1.6 已完成）
 
 ### 1.1 session/create、session/resume 与摘要（中，已完成）
 
@@ -100,11 +100,12 @@ flowchart TD
 - **验收/回归**：agentless 提问、审批优先、重复/迟到回答、abort、取消与退出结算保持；错误重试保留表单，关闭不伪造空答案/历史。Go/Node 边界、Tester 和真实审批/提问全部通过，answerer 不悬挂。
 - **完成记录（2026-10-26）**：`internal/protocol/interaction.go` 增加 approval/question respond/cancel 参数、问题答案与 closed 外层；interaction 保留队列、指纹、表单和校验，App 发送具名载荷。`tests/fixtures/protocol/interaction.json` 由 Go/Node 共用。实际检查：全量/纯 Go 各 719 项、race 627 项、Node 95 项、真实 Host 24 项（含子用例）通过；MyGo vet、Go vet、格式与差异检查通过。剩余：后续任务 1.6–1.7 未开始。
 
-### 1.6 会话管理与子代理查询载荷（中）
+### 1.6 会话管理与子代理查询载荷（中，已完成）
 
 - **范围/依赖**：依赖 1.1/1.3；涉及 `session_management.go`、`subagent_inspection.go`、`subagents.go`。
 - **实施/交付**：分别迁移 rename/archive 与 subagent list/history/status；保留两类地址的不同校验范围，父子关联与展示白名单独立校验。
 - **验收/回归**：重命名以提交事实确认；归档当前会话后的恢复/草稿保持。子查询只读直接子任务，fork 继承前缀、reasoning 隐藏、页预算、父预占与句柄释放保持；不得恢复或 prompt 子 Agent。真实会话管理和冷恢复子代理详情通过。
+- **完成记录（2026-10-26）**：`internal/protocol/management.go` 与 `subagent.go` 增加 rename/archive、subagent list/history 请求/结果信封、实时状态载荷及模式/状态/结束原因常量；`tests/fixtures/protocol/management.json` 由 Go/Node 共用。App 管理写入、子代理目录/历史和通知改用具名载荷；会话 id 校验、提交事实确认、直接父子关联、展示白名单、fork 前缀、页预算与观察句柄释放保持，不恢复或 prompt 子 Agent。实际检查：全量/纯 Go 各 727 项、protocol/interaction/channel/projection/app/view race 635 项、Node 95 项、真实 Host 4 项（含子用例）通过；MyGo vet、Go vet、格式与差异检查通过。剩余：后续任务 1.7 未开始。
 
 ### 1.7 通知信封、方法名与错误 kind 收口（中）
 
