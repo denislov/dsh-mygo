@@ -26,7 +26,7 @@ func (a *App) handleQuestionNotification(method string, params json.RawMessage) 
 		requestID, sessionID, err := interaction.DecodeQuestionClosed(params)
 		if err != nil {
 			a.setFailure(msgQuestionInvalidNotify, err)
-			go a.stopHost()
+			go a.stopHostInstance(a.currentHost())
 			return
 		}
 		a.questions.Remove(requestID, sessionID)
@@ -36,7 +36,7 @@ func (a *App) handleQuestionNotification(method string, params json.RawMessage) 
 	request, err := interaction.DecodeQuestion(params)
 	if err != nil {
 		a.setFailure(msgQuestionInvalid, err)
-		go a.stopHost()
+		go a.stopHostInstance(a.currentHost())
 		return
 	}
 	if request.SessionID != "" && request.SessionID != a.sessionID {
@@ -44,12 +44,12 @@ func (a *App) handleQuestionNotification(method string, params json.RawMessage) 
 	}
 	if !a.model.CanQuestion {
 		a.setFailure(msgQuestionUnexpected, errors.New("Question capability was not negotiated"))
-		go a.stopHost()
+		go a.stopHostInstance(a.currentHost())
 		return
 	}
 	if err := a.questions.Add(request); err != nil {
 		a.setFailure(msgQuestionInvalidQueue, err)
-		go a.stopHost()
+		go a.stopHostInstance(a.currentHost())
 		return
 	}
 	a.publishQuestions()

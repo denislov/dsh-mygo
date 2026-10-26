@@ -24,6 +24,7 @@
 ### 提交质量复核（2026-10-27）
 
 - Node 路由表只分发自身声明的方法，拒绝 `toString`、`constructor` 等原型属性名，恢复 `protocol/method-not-found` / `-32601`。新增回归先复现失败，修正后 `node --test resources/host/tests/*.test.mjs` 97 项通过。
+- Host 故障清理在派发 goroutine 前捕获实例；重复停止等待同一次清理完成，detach 后保留待清理实例供 Restart/Runtime/Shutdown 等待，旧代迟到清理不覆盖新代诊断。两个新增回归先复现失败；修正后全量/纯 Go 各 768 项、app/view/channel/protocol race 601 项、source 真实 composition/Restart/lifecycle/cancellation/resync 17 项（含子用例）通过；Go/MyGo vet 与差异检查通过。
 
 ### 2.1 当前验证组合
 

@@ -214,7 +214,7 @@ func (a *App) loadSessionInDirectory(id, cwd string) {
 				a.model.SessionsError = err.Error()
 				if len(buffer) > 0 {
 					a.setFailure(msgSessionChanged, errors.New("Restart the host to recover the session safely"))
-					go a.stopHost()
+					go a.stopHostInstance(a.currentHost())
 				}
 				return
 			}
@@ -222,7 +222,7 @@ func (a *App) loadSessionInDirectory(id, cwd string) {
 				a.model.SessionsError = msgSessionFinishInteraction
 				if len(buffer) > 0 {
 					a.setFailure(msgSessionConcurrent, errors.New("Restart the host to recover from the durable logs"))
-					go a.stopHost()
+					go a.stopHostInstance(a.currentHost())
 				}
 				return
 			}
@@ -324,7 +324,7 @@ func (a *App) bufferSessionNotificationFrom(source *hostInstance, method string,
 	if !ok {
 		if overflow {
 			a.setFailure(msgSessionTooManyUpdates, errors.New("Restart the host to recover from the durable log"))
-			go a.stopHost()
+			go a.stopHostInstance(a.currentHost())
 		}
 		return true
 	}

@@ -113,7 +113,7 @@ func (a *App) ApplyPermission() {
 			}
 			if snapshot.NextSeq != a.nextSeq {
 				a.setFailure(msgPermissionsEventsMissing, errors.New("Restart the host to recover the durable session"))
-				go a.stopHost()
+				go a.stopHostInstance(a.currentHost())
 				return
 			}
 			a.model.Permission.Accept(snapshot)

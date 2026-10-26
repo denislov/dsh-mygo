@@ -305,7 +305,7 @@ func (a *App) ApplySettings() {
 			}
 			if *summary.NextSeq <= startSeq || *summary.NextSeq > a.nextSeq {
 				a.setFailure(msgModelSelectionMissing, errors.New("Restart the host to recover from the durable log"))
-				go a.stopHost()
+				go a.stopHostInstance(a.currentHost())
 				return
 			}
 			a.model.SetActiveRoute(route)

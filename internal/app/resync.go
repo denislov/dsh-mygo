@@ -54,7 +54,7 @@ func (a *App) startResync() {
 func (a *App) failResync() {
 	a.cancelResync()
 	a.setFailure(msgResyncFailed, errors.New("Restart the host to recover the session from its durable log"))
-	go a.stopHost()
+	go a.stopHostInstance(a.currentHost())
 }
 
 func (a *App) queueResync(notification hostNotification) {

@@ -104,7 +104,7 @@ func (a *App) handleStreamNotificationFrom(source *hostInstance, params json.Raw
 	var notification protocol.AssistantStreamNotification
 	if json.Unmarshal(params, &notification) != nil || !validSessionID(notification.SessionID) {
 		a.setFailure(msgStreamInvalidNotify, errors.New("Invalid stream envelope"))
-		go a.stopHost()
+		go a.stopHostInstance(a.currentHost())
 		return
 	}
 	if notification.SessionID != a.sessionID {
@@ -112,12 +112,12 @@ func (a *App) handleStreamNotificationFrom(source *hostInstance, params json.Raw
 	}
 	if !a.model.CanStream {
 		a.setFailure(msgStreamUnexpected, errors.New("Streaming capability was not negotiated"))
-		go a.stopHost()
+		go a.stopHostInstance(a.currentHost())
 		return
 	}
 	if err := a.stream.Apply(notification.Frame); err != nil {
 		a.setFailure(msgStreamInvalid, err)
-		go a.stopHost()
+		go a.stopHostInstance(a.currentHost())
 		return
 	}
 	if a.canStreamBaseline && a.stream.NeedsResync() {

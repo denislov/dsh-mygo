@@ -3,11 +3,59 @@ package app
 import (
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
+
+type blockedHostClose struct {
+	fakeClient
+	started chan struct{}
+	release chan struct{}
+}
+
+func (c *blockedHostClose) Close() {
+	close(c.started)
+	<-c.release
+	c.fakeClient.Close()
+}
+
+func TestHostStopWaitsForInFlightClose(t *testing.T) {
+	client := &blockedHostClose{started: make(chan struct{}), release: make(chan struct{})}
+	instance := &hostInstance{client: client}
+	var release sync.Once
+	unblock := func() { release.Do(func() { close(client.release) }) }
+	defer unblock()
+	firstDone := make(chan struct{})
+	go func() { instance.stop(time.Second); close(firstDone) }()
+	select {
+	case <-client.started:
+	case <-time.After(time.Second):
+		t.Fatal("first stop did not close the client")
+	}
+	secondStarted, secondDone := make(chan struct{}), make(chan struct{})
+	go func() { close(secondStarted); instance.stop(time.Second); close(secondDone) }()
+	<-secondStarted
+	select {
+	case <-secondDone:
+		t.Fatal("repeated stop returned before the in-flight close finished")
+	case <-time.After(50 * time.Millisecond):
+	}
+	unblock()
+	for _, done := range []chan struct{}{firstDone, secondDone} {
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("stop did not finish after close was released")
+		}
+	}
+	if client.closeCount != 1 {
+		t.Fatalf("close count = %d", client.closeCount)
+	}
+}
 
 func TestHostInstancesStopOnlyTheirOwnGeneration(t *testing.T) {
 	application := New(Options{})
@@ -33,6 +81,27 @@ func TestHostInstancesStopOnlyTheirOwnGeneration(t *testing.T) {
 	if !newClient.closed || newClient.closeCount != 1 || application.currentHost() != nil {
 		t.Fatal("current host was not stopped exactly once")
 	}
+}
+
+func TestDetachedHostRemainsAvailableToWaitForCleanup(t *testing.T) {
+	application := New(Options{})
+	instance := &hostInstance{generation: 1, client: &fakeClient{}}
+	application.installHost(instance)
+	if application.detachHost() != instance || application.currentHost() != nil {
+		t.Fatal("detach did not remove the active host")
+	}
+	if application.detachHost() != instance {
+		t.Fatal("restart lost the host whose cleanup it must wait for")
+	}
+	application.stopHostInstance(instance)
+	newer := &hostInstance{generation: 2, client: &fakeClient{}}
+	application.installHost(newer)
+	application.detachHost()
+	application.stopHostInstance(instance)
+	if application.detachHost() != newer {
+		t.Fatal("late old cleanup replaced the newer cleanup target")
+	}
+	application.stopHostInstance(newer)
 }
 
 func TestOldHostNotificationsAndFailuresCannotTouchNewGeneration(t *testing.T) {

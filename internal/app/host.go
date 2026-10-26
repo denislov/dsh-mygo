@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -11,29 +12,35 @@ import (
 
 // hostInstance owns exactly one started Host process and its protocol client.
 // It is never reactivated: Restart and Runtime switches create a new instance.
-// closed makes repeated stop calls idempotent and keeps a late stop from
-// touching the process chosen by a newer generation.
+// closed rejects further notifications; stopOnce coordinates completion of
+// repeated stops without touching the process chosen by a newer generation.
 type hostInstance struct {
 	generation uint64
 	client     rpcClient
 	supervisor *host.Supervisor
 	closed     atomic.Bool
+	stopOnce   sync.Once
 }
 
 // stop closes the instance's client and process exactly once. The process gets
 // its own bounded stop deadline after the protocol client is closed.
 func (h *hostInstance) stop(timeout time.Duration) {
-	if h == nil || !h.closed.CompareAndSwap(false, true) {
+	if h == nil {
 		return
 	}
-	if h.client != nil {
-		h.client.Close()
-	}
-	if h.supervisor != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
-		_ = h.supervisor.Stop(ctx)
-		cancel()
-	}
+	// Once also makes concurrent callers wait for the original stop. Restart
+	// must not resume a session while its previous Host still owns the log.
+	h.stopOnce.Do(func() {
+		h.closed.Store(true)
+		if h.client != nil {
+			h.client.Close()
+		}
+		if h.supervisor != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			_ = h.supervisor.Stop(ctx)
+			cancel()
+		}
+	})
 }
 
 // currentHost returns the active instance, or nil when none is installed.
@@ -59,14 +66,17 @@ func (a *App) installHost(instance *hostInstance) bool {
 	return true
 }
 
-// detachHost removes the active instance before its asynchronous stop so its
-// notifications and callbacks are rejected immediately.
+// detachHost removes the active instance so its notifications are rejected.
+// It retains and returns the last instance even if cleanup already started:
+// Restart, Runtime switching and Shutdown must wait for that stop to finish.
 func (a *App) detachHost() *hostInstance {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	instance := a.host
+	if a.host != nil {
+		a.lastHost = a.host
+	}
 	a.host = nil
-	return instance
+	return a.lastHost
 }
 
 func (a *App) isCurrentHost(instance *hostInstance) bool {
@@ -96,7 +106,8 @@ func (a *App) currentClient() rpcClient {
 }
 
 // stopHostInstance closes exactly the captured generation. A slow stop cannot
-// close the instance that a later start installed.
+// close the instance that a later start installed. Asynchronous callers capture
+// the instance before starting the goroutine, never inside it.
 func (a *App) stopHostInstance(instance *hostInstance) {
 	if instance == nil {
 		return
@@ -105,12 +116,14 @@ func (a *App) stopHostInstance(instance *hostInstance) {
 	if a.host == instance {
 		a.host = nil
 	}
-	a.lastHost = instance
+	if a.host == nil && (a.lastHost == nil || a.lastHost.generation <= instance.generation) {
+		a.lastHost = instance
+	}
 	a.mu.Unlock()
 	instance.stop(stopTimeout)
 }
 
-// stopHost stops the currently active instance, if any.
+// stopHost stops the active instance or waits for the last instance's cleanup.
 func (a *App) stopHost() {
 	a.stopHostInstance(a.detachHost())
 }

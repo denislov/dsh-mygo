@@ -19,7 +19,7 @@
 - `Start`：建立 stdin/stdout/stderr 管道，stderr 保留最后 64 KiB；调用方通过 `Stdin` / `Stdout` 接 `ChannelClient`。
 - `Stop`：关闭 stdin，等待优雅退出；超时后杀进程。POSIX 杀进程组，Windows 用 Job Object 回收进程树。
 - Windows Job Object：`Start` 在 spawn 后立即把 Host 加入 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` 的 Job；Host 启动的子进程继承 Job。Host 退出、`Stop` 完成或应用崩溃/被强杀时关闭 Job 句柄，内核回收 Host 与插件子进程。Job 创建或分配失败时启动失败，不运行无 Job 的 Host。
-- `App` 为每次启动建立不可复用的 Host 实例，持有 client、supervisor、generation 与关闭状态。Restart 与 Runtime 切换先 detach 当前实例，再异步停止捕获的实例；通知、读循环与 watcher 在发布时按实例身份校验。旧实例的迟到通知、失败与重复/慢 Stop 不关闭或覆盖新 Host；停止后的实例只用于只读 PID/stderr 诊断。
+- `App` 为每次启动建立不可复用的 Host 实例，持有 client、supervisor、generation 与关闭状态。Restart 与 Runtime 切换先 detach 当前实例，再异步停止捕获的实例；故障路径也在派发后台清理前捕获实例。通知、读循环与 watcher 在发布时按实例身份校验。旧实例的迟到通知、失败与重复/慢 Stop 不关闭或覆盖新 Host；最后一个实例在清理期间保留，重复 Stop 等待同一次清理完成，重启或切换在其完成后才启动新 Host。清理完成后只保留只读 PID/stderr 诊断，旧代清理不得替换新代诊断对象。
 - `App` 在初始化失败、Host 意外退出、协议读循环失败时进入 `Host error`；自定义 channel 不把原始 stderr 放入错误横幅。显式 SDK 回归模式保留有界 stderr 详情。
 
 Host 入口在启动前完成版本校验、`mygo` profile 选择与会话创建；SDK 模式由 `-sdk-protocol -profile sdk` 显式选择。

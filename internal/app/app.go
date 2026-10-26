@@ -965,7 +965,7 @@ func (a *App) handleNotificationFrom(source *hostInstance, method string, params
 		}
 		if a.protocol.isSDKNotification(method) {
 			a.setFailure(msgHostInvalidNotify, errors.New("SDK notifications are not valid on the mygo channel"))
-			go a.stopHost()
+			go a.stopHostInstance(a.currentHost())
 			return
 		}
 		switch method {
@@ -990,7 +990,7 @@ func (a *App) handleNotificationFrom(source *hostInstance, method string, params
 			method = a.protocol.notificationMethod(method)
 		case protocol.NotificationHostFatal:
 			a.setFailure(msgHostAgentFailure, errors.New("Restart the host before retrying"))
-			go a.stopHost()
+			go a.stopHostInstance(a.currentHost())
 			return
 		}
 	}
@@ -1009,7 +1009,7 @@ func (a *App) handleSessionEventNotification(source *hostInstance, params json.R
 	if json.Unmarshal(params, &envelope) != nil || envelope.SessionID == "" {
 		if a.protocol.richUI() {
 			a.setFailure(msgHostInvalidEvent, errors.New("The host sent an invalid session event"))
-			go a.stopHost()
+			go a.stopHostInstance(a.currentHost())
 		}
 		return
 	}
@@ -1017,7 +1017,7 @@ func (a *App) handleSessionEventNotification(source *hostInstance, params json.R
 	if err != nil {
 		if a.protocol.richUI() {
 			a.setFailure(msgHostInvalidEvent, errors.New("The host sent an invalid session event"))
-			go a.stopHost()
+			go a.stopHostInstance(a.currentHost())
 		}
 		return
 	}
@@ -1027,7 +1027,7 @@ func (a *App) handleSessionEventNotification(source *hostInstance, params json.R
 	if a.protocol.richUI() {
 		if envelope.Seq == nil || eventSeq == nil || *envelope.Seq != event.Seq {
 			a.setFailure(msgHostInvalidSequence, errors.New("The host sent an inconsistent session event sequence"))
-			go a.stopHost()
+			go a.stopHostInstance(a.currentHost())
 			return
 		}
 		if *envelope.Seq < a.nextSeq {
@@ -1080,7 +1080,7 @@ func (a *App) handleSessionStatusNotification(params json.RawMessage) {
 	if json.Unmarshal(params, &notification) != nil {
 		if a.protocol.richUI() {
 			a.setFailure(msgHostInvalidStatus, errors.New("The host sent an invalid session status"))
-			go a.stopHost()
+			go a.stopHostInstance(a.currentHost())
 		}
 		return
 	}
@@ -1089,13 +1089,13 @@ func (a *App) handleSessionStatusNotification(params json.RawMessage) {
 	}
 	if a.protocol.richUI() && notification.Status != "idle" && notification.Status != "running" {
 		a.setFailure(msgHostInvalidStatus, errors.New("The host sent an unknown session status"))
-		go a.stopHost()
+		go a.stopHostInstance(a.currentHost())
 		return
 	}
 	if a.model.CanResync {
 		if notification.StatusRevision == nil || *notification.StatusRevision > maxSafeInteger {
 			a.setFailure(msgHostInvalidRevision, errors.New("The host sent an invalid status revision"))
-			go a.stopHost()
+			go a.stopHostInstance(a.currentHost())
 			return
 		}
 		if *notification.StatusRevision <= a.statusRevision {

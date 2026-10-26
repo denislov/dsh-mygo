@@ -26,7 +26,7 @@ func (a *App) handleApprovalNotification(method string, params json.RawMessage) 
 		requestID, sessionID, err := interaction.DecodeApprovalClosed(params)
 		if err != nil {
 			a.setFailure(msgApprovalInvalidNotify, err)
-			go a.stopHost()
+			go a.stopHostInstance(a.currentHost())
 			return
 		}
 		a.approvals.Remove(requestID, sessionID)
@@ -36,7 +36,7 @@ func (a *App) handleApprovalNotification(method string, params json.RawMessage) 
 	request, err := interaction.DecodeApproval(params)
 	if err != nil {
 		a.setFailure(msgApprovalInvalid, err)
-		go a.stopHost()
+		go a.stopHostInstance(a.currentHost())
 		return
 	}
 	if request.SessionID != a.sessionID {
@@ -44,12 +44,12 @@ func (a *App) handleApprovalNotification(method string, params json.RawMessage) 
 	}
 	if !a.model.CanApprove {
 		a.setFailure(msgApprovalUnexpected, errors.New("Approval capability was not negotiated"))
-		go a.stopHost()
+		go a.stopHostInstance(a.currentHost())
 		return
 	}
 	if err := a.approvals.Add(request); err != nil {
 		a.setFailure(msgApprovalInvalidQueue, err)
-		go a.stopHost()
+		go a.stopHostInstance(a.currentHost())
 		return
 	}
 	a.publishApprovals()
