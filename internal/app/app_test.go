@@ -172,6 +172,20 @@ func TestSendQueuesPromptAndClearsDraft(t *testing.T) {
 	}
 }
 
+func TestPromptDeliveryFailureRestoresDraftAndClearsTurn(t *testing.T) {
+	client := &fakeClient{err: errors.New("host write failed")}
+	application := newTestApp(client)
+	application.options.SDKProtocol = false
+	updates := make(chan func(), 8)
+	application.options.Post = func(fn func()) { updates <- fn }
+	application.model.Draft = "hello"
+	application.Send("hello")
+	waitFor(t, application, updates, 2*time.Second, func() bool { return application.model.Error != "" })
+	if application.model.Phase != view.PhaseIdle || application.awaitingTurn || application.sawActivity || application.model.CancelPending || application.model.Draft != "hello" {
+		t.Fatalf("failed delivery state = %+v", application.model)
+	}
+}
+
 func TestPromptUsesTheProtocolFieldSpelling(t *testing.T) {
 	for _, sdk := range []bool{false, true} {
 		t.Run(map[bool]string{false: "custom", true: "SDK"}[sdk], func(t *testing.T) {

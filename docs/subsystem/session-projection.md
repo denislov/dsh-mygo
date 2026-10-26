@@ -138,6 +138,29 @@ type GoalView struct { Objective string; Phase string; MaxRounds int; RoundsStar
 
 字段名是实现建议，不是协议契约；协议契约以 [通道协议](channel-protocol.md) 为准。
 
+## 回合生命周期
+
+回合状态只允许主线程转换；worker 只携带不可变身份并通过提交队列发布结果。`awaitingTurn` 表示 prompt 已提交但回合尚未结束；`sawActivity` 表示 Host 已认领该 prompt（出现回合活动）；`cancelIdle` 表示取消等待期间已收到 Host idle；`promptID` 标识投递/取消回调，`promptDone` 是投递确认屏障；`CancelPending` 表示取消请求仍在途。`Phase` 描述展示生命周期（idle/running/resyncing/failed），不与上述布尔状态合并成单一枚举。
+
+| 事件 | 前置条件 | 状态转换 | 副作用 |
+| --- | --- | --- | --- |
+| Send | 可发送、未关闭 | Phase=running；awaiting=true；activity=false；promptID++；CancelPending=false；cancelIdle=false | 清空草稿/流/错误，记录提交快照，启动投递 worker |
+| prompt 确认 | promptID 匹配 | 不变 | 结算本地草稿；成功且仍为当前回合时清空附件 |
+| prompt 投递失败 | promptID 匹配 | awaiting=false；activity=false；Phase=idle；CancelPending=false | 显示投递错误；草稿为空时恢复提交文本 |
+| 回合活动事件 | Phase 非 failed | activity=true | 校验 seq 后提交投影，推进 nextSeq |
+| idle 早于认领 | awaiting && !activity | 不变 | 忽略该 idle，避免排队 prompt 尚未被 Host 认领就结束回合 |
+| idle 晚于活动 | awaiting && activity | awaiting=false；activity=false | 清提问/流；若 CancelPending 则 cancelIdle=true 且保持 running，否则 Phase=idle、CancelPending=false、清审批并刷新目录 |
+| running 状态 | Phase 非 starting/failed | Phase=running；cancelIdle=false | 取消 pending 的 idle 标记 |
+| Cancel | Phase=running 且 CancelPending=false | CancelPending=true；cancelIdle=false | 启动取消 worker，先等待 promptDone |
+| 取消期间 idle | CancelPending | cancelIdle=true | 保持 running，不发送新 prompt，不清理取消确认 |
+| 取消响应 | promptID 匹配且 CancelPending | CancelPending=false | cancelIdle 或有效 `cancelled/idle` 响应则回到 idle；超时保留 running、清 awaiting 并允许迟到 idle 收尾 |
+| 初始化/换会话 | 新历史/权限快照已提交 | promptID++；awaiting/activity/cancelIdle=false；CancelPending=false | 整体替换投影；旧投递与取消回调按 promptID 失效 |
+| Restart/Host 换代 | 新 Host 已建立 | 同上 | 旧一代通知、失败与关闭不得作用于新 Host；新 Agent 重建流版本 |
+| 失败 | 未处于 failed | Phase=failed；awaiting/activity=false；CancelPending=false | 清审批/提问/流与未完成操作；首次故障原因不被迟到失败覆盖 |
+| resync 开始 | 可自动恢复 | Phase=resyncing | 固定历史 cut、清临时流、缓冲同会话通知；取消确认经 `postAfterResync` 保留 |
+| resync 提交 | 快照与缓冲连续 | Phase=running/idle（由固定状态决定） | 一次性发布投影、nextSeq、statusRevision 与流 baseline；同代不降低版本高水位 |
+| resync 失败 | 重试用尽/载荷非法 | Phase=failed | 保留窗口与草稿，提供手工恢复；不发布半份快照 |
+
 ## 流式与提交的合并
 
 ### 状态机
