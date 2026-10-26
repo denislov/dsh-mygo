@@ -1,10 +1,5 @@
 package protocol
 
-const (
-	MethodSessionRename  = "session/rename"
-	MethodSessionArchive = "session/archive"
-)
-
 type SessionRenameParams struct {
 	SessionID string `json:"sessionId"`
 	Title     string `json:"title"`

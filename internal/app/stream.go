@@ -2,6 +2,7 @@ package app
 
 import (
 	"dsh-mygo/internal/projection"
+	"dsh-mygo/internal/protocol"
 	"encoding/json"
 	"errors"
 	"slices"
@@ -103,10 +104,7 @@ func (a *App) clearStream() {
 }
 
 func (a *App) handleStreamNotification(params json.RawMessage) {
-	var notification struct {
-		SessionID string          `json:"sessionId"`
-		Frame     json.RawMessage `json:"frame"`
-	}
+	var notification protocol.AssistantStreamNotification
 	if json.Unmarshal(params, &notification) != nil || !validSessionID(notification.SessionID) {
 		a.setFailure("Invalid stream notification", errors.New("Invalid stream envelope"))
 		go a.stopHost()
@@ -127,7 +125,7 @@ func (a *App) handleStreamNotification(params json.RawMessage) {
 	}
 	if a.canStreamBaseline && a.stream.NeedsResync() {
 		a.requireResync(errors.New("Assistant stream sequence gap"))
-		a.bufferResyncNotification("session/assistant-stream", params)
+		a.bufferResyncNotification(protocol.NotificationSessionAssistantStream, params)
 		return
 	}
 	// A resync can already contain this attempt's commit before its buffered

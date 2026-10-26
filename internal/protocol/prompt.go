@@ -1,10 +1,5 @@
 package protocol
 
-const (
-	MethodSessionPrompt = "session/prompt"
-	MethodSessionCancel = "session/cancel"
-)
-
 // ContentBlock is one prompt part. Concrete blocks own their exact wire fields;
 // tool or extension blocks added later may carry bounded raw JSON.
 type ContentBlock interface {

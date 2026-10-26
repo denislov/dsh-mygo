@@ -3,12 +3,6 @@ package protocol
 import "encoding/json"
 
 const (
-	MethodSessionList    = "session/list"
-	MethodSessionHistory = "session/history"
-	MethodSessionRelease = "session/release"
-)
-
-const (
 	HistoryDirectionForward  = "forward"
 	HistoryDirectionBackward = "backward"
 )

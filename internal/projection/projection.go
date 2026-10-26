@@ -116,25 +116,27 @@ type Event struct {
 	Data json.RawMessage `json:"data"`
 }
 
-// Notification is the session.event notification envelope.
-type Notification struct {
-	SessionID string `json:"sessionId"`
-	Event     Event  `json:"event"`
-}
-
-// DecodeNotification parses a session.event notification envelope.
-func DecodeNotification(params json.RawMessage) (Notification, error) {
-	var notification Notification
-	if err := json.Unmarshal(params, &notification); err != nil {
-		return Notification{}, fmt.Errorf("decode session.event: %w", err)
+// DecodeEvent parses one committed session-log event. It does not accept the
+// outer session/event notification envelope. sequence is the wire seq when
+// present, so the mygo channel can distinguish a missing seq from zero.
+func DecodeEvent(raw json.RawMessage) (Event, *uint64, error) {
+	var decoded struct {
+		Type string          `json:"type"`
+		Seq  *uint64         `json:"seq"`
+		Time int64           `json:"time"`
+		Data json.RawMessage `json:"data"`
 	}
-	if notification.SessionID == "" {
-		return Notification{}, fmt.Errorf("decode session.event: missing sessionId")
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return Event{}, nil, fmt.Errorf("decode session.event: %w", err)
 	}
-	if notification.Event.Type == "" {
-		return Notification{}, fmt.Errorf("decode session.event: missing event type")
+	if decoded.Type == "" {
+		return Event{}, nil, fmt.Errorf("decode session.event: missing event type")
 	}
-	return notification, nil
+	event := Event{Type: decoded.Type, Time: decoded.Time, Data: decoded.Data}
+	if decoded.Seq != nil {
+		event.Seq = *decoded.Seq
+	}
+	return event, decoded.Seq, nil
 }
 
 // Transcript is the ordered set of rows projected from one session's log.

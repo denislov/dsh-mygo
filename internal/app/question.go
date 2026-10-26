@@ -22,7 +22,7 @@ func (a *App) clearQuestions() {
 }
 
 func (a *App) handleQuestionNotification(method string, params json.RawMessage) {
-	if method == "question/closed" {
+	if method == protocol.NotificationQuestionClosed {
 		requestID, sessionID, err := interaction.DecodeQuestionClosed(params)
 		if err != nil {
 			a.setFailure("Invalid question notification", err)
@@ -98,13 +98,7 @@ func (a *App) RespondQuestion(requestID string, cancelQuestion bool) {
 				return
 			}
 			var rpcError *channel.RPCError
-			stale := false
-			if errors.As(err, &rpcError) {
-				var detail struct {
-					Kind string `json:"kind"`
-				}
-				stale = json.Unmarshal(rpcError.Data, &detail) == nil && detail.Kind == "question/stale-request"
-			}
+			stale := errors.As(err, &rpcError) && protocol.ErrorKind(rpcError.Data) == protocol.ErrorKindQuestionStaleRequest
 			var acknowledged map[string]json.RawMessage
 			if err == nil && (json.Unmarshal(result, &acknowledged) != nil || acknowledged == nil) {
 				err = errors.New("invalid question response")

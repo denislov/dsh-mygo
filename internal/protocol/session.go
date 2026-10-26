@@ -2,11 +2,6 @@ package protocol
 
 import "encoding/json"
 
-const (
-	MethodSessionCreate = "session/create"
-	MethodSessionResume = "session/resume"
-)
-
 // SessionRoute encodes exactly one documented create/resume model route. Use
 // HostDefaultRoute or ExplicitRoute; the zero value is not a valid route.
 type SessionRoute struct {

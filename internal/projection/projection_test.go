@@ -203,22 +203,19 @@ func TestApplyIgnoresCompletedTurnAndDuplicateSeq(t *testing.T) {
 	}
 }
 
-func TestDecodeNotificationValidatesEnvelope(t *testing.T) {
-	notification, err := DecodeNotification(json.RawMessage(`{
-		"sessionId": "s1",
-		"event": {"type": "turn/start", "seq": 7, "time": 1, "data": {"turn": 1}}
-	}`))
-	if err != nil {
-		t.Fatalf("DecodeNotification: %v", err)
+func TestDecodeEventValidatesTypeAndReportsSequencePresence(t *testing.T) {
+	event, sequence, err := DecodeEvent(json.RawMessage(`{"type":"turn/start","seq":7,"time":1,"data":{"turn":1}}`))
+	if err != nil || event.Type != "turn/start" || event.Seq != 7 || sequence == nil || *sequence != 7 {
+		t.Fatalf("event = %+v, sequence = %v, err = %v", event, sequence, err)
 	}
-	if notification.SessionID != "s1" || notification.Event.Type != "turn/start" || notification.Event.Seq != 7 {
-		t.Fatalf("notification = %+v", notification)
+	event, sequence, err = DecodeEvent(json.RawMessage(`{"type":"turn/start","data":{}}`))
+	if err != nil || sequence != nil || event.Seq != 0 {
+		t.Fatalf("missing seq = %+v, %v, %v", event, sequence, err)
 	}
-	if _, err := DecodeNotification(json.RawMessage(`{"event": {"type": "turn/start"}}`)); err == nil {
-		t.Fatal("DecodeNotification accepted a missing sessionId")
-	}
-	if _, err := DecodeNotification(json.RawMessage(`{"sessionId": "s1", "event": {}}`)); err == nil {
-		t.Fatal("DecodeNotification accepted a missing event type")
+	for _, raw := range []string{`{}`, `{"seq":1,"time":1,"data":{}}`, `not json`} {
+		if _, _, err := DecodeEvent(json.RawMessage(raw)); err == nil {
+			t.Fatalf("accepted invalid event %s", raw)
+		}
 	}
 }
 

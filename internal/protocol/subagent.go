@@ -3,11 +3,6 @@ package protocol
 import "encoding/json"
 
 const (
-	MethodSubagentList    = "subagent/list"
-	MethodSubagentHistory = "subagent/history"
-)
-
-const (
 	SubagentModeOneShot     = "one-shot"
 	SubagentModeContinuable = "continuable"
 	SubagentModeExternal    = "external"

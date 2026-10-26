@@ -281,3 +281,12 @@
 - 教训：可以共用 protocol 包和结果信封风格，但不能把地址校验、能力门槛或读取流程合并成一个通用身份检查；可选 boolean 与边界字段仍需指针保留缺失语义。
 - 做法：protocol 分别定义管理请求与子代理请求/结果，App 保留两套 id 校验和各自流程；双端 management fixture 固定 wire，Node 驱动 rename/archive 与子代理分页，Go 校验指针存在性与实时状态解码，真实会话管理和冷恢复子代理详情回归通过。
 - 固化：未固化
+
+## L-029 外层信封进 protocol，嵌套解码与错误分支留在原所有权
+
+- 出现次数：1
+- 来源：2026-10-26 通知信封、方法名与错误 kind 收口
+- 现象：event/status/stream 通知的方法名散落在分发、切换缓冲和 resync 中；event 外层 seq 与嵌套事件 seq 的一致性校验靠匿名结构重复解码；取消/回答只对三个特定 kind 改变本地状态，其余 kind 仍应保持不透明。
+- 教训：集中名称和已消费 kind 能消除拼写漂移，但外层信封类型化不应把嵌套事件/流帧也搬进 protocol；seq 的缺失与零值必须在解码边界保留，SDK 点分名称只能经显式模式转换。
+- 做法：protocol 集中方法/通知常量、外层 DTO 与三个错误 kind；projection 的 event 解码返回 seq 存在性，stream 帧保持原始对象；app 分发/缓冲/错误分支改用常量，未知事件、非法帧与自定义通道的 SDK 名称拒绝保持。双端 notifications fixture 固定外层，真实 Restart/resync/流式/交互回归通过。
+- 固化：未固化

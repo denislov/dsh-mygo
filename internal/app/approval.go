@@ -22,7 +22,7 @@ func (a *App) clearApprovals() {
 }
 
 func (a *App) handleApprovalNotification(method string, params json.RawMessage) {
-	if method == "approval/closed" {
+	if method == protocol.NotificationApprovalClosed {
 		requestID, sessionID, err := interaction.DecodeApprovalClosed(params)
 		if err != nil {
 			a.setFailure("Invalid approval notification", err)
@@ -74,13 +74,7 @@ func (a *App) RespondApproval(requestID, decision string) {
 				return
 			}
 			var rpcError *channel.RPCError
-			stale := false
-			if errors.As(err, &rpcError) {
-				var detail struct {
-					Kind string `json:"kind"`
-				}
-				stale = json.Unmarshal(rpcError.Data, &detail) == nil && detail.Kind == "approval/stale-request"
-			}
+			stale := errors.As(err, &rpcError) && protocol.ErrorKind(rpcError.Data) == protocol.ErrorKindApprovalStaleRequest
 			var acknowledged map[string]json.RawMessage
 			if err == nil && (json.Unmarshal(result, &acknowledged) != nil || acknowledged == nil) {
 				err = errors.New("invalid approval response")

@@ -1,0 +1,45 @@
+{
+  "sessionEvent": {
+    "sessionId": "s1",
+    "seq": 7,
+    "event": {
+      "type": "assistant/message",
+      "seq": 7,
+      "time": 3,
+      "data": {
+        "message": {
+          "content": [
+            {
+              "type": "text",
+              "text": "hello"
+            }
+          ]
+        }
+      }
+    }
+  },
+  "sessionStatus": {
+    "sessionId": "s1",
+    "status": "idle",
+    "statusRevision": 4
+  },
+  "assistantStream": {
+    "sessionId": "s1",
+    "frame": {
+      "type": "start",
+      "attemptId": "s1:1",
+      "revision": 1,
+      "turn": 1,
+      "step": 1
+    }
+  },
+  "sessionCancelTimeout": {
+    "kind": "session/cancel-timeout"
+  },
+  "approvalStaleRequest": {
+    "kind": "approval/stale-request"
+  },
+  "questionStaleRequest": {
+    "kind": "question/stale-request"
+  }
+}

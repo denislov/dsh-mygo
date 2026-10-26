@@ -280,7 +280,7 @@ func (a *App) loadSessionInDirectory(id, cwd string) {
 			a.model.ErrorDetail = ""
 			a.model.SessionsOpen = false
 			for _, notification := range buffer {
-				if notification.method != "session/assistant-stream" {
+				if notification.method != protocol.NotificationSessionAssistantStream {
 					a.handleNotification(notification.method, notification.params)
 				}
 			}
@@ -294,7 +294,9 @@ func (a *App) bufferSessionNotification(method string, params json.RawMessage) b
 		return false
 	}
 	switch method {
-	case "session/event", "session/status", "session/assistant-stream", "approval/request", "approval/closed", "question/request", "question/closed":
+	case protocol.NotificationSessionEvent, protocol.NotificationSessionStatus, protocol.NotificationSessionAssistantStream,
+		protocol.NotificationApprovalRequest, protocol.NotificationApprovalClosed,
+		protocol.NotificationQuestionRequest, protocol.NotificationQuestionClosed:
 	default:
 		return false
 	}
@@ -304,7 +306,7 @@ func (a *App) bufferSessionNotification(method string, params json.RawMessage) b
 	if json.Unmarshal(params, &envelope) != nil || envelope.SessionID != a.loadingSession {
 		return false
 	}
-	if method == "session/assistant-stream" {
+	if method == protocol.NotificationSessionAssistantStream {
 		return true
 	}
 	if len(a.sessionBuffer) >= 1024 || a.sessionBufferBytes+len(params) > 8*1024*1024 {

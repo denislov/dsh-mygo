@@ -1,10 +1,5 @@
 package protocol
 
-const (
-	MethodPermissionGet    = "permission/get"
-	MethodPermissionSelect = "permission/select"
-)
-
 type PermissionGetParams struct {
 	SessionID string `json:"sessionId"`
 }

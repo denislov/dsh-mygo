@@ -1,10 +1,5 @@
 package protocol
 
-const (
-	MethodModelList   = "model/list"
-	MethodModelSelect = "model/select"
-)
-
 type ModelListParams struct {
 	SessionID string `json:"sessionId"`
 	Provider  string `json:"provider,omitempty"`

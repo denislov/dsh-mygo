@@ -295,6 +295,28 @@ func TestMygoEventsUseBaselineAndResyncOnGaps(t *testing.T) {
 	}
 }
 
+func TestMygoEventEnvelopeRequiresMatchingSequences(t *testing.T) {
+	for _, raw := range []string{
+		`{"sessionId":"s1","event":{"seq":0,"type":"turn/start","data":{}}}`,
+		`{"sessionId":"s1","seq":0,"event":{"type":"turn/start","data":{}}}`,
+		`{"sessionId":"s1","seq":0,"event":{"seq":1,"type":"turn/start","data":{}}}`,
+		`{"sessionId":"s1","seq":0,"event":{"seq":0,"data":{}}}`,
+	} {
+		application := newTestApp(&fakeClient{})
+		application.options.SDKProtocol = false
+		application.handleNotification("session/event", json.RawMessage(raw))
+		if application.model.Phase != view.PhaseFailed || !application.model.RecoveryOpen {
+			t.Fatalf("accepted invalid envelope %s: %+v", raw, application.model)
+		}
+	}
+	application := newTestApp(&fakeClient{})
+	application.options.SDKProtocol = false
+	application.handleNotification("session.event", json.RawMessage(`{"sessionId":"s1","event":{"seq":0,"type":"turn/start","data":{}}}`))
+	if application.model.Phase != view.PhaseFailed {
+		t.Fatal("custom channel accepted a dotted SDK notification")
+	}
+}
+
 func TestCancelWaitsForHostPreservesDraftAndRejectsDuplicate(t *testing.T) {
 	client := &fakeClient{result: json.RawMessage(`{"cancelled":true,"status":"idle"}`)}
 	application := newTestApp(client)

@@ -310,6 +310,20 @@ test('questions negotiate capability, delegate foreign agents, and accept agentl
   await server.shutdown()
 })
 
+test('notification fixture fixes event, status and stream outer envelopes', async () => {
+  const fixture = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/notifications.json', import.meta.url), 'utf8'))
+  const { server, handles, listeners, notifications } = runtime()
+  await server.handle('initialize', { ...handshake, capabilities: ['session.assistant-stream'] })
+  const { session } = await server.handle('session/create', { cwd: process.cwd(), provider: 'test', model: 'echo' })
+  listeners.get('session/event')(handles[0].agent.session, fixture.sessionEvent.event)
+  listeners.get('agent/status')({ agent: handles[0].agent, status: fixture.sessionStatus.status })
+  listeners.get('agent/assistant-stream')({ agent: handles[0].agent, frame: fixture.assistantStream.frame })
+  assert.deepEqual(notifications.find(({ method }) => method === 'session/event').params, { sessionId: session.id, seq: fixture.sessionEvent.seq, event: fixture.sessionEvent.event })
+  assert.deepEqual(notifications.find(({ method }) => method === 'session/status').params, { sessionId: session.id, status: fixture.sessionStatus.status })
+  assert.deepEqual(notifications.find(({ method }) => method === 'session/assistant-stream').params, { sessionId: session.id, frame: fixture.assistantStream.frame })
+  await server.shutdown()
+})
+
 test('assistant stream is capability-gated and owned by the exact live agent', async () => {
   const { server, handles, listeners, notifications } = runtime()
   await server.handle('initialize', { ...handshake, capabilities: ['session.assistant-stream'] })

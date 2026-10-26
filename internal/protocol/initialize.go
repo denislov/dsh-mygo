@@ -2,8 +2,6 @@ package protocol
 
 import "dsh-mygo/internal/attachment"
 
-const MethodInitialize = "initialize"
-
 type InitializeParams struct {
 	ProtocolVersion int        `json:"protocolVersion"`
 	Client          ClientInfo `json:"client"`

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"dsh-mygo/internal/projection"
+	"dsh-mygo/internal/protocol"
 	"dsh-mygo/internal/view"
 )
 
@@ -75,7 +76,9 @@ func (a *App) queueResync(notification hostNotification) {
 
 func (a *App) bufferResyncNotification(method string, params json.RawMessage) bool {
 	switch method {
-	case "session/event", "session/status", "session/assistant-stream", "approval/request", "approval/closed", "question/request", "question/closed":
+	case protocol.NotificationSessionEvent, protocol.NotificationSessionStatus, protocol.NotificationSessionAssistantStream,
+		protocol.NotificationApprovalRequest, protocol.NotificationApprovalClosed,
+		protocol.NotificationQuestionRequest, protocol.NotificationQuestionClosed:
 	default:
 		return false
 	}
@@ -86,7 +89,7 @@ func (a *App) bufferResyncNotification(method string, params json.RawMessage) bo
 		a.failResync()
 		return true
 	}
-	if envelope.SessionID != a.sessionID && !(envelope.SessionID == "" && (method == "question/request" || method == "question/closed")) {
+	if envelope.SessionID != a.sessionID && !(envelope.SessionID == "" && (method == protocol.NotificationQuestionRequest || method == protocol.NotificationQuestionClosed)) {
 		return true
 	}
 	a.queueResync(hostNotification{method: method, params: params})
@@ -106,23 +109,21 @@ func (a *App) postAfterResync(apply func()) {
 
 func resyncBufferContinuous(buffer []hostNotification, next uint64) (bool, error) {
 	for _, notification := range buffer {
-		if notification.method != "session/event" {
+		if notification.method != protocol.NotificationSessionEvent {
 			continue
 		}
-		event, err := projection.DecodeNotification(notification.params)
-		var required struct {
-			Seq   *uint64 `json:"seq"`
-			Event struct {
-				Seq *uint64 `json:"seq"`
-			} `json:"event"`
-		}
-		if err != nil || json.Unmarshal(notification.params, &required) != nil || required.Seq == nil || required.Event.Seq == nil || *required.Seq != event.Event.Seq || *required.Event.Seq != event.Event.Seq || event.Event.Seq > maxSafeInteger {
+		var envelope protocol.SessionEventNotification
+		if json.Unmarshal(notification.params, &envelope) != nil || envelope.Seq == nil || envelope.SessionID == "" {
 			return false, errors.New("Invalid buffered session sequence")
 		}
-		if event.Event.Seq < next {
+		event, eventSeq, err := projection.DecodeEvent(envelope.Event)
+		if err != nil || eventSeq == nil || *envelope.Seq != event.Seq || event.Seq > maxSafeInteger {
+			return false, errors.New("Invalid buffered session sequence")
+		}
+		if event.Seq < next {
 			continue
 		}
-		if event.Event.Seq > next {
+		if event.Seq > next {
 			return false, nil
 		}
 		next++
@@ -137,10 +138,8 @@ func resyncStreamContinuous(buffer []hostNotification, snapshot *historySnapshot
 	}
 	for _, notification := range buffer {
 		switch notification.method {
-		case "session/assistant-stream":
-			var envelope struct {
-				Frame json.RawMessage `json:"frame"`
-			}
+		case protocol.NotificationSessionAssistantStream:
+			var envelope protocol.AssistantStreamNotification
 			if json.Unmarshal(notification.params, &envelope) != nil {
 				return false, errors.New("Invalid buffered stream")
 			}
@@ -150,13 +149,17 @@ func resyncStreamContinuous(buffer []hostNotification, snapshot *historySnapshot
 			if stream.NeedsResync() {
 				return false, nil
 			}
-		case "session/event":
-			event, err := projection.DecodeNotification(notification.params)
-			if err != nil {
-				return false, err
+		case protocol.NotificationSessionEvent:
+			var envelope protocol.SessionEventNotification
+			if json.Unmarshal(notification.params, &envelope) != nil || envelope.SessionID == "" {
+				return false, errors.New("Invalid buffered session")
 			}
-			if event.Event.Seq >= snapshot.NextSeq {
-				stream.Commit(event.Event)
+			event, _, err := projection.DecodeEvent(envelope.Event)
+			if err != nil {
+				return false, errors.New("Invalid buffered session")
+			}
+			if event.Seq >= snapshot.NextSeq {
+				stream.Commit(event)
 			}
 		}
 	}

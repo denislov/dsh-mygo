@@ -63,7 +63,7 @@ flowchart TD
 **目标**: 核心请求、响应、通知信封与错误 kind 有清晰的具名表达，app 不再重复翻译相同 schema。
 **成功标准**: 相同 wire 在迁移前后编码语义一致，原有缺失/null/空字符串、必填布尔、安全整数、身份与预算校验保持；未知能力/字段仍按各方法原契约处理，SDK 兼容保持。
 **测试**: 每任务的编码/非法载荷表、双端 fixture、相关 Go/Node 单元与 fake/真实 Host；详见第三部分验证分组。
-**状态**: 进行中（1.1–1.6 已完成）
+**状态**: 已完成（1.1–1.7）
 
 ### 1.1 session/create、session/resume 与摘要（中，已完成）
 
@@ -107,11 +107,12 @@ flowchart TD
 - **验收/回归**：重命名以提交事实确认；归档当前会话后的恢复/草稿保持。子查询只读直接子任务，fork 继承前缀、reasoning 隐藏、页预算、父预占与句柄释放保持；不得恢复或 prompt 子 Agent。真实会话管理和冷恢复子代理详情通过。
 - **完成记录（2026-10-26）**：`internal/protocol/management.go` 与 `subagent.go` 增加 rename/archive、subagent list/history 请求/结果信封、实时状态载荷及模式/状态/结束原因常量；`tests/fixtures/protocol/management.json` 由 Go/Node 共用。App 管理写入、子代理目录/历史和通知改用具名载荷；会话 id 校验、提交事实确认、直接父子关联、展示白名单、fork 前缀、页预算与观察句柄释放保持，不恢复或 prompt 子 Agent。实际检查：全量/纯 Go 各 727 项、protocol/interaction/channel/projection/app/view race 635 项、Node 95 项、真实 Host 4 项（含子用例）通过；MyGo vet、Go vet、格式与差异检查通过。剩余：后续任务 1.7 未开始。
 
-### 1.7 通知信封、方法名与错误 kind 收口（中）
+### 1.7 通知信封、方法名与错误 kind 收口（中，已完成）
 
 - **范围/依赖**：依赖 1.1–1.6；涉及 `handleNotification`、`stream.go`、`resync.go`、`crash.go` 与协议常量。
 - **实施/交付**：集中已实现方法、通知和已消费错误 kind；类型化 event/status/stream 外层，嵌套持久事件与流帧继续交给 projection 的现有专用解码器。逐个调用点替换，不为未来未实现能力生成假 handler。
 - **验收/回归**：未知字段/事件与非法帧的不同处理保持；SDK 点分通知只经显式模式转换。所有入站路径仍有大小、类型、身份与序列校验，错误不泄露秘密。Go/Node fixture、旧 Host/SDK、projection/app 全链路通过。
+- **完成记录（2026-10-26）**：`internal/protocol/methods.go|notifications.go|errors.go` 集中全部已实现方法、通知名称与 app 消费的三个错误 kind；`tests/fixtures/protocol/notifications.json` 由 Go/Node 共用。`handleNotification`、流式、会话切换/resync 缓冲与回答错误分支改用常量；event/status/stream 外层具名化，projection 的 event/stream 解码继续处理嵌套载荷，事件 seq 的缺失与零值仍可区分。SDK 点分名称只在显式模式接受，自定义通道继续拒绝。实际检查：全量/纯 Go 各 729 项、protocol/projection/app/channel/interaction/view race 637 项、Node 96 项、真实 Host 43 项（含子用例）通过；MyGo vet、Go vet、格式与差异检查通过。
 
 ## 阶段 2: 明确回合与 Host 生命周期
 

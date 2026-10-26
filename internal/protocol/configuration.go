@@ -1,12 +1,6 @@
 package protocol
 
 const (
-	MethodConfigurationGet          = "configuration/get"
-	MethodConfigurationDefaultModel = "configuration/default-model"
-	MethodConfigurationCredential   = "configuration/credential"
-)
-
-const (
 	CredentialOperationSet   = "set"
 	CredentialOperationUnset = "unset"
 )

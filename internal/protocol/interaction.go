@@ -1,12 +1,6 @@
 package protocol
 
 const (
-	MethodApprovalRespond = "approval/respond"
-	MethodQuestionRespond = "question/respond"
-	MethodQuestionCancel  = "question/cancel"
-)
-
-const (
 	ApprovalDecisionAllow = "allow"
 	ApprovalDecisionDeny  = "deny"
 )

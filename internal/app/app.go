@@ -984,13 +984,8 @@ func (a *App) cancelTurn(client rpcClient, promptID uint64, sessionID string, de
 		}
 		if err != nil {
 			var rpcError *channel.RPCError
-			if errors.As(err, &rpcError) {
-				var detail struct {
-					Kind string `json:"kind"`
-				}
-				if json.Unmarshal(rpcError.Data, &detail) == nil && detail.Kind == "session/cancel-timeout" {
-					a.awaitingTurn = false
-				}
+			if errors.As(err, &rpcError) && protocol.ErrorKind(rpcError.Data) == protocol.ErrorKindSessionCancelTimeout {
+				a.awaitingTurn = false
 			}
 			a.model.Error = "Could not stop the turn"
 			a.model.ErrorDetail = clipDetail(err.Error(), maxErrorRunes)
@@ -1026,38 +1021,46 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 			return
 		}
 		switch method {
-		case "session/assistant-stream":
+		case protocol.NotificationSessionAssistantStream:
 			a.handleStreamNotification(params)
 			return
-		case "question/request", "question/closed":
+		case protocol.NotificationQuestionRequest, protocol.NotificationQuestionClosed:
 			a.handleQuestionNotification(method, params)
 			return
-		case "approval/request", "approval/closed":
+		case protocol.NotificationApprovalRequest, protocol.NotificationApprovalClosed:
 			a.handleApprovalNotification(method, params)
 			return
-		case "subagent/started":
+		case protocol.NotificationSubagentStarted:
 			a.handleSubagentNotification(params, false)
 			return
-		case "subagent/finished":
+		case protocol.NotificationSubagentFinished:
 			a.handleSubagentNotification(params, true)
 			return
-		case "session/event":
-			method = "session.event"
-		case "session/status":
-			method = "session.status"
-		case "host/fatal":
+		case protocol.NotificationSessionEvent:
+			method = protocol.NotificationSDKSessionEvent
+		case protocol.NotificationSessionStatus:
+			method = protocol.NotificationSDKSessionStatus
+		case protocol.NotificationHostFatal:
 			a.setFailure("The host reported an agent failure", errors.New("Restart the host before retrying"))
 			go a.stopHost()
 			return
-		case "session.event", "session.status":
+		case protocol.NotificationSDKSessionEvent, protocol.NotificationSDKSessionStatus:
 			a.setFailure("Invalid host notification", errors.New("SDK notifications are not valid on the mygo channel"))
 			go a.stopHost()
 			return
 		}
 	}
 	switch method {
-	case "session.event":
-		notification, err := projection.DecodeNotification(params)
+	case protocol.NotificationSDKSessionEvent:
+		var envelope protocol.SessionEventNotification
+		if json.Unmarshal(params, &envelope) != nil || envelope.SessionID == "" {
+			if !a.options.SDKProtocol {
+				a.setFailure("Invalid host event", errors.New("The host sent an invalid session event"))
+				go a.stopHost()
+			}
+			return
+		}
+		event, eventSeq, err := projection.DecodeEvent(envelope.Event)
 		if err != nil {
 			if !a.options.SDKProtocol {
 				a.setFailure("Invalid host event", errors.New("The host sent an invalid session event"))
@@ -1065,17 +1068,11 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 			}
 			return
 		}
-		if notification.SessionID != a.sessionID {
+		if envelope.SessionID != a.sessionID {
 			return
 		}
 		if !a.options.SDKProtocol {
-			var envelope struct {
-				Seq   *uint64 `json:"seq"`
-				Event struct {
-					Seq *uint64 `json:"seq"`
-				} `json:"event"`
-			}
-			if json.Unmarshal(params, &envelope) != nil || envelope.Seq == nil || envelope.Event.Seq == nil || *envelope.Seq != notification.Event.Seq {
+			if envelope.Seq == nil || eventSeq == nil || *envelope.Seq != event.Seq {
 				a.setFailure("Invalid session event sequence", errors.New("The host sent an inconsistent session event sequence"))
 				go a.stopHost()
 				return
@@ -1086,21 +1083,21 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 			if *envelope.Seq > a.nextSeq {
 				a.requireResync(errors.New("The host event sequence skipped a frame"))
 				if a.resync != nil {
-					a.bufferResyncNotification("session/event", params)
+					a.bufferResyncNotification(protocol.NotificationSessionEvent, params)
 				}
 				return
 			}
 			a.nextSeq++
 			a.sessionCatalogDirty = true
-			if notification.Event.Type == "permission/preset" || notification.Event.Type == "sandbox/mode" || notification.Event.Type == "approval/policy" {
+			if event.Type == "permission/preset" || event.Type == "sandbox/mode" || event.Type == "approval/policy" {
 				a.model.Permission.Ready = false
 				a.model.Permission.Confirm = false
 			}
-			if notification.Event.Type == "session/title" {
+			if event.Type == "session/title" {
 				var data struct {
 					Title string `json:"title"`
 				}
-				if json.Unmarshal(notification.Event.Data, &data) == nil {
+				if json.Unmarshal(event.Data, &data) == nil {
 					a.sessionTitleSeq = a.nextSeq
 					a.sessionTitle = data.Title
 					for index, summary := range a.model.Sessions {
@@ -1111,23 +1108,19 @@ func (a *App) handleNotification(method string, params json.RawMessage) {
 				}
 			}
 		}
-		if isTurnActivity(notification.Event.Type) {
+		if isTurnActivity(event.Type) {
 			a.sawActivity = true
 		}
-		a.stream.Commit(notification.Event)
-		a.transcript.Apply(notification.Event)
+		a.stream.Commit(event)
+		a.transcript.Apply(event)
 		if a.canHistoryWindow {
 			if start, trimmed := a.transcript.TrimRecent(); trimmed {
 				a.model.History.Start = start
 			}
 		}
 		a.publishTranscript()
-	case "session.status":
-		var notification struct {
-			SessionID      string  `json:"sessionId"`
-			Status         string  `json:"status"`
-			StatusRevision *uint64 `json:"statusRevision"`
-		}
+	case protocol.NotificationSDKSessionStatus:
+		var notification protocol.SessionStatusNotification
 		if json.Unmarshal(params, &notification) != nil {
 			if !a.options.SDKProtocol {
 				a.setFailure("Invalid host status", errors.New("The host sent an invalid session status"))
