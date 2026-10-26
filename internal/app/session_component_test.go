@@ -42,7 +42,7 @@ func TestSessionNavigatorBufferIsBoundedAndInvalidationDropsResults(t *testing.T
 	}
 }
 
-func TestSessionCatalogTracksTitleDirtyAndHostChanges(t *testing.T) {
+func TestSessionCatalogTracksTitleDirtyAndReset(t *testing.T) {
 	var catalog sessionCatalog
 	catalog.markDirty()
 	if !catalog.takeDirty() || catalog.takeDirty() {
@@ -54,12 +54,8 @@ func TestSessionCatalogTracksTitleDirtyAndHostChanges(t *testing.T) {
 	if catalog.sessionTitle != "Renamed" || catalog.sessionTitleSeq != 7 {
 		t.Fatal("title was not recorded")
 	}
-	catalog.hostChanged()
-	if catalog.sessionCatalogDirty || catalog.sessionNeedsHistory || catalog.retiredSessions != nil || catalog.sessionTitle != "Renamed" {
-		t.Fatal("host change kept stale catalog hints")
-	}
 	catalog.reset()
-	if catalog.sessionTitle != "" || catalog.sessionTitleSeq != 0 {
-		t.Fatal("reset kept a committed title")
+	if catalog.sessionCatalogDirty || catalog.sessionNeedsHistory || catalog.retiredSessions != nil || catalog.sessionTitle != "" || catalog.sessionTitleSeq != 0 {
+		t.Fatal("reset kept stale catalog hints")
 	}
 }

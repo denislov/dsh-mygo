@@ -335,3 +335,12 @@
 - 教训：区域组合应保持字段选择器与控件 key 不变，才能移动所有权而不丢输入、焦点和滚动；回调缺席表达“动作不可用”，能力字段表达 Host 协商结果，二者不能互相推断。
 - 做法：区域状态匿名嵌入并配独立动作结构；业务副作用经构建结束队列提交；应用提示用具名 i18n key，技术详情不翻译；布局只提取重复且有设计语义的 token。Tester 多帧、纯构建和 token 基线测试固定行为。
 - 固化：未固化
+
+## L-035 入口、路由与适配边界用表/小类型显式化，工具先评估再采用
+
+- 出现次数：1
+- 来源：2026-10-26 阶段 5 工程收口
+- 现象：main 同时解析 flag、决定 runtime/SDK/direct 模式并建窗；Node handle 的长 switch 混排能力与参数门禁；SDK 差异散落在多处 `if`；度量/代码生成/analyzer 的能力边界未验证。
+- 教训：启动组合根用 launchMode 枚举，Node 分派用显式方法表，SDK 只保留一个 adapter 边界；共用工具只复用真正相同的规则，文本预算按语义保留独立实现；代码生成/analyzer 先用基线与 fixture 证明净收益，不因计划存在而强造。
+- 做法：`main_config.go` 分离解析/计划；`server.mjs` 用 CONFIGURATION/PERMISSION 集合与 routes 表；`sdkAdapter` 拥有 SDK 形态；`internal/ids` 复用它；`cmd/metrics`、依赖方向测试与 repository artifact check 进入 CI；决策记录在 `docs/research/refactor-tooling.md`。
+- 固化：未固化

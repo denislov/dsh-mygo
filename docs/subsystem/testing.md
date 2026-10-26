@@ -164,6 +164,7 @@ node --test resources/host/tests/*.test.mjs
 - 子代理详情：Node `subagent-inspection.test.mjs` 验证独立能力协商、所属父/直接子授权、fork 前缀隔离、连续分页、隐藏配置/reasoning 过滤、目录/页预算、观察句柄释放、父读取预占与退出中止、依赖错误脱敏。Go `subagent_inspection_test.go` 验证严格解码、运行中打开、迟到响应隔离和失败保持草稿；View Tester 验证原生列表/详情、Markdown 精确复制、早页/尾页、提问优先、旧 Host 隐藏与最小窗口按钮。`TestAgainstMygoRealSubagentStatus` 在真实 DSH 用 mock adapter 验证提交输出与结束原因，并用第二 Host 冷恢复父会话后读取持久子代理结果；不恢复子 Agent、不调用付费模型。Windows 原生窗口检查运行中详情、停止后刷新结果、宽窄布局与关闭返回。
 - 回合与 Host 生命周期：`turn_test.go` 表驱动提交/认领/idle/取消/idle-while-cancel/超时/reset/resync 恢复；`host_test.go` 覆盖旧代通知/失败、重复与慢 stop、关闭后安装、通知提交边界与首次失败保持；`operation_test.go` 覆盖版本令牌与取消；`workspace_test.go` 覆盖独立目录读取不被单点失败取消；现有 stream/resync 测试继续覆盖有序批次、单次投影、seq/revision 与取消屏障。真实 Restart/resync/取消/审批/提问/会话管理与子代理冷恢复同时回归。
 - 组件生命周期：`settings_component_test.go`、`session_component_test.go`、`history_component_test.go`、`local_component_test.go`、`runtime_component_test.go`、`subagent_component_test.go`、`workspace_component_test.go`、`attachment_component_test.go` 分别覆盖目标会话/换代失效、目录缓冲与退休句柄、resync cut/revision、草稿与退出单飞、运行时操作代际与切换阶段、子代理父身份/读取令牌/分页前缀、项目代际与面板请求、附件暂存/预览身份/补全代际。`App` 的 HostReady、SessionChanged、ResyncCommitted 与 RequestQuit 顺序由 `TestAgainstMygo*` 全链路和会话切换/重同步/退出测试共同约束；组件不持有 App，跨域依赖通过窄 provider 或显式参数传入。
+- 入口与工具：`main_test.go` 表驱动 launch mode 优先级、profile/session 校验、重复 `-host-arg` 与显式空 `-effort`；`cmd/metrics` 测试只统计生产 AST 并排除生成/测试文件；`scripts/check-repository.test.mjs` 覆盖生成物/私钥/运行时 payload 拒绝；`internal/{view,projection}/imports_test.go` 固定依赖方向。
 - `TestAgainstMygoPermissions`：fake/真实 Host 的初始化快照、会话权限切换、草稿保持、新建默认不变和切回；真实组 kill/Restart 后冷恢复确认权限持久化。`TestAgainstMygoPermissionEnforcement` 以真实 approval-probe 对比 ask 弹出审批与 never 拒绝显式审批，均不执行被拒绝的临时标记写入。
 - 权限单元与 Tester：白名单载荷/实际 knobs/危险确认/seq 冲突/写入屏障/失败刷新/旧 Host 隐藏/独立于模型能力/最小窗口；快捷模式点选即提交、当前勾选态仅随 Host 确认改变、忙碌/不确定时禁止重复写入。完整设置页验证确认框门禁；快捷列表验证精简结构与说明，Windows 原生窗口检查宽窄布局，选项切换使用 Tester 与真实 Host 验证。
 - `node scripts/test-real-host.mjs --runtime`：同一组测试改用 `runtime/` 的 Node、DSH 闭包与私有入口；用于打包前后检查运行时闭包。
@@ -175,7 +176,7 @@ node --test resources/host/tests/*.test.mjs
 
 ## 打包测试
 
-- 打包目录 smoke：`node scripts/smoke-packaged.mjs` 验证 manifest/版本、打包资源真实回合（composition + restart）、干净 `DSH_HOME` 首启、session 与应用日志；两个 smoke 脚本都通过 `-ui-state-dir` 隔离编辑文件，避免写入用户偏好。
+- 打包目录 smoke：`node scripts/smoke-packaged.mjs` 验证 manifest/版本、打包资源真实回合（composition + restart）、干净 `DSH_HOME` 首启、session 与应用日志，并用同一 `DSH_HOME`/UI 状态连续启动确认恢复到同一会话；两个 smoke 脚本都通过 `-ui-state-dir` 隔离编辑文件，避免写入用户偏好。
 - 安装包 smoke：窗口打开、Host ready、完成一个不调用模型的回合。
 - 签名：Windows `signtool verify`；macOS `codesign --verify` 与公证。
 - 更新：旧版本 → 新版本，会话/设置保留；delta 校验。
@@ -206,10 +207,11 @@ DSH 的会话与设置跨平台共享；测试不要写入用户真实 `$DSH_HOM
 
 | 阶段 | 命令 |
 | --- | --- |
-| Go | `go build ./...`、`go test ./...`、`go tool mygo vet .` |
-| UI | 同上（`ui.NewTester`） |
+| Go | `go build ./...`、`go test ./...`、`go vet ./...`、`go tool mygo vet .` |
+| UI | 同上（`ui.NewTester`）；`internal/view/imports_test.go` 守住依赖方向 |
 | 协议 | `node --test resources/host/tests/*.test.mjs`、`go test ./internal/channel` |
-| 真实 Host | 可选自托管 job：设置 `DSH_MYGO_DSH_DIR` 或 `DSH_MYGO_RESOURCES_DIR` 后跑真实组合组 |
+| 依赖/生成物 | `go run ./cmd/metrics -top 10`、`node scripts/check-repository.mjs` |
+| 真实 Host | 可选自托管 job：设置 `DSH_MYGO_DSH_DIR` 或 `DSH_MYGO_RESOURCES_DIR` 后跑真实组合组；托管 CI 暂不加入 |
 | 打包 | 平台 runner 上构建、签名、安装 smoke（发布阶段） |
 
 ## 测试范围取舍

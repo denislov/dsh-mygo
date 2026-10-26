@@ -228,6 +228,17 @@ node resources/host/setup-profile.mjs --dsh-home D:/Temp/dsh-mygo-dev
 - 子代理只读查询使用公开 `ctx.subagents.listChildren` 与 `ctx.sessionQuery.observeSession`；两者同时可用才协商 `subagent.inspection`。只查询所属父会话的直接子代理，观察句柄及时 dispose，不调用 agents.resume、不注册子 Agent、不依赖私有日志结构。查询期间预占父句柄并参与退出中止与排空；线协议边界见 [通道协议](channel-protocol.md#子代理只读查询)。
 - 行 id、配置字段、channel 方法一起做兼容性评审。
 
+### DSH 升级检查清单
+
+1. 固定旧版本基线：记录 `versions.json`、Host bundle 版本、protocolVersion、appCompatibility、Node/DSH/runtime id 与当时通过的检查。
+2. 更新 `resources/host/package.json` 的 peer 依赖、`versions.json` 的 `dsh`/Node、runtime manifest 与 catalog；只有 wire 契约变化时才提升 protocolVersion 或 appCompatibility。
+3. 在 DSH checkout 执行 `pnpm run build:artifacts`、`pnpm run typecheck`、`pnpm run test`，确认公开服务/行 id/事件字段仍存在。
+4. 重新生成 Host bundle 与 managed runtime，运行 `node scripts/build-runtime.mjs`；确认 manifest identity、协议版本、app 范围和 Host bundle 目录一致。
+5. 运行 Node Host 全量、Go 全量/纯 Go/race、真实 composition/first-use/resync/管理白名单；至少一个 fake 与一个真实 mock Host 通过，不用真实 key。
+6. 验证升级路径：旧 profile 的 `@dsh-mygo/host` 副本按 `version + engines.dsh` 更新，旧副本保留且失败可回滚；旧应用/新 Host 与旧 Host/新应用的拒绝路径明确。
+7. 执行本机构建与 packaged smoke（应用 + 选中 runtime），确认首启、连续启动、退出无残留进程；干净 VM、macOS、签名信任与付费模型未执行时保留为发布缺口。
+8. 只有以上检查通过后才更新发布 tag/catalog；不上传 Release 或覆盖用户安装来替代验证。
+
 ## 失败模式
 
 | 失败 | 处理 |

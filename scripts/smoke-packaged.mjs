@@ -78,6 +78,7 @@ const setupState = join(work, 'setup-state')
 const runtimeHome = join(work, 'runtime-home')
 const dshHome = join(work, 'dsh-home')
 const logs = join(work, 'logs')
+const logsAgain = join(work, 'logs-again')
 const uiState = join(work, 'ui-state')
 
 try {
@@ -114,6 +115,7 @@ try {
       hostPid = readHostPid(logPath)
       if (hostPid) pass(`found the host process (pid ${hostPid})`)
       else fail('could not read the host pid from the application log')
+      await delay(1500)
     }
   } catch (error) {
     fail(error.message)
@@ -127,6 +129,23 @@ try {
     } catch (error) {
       fail(error.message)
     }
+  }
+
+  const resumedLogPath = join(logsAgain, 'dsh-mygo.log')
+  const third = await runApp(
+    ['-runtime-dir', runtimeDir, '-dsh-home', dshHome, '-log-dir', logsAgain, '-ui-state-dir', uiState],
+    logsAgain,
+  )
+  try {
+    await waitFor(() => existsSync(resumedLogPath) && readFileSync(resumedLogPath, 'utf8').includes('session ready:'), 90000, 'second launch session')
+    const firstSession = readSessionID(join(logs, 'dsh-mygo.log'))
+    const resumedSession = readSessionID(resumedLogPath)
+    if (firstSession && firstSession === resumedSession) pass('second launch resumed the same session')
+    else fail(`second launch did not resume the same session (${firstSession} -> ${resumedSession})`)
+  } catch (error) {
+    fail(error.message)
+  } finally {
+    await stopApp(third)
   }
 } catch (error) {
   fail(error.message)
@@ -177,6 +196,15 @@ async function waitFor(check, timeout, label) {
     await delay(200)
   }
   throw new Error(`Timed out waiting for ${label}`)
+}
+
+function readSessionID(logPath) {
+  try {
+    const matches = [...readFileSync(logPath, 'utf8').matchAll(/session ready: ([A-Za-z0-9_-]+)/g)]
+    return matches.length ? matches[matches.length - 1][1] : ''
+  } catch {
+    return ''
+  }
 }
 
 function readHostPid(logPath) {

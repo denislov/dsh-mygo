@@ -98,6 +98,25 @@ Profile 是组合根。设计：
 
 细节见 [profile 与 bundle](subsystem/profile-bundle.md)。
 
+### 4.4 应用组件所有权与依赖方向
+
+| 所有者 | 状态与生命周期 | 跨域依赖 |
+| --- | --- | --- |
+| `turnTracker` | prompt/cancel/activity/投递屏障，无 UI/I/O | App 读取并驱动 Phase/队列副作用 |
+| `hostInstance` | client/supervisor/generation/幂等 stop | 通知、读循环、失败与关闭携带捕获实例 |
+| `settingsComponent` | 设置操作令牌、目标会话、Host 换代失效 | App 路由模型/配置/权限/凭据结果 |
+| `sessionComponent` | Navigator（加载目标、取消、有界缓冲）与 Catalog（标题、dirty、历史需求、退休句柄） | App 在 SessionChanged 一次提交 |
+| `historyComponent` | resync cut、状态 revision/host status、历史/流能力 | App 在 ResyncCommitted 发布快照 |
+| `localComponent` | 会话草稿、本机编辑、退出协调 | App 捕获编辑后 flush/关闭 |
+| `runtimeComponent` | 检测/安装代际、唯一 pending 切换、prepare/stop/initialize/commit/rollback | App 在候选 HostReady 后写设备选择 |
+| `subagentComponent` | 实时摘要、只读详情令牌、父/子身份、单页游标 | App 只读投影，不恢复子 Agent |
+| `attachmentComponent` | 图片策略、暂存校验、预览/提及身份、会话边界 | App 发送时构造 blocks |
+| `workspaceComponent` | 项目代际、读取取消、preview/diff/tree/terminal 请求、终端句柄 | App 清理显示状态，隐藏不销毁 |
+| `sdkAdapter` | SDK initialize/prompt/点分通知形态与能力门 | App 组合根选择；custom 不降级 |
+| `diagnostics` | 日志、文件、锁、崩溃报告、脱敏 | App 只提交已定界报告 |
+
+依赖方向：`view` 只依赖 projection/interaction/preferences/i18n/attachment/workspace，不依赖 app/channel/host/runtimes；`projection` 只依赖 protocol 与纯数据，不依赖外层；`channel`/`host`/`runtimes` 不依赖 view；`app` 负责装配以上所有者与窗口入口。区域状态字段可匿名提升给 View，但组件不反向持有 App；跨域身份通过显式参数或窄 provider 传入。
+
 ## 5. 运行流程
 
 ### 5.1 启动

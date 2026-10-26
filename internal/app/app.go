@@ -963,6 +963,11 @@ func (a *App) handleNotificationFrom(source *hostInstance, method string, params
 		if a.bufferSessionNotificationFrom(source, method, params) {
 			return
 		}
+		if a.protocol.isSDKNotification(method) {
+			a.setFailure(msgHostInvalidNotify, errors.New("SDK notifications are not valid on the mygo channel"))
+			go a.stopHost()
+			return
+		}
 		switch method {
 		case protocol.NotificationSessionAssistantStream:
 			a.handleStreamNotificationFrom(source, params)
@@ -985,10 +990,6 @@ func (a *App) handleNotificationFrom(source *hostInstance, method string, params
 			method = a.protocol.notificationMethod(method)
 		case protocol.NotificationHostFatal:
 			a.setFailure(msgHostAgentFailure, errors.New("Restart the host before retrying"))
-			go a.stopHost()
-			return
-		case protocol.NotificationSDKSessionEvent, protocol.NotificationSDKSessionStatus:
-			a.setFailure(msgHostInvalidNotify, errors.New("SDK notifications are not valid on the mygo channel"))
 			go a.stopHost()
 			return
 		}
@@ -1040,7 +1041,7 @@ func (a *App) handleSessionEventNotification(source *hostInstance, params json.R
 			return
 		}
 		a.nextSeq++
-		a.sessionCatalogDirty = true
+		a.sessionCatalog.markDirty()
 		if event.Type == "permission/preset" || event.Type == "sandbox/mode" || event.Type == "approval/policy" {
 			a.model.Permission.Ready = false
 			a.model.Permission.Confirm = false
@@ -1134,8 +1135,8 @@ func (a *App) applyStatus(status string) {
 		a.model.Phase = view.PhaseIdle
 		a.model.CancelPending = false
 		a.clearApprovals()
-		if a.resync == nil && a.sessionCatalogDirty && a.model.CanRefreshSessions() && !a.model.SessionPanel.Uncertain {
-			a.sessionCatalogDirty = false
+		if a.resync == nil && a.sessionCatalog.dirty() && a.model.CanRefreshSessions() && !a.model.SessionPanel.Uncertain {
+			a.sessionCatalog.takeDirty()
 			a.refreshSessions()
 		}
 	}

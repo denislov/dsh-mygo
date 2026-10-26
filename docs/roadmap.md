@@ -1,6 +1,6 @@
 # 开发进度与路线图
 
-> 统计基线：2026-10-25（运行时拆分完成）；能力进度包含应用/runtime 拆分、首启运行时引导、设置中心 Runtime 分区与事务式切换，更新于 2026-10-25。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
+> 统计基线：2026-10-26（代码审查重构收口）；能力进度包含应用/runtime 拆分、首启运行时引导、设置中心 Runtime 分区与事务式切换。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
 
 ## 1. 结论
 
@@ -17,9 +17,21 @@
 | 提交 | 拆分工作从 `9faa9b6` 起至 `06bf5dd`；2026-10-24 → 2026-10-25 |
 | 规模 | `docs/` 21 篇；Go 生产/测试与 Node Host/测试继续增长；runtime lock 约 400 KB |
 | 版本 | identifier `com.denislov.dshmygo`；app/host `0.1.1`、`protocolVersion 1`、DSH `0.2.1-rc.2`、`appCompatibility 0.1.1 <= app < 0.2.0`、MyGo `v0.6.2`、Node 24+、runtime Node `24.14.0` |
-| 测试 | Go 506 项通过（CGO_ENABLED=0 同）；race projection/app/view 359 项；Node Host 86/86、scripts 10/10；`node scripts/test-real-host.mjs --runtime` 真实组合通过 |
-| 构建产物 | 拆分后本机构建：应用 exe 14.5 MB、安装器 4.9 MB；runtime `.tgz` 212.2 MB（约 202 MiB）与 catalog；未发布新资产。线上仍为旧 v0.1.1 单体安装器 |
+| 测试 | Go 766 项通过（CGO_ENABLED=0 与 race 同）；Node Host 96、scripts 11；source/runtime 真实组合通过（mock provider） |
+| 构建产物 | 2026-10-26 本机构建：应用 exe 15.3 MB、安装器 5.8 MB；runtime `.tgz` 222,545,475 B（约 212.2 MiB）与 catalog；未发布新资产。线上仍为旧 v0.1.1 单体安装器 |
 | 工程基线 | 公共 GitHub remote（2026-10-25 切换）；tag `v0.1.1` 指向 `728a3ed`；发布提交的 Windows 全量与 Linux Go CI 全绿 |
+
+### 2.1 当前验证组合
+
+| 单元 | 当前值 | 校验方式 |
+| --- | --- | --- |
+| 应用 | `0.1.1`，identifier `com.denislov.dshmygo`，Windows x64 | `go tool mygo build`、Authenticode 自签名、packaged smoke |
+| 协议 | `protocolVersion 1`，Host bundle `0.1.1` | initialize 握手、channel/Node conformance |
+| 应用范围 | `0.1.1 <= app < 0.2.0` | Host initialize 返回范围与应用校验 |
+| DSH / Node | `0.2.1-rc.2` / `>=24`（managed runtime `24.14.0`） | manifest、profile seed、真实 Loader |
+| managed runtime | `dsh-0.2.1-rc.2-node-24.14.0-host-0.1.1-win32-x64` | runtime manifest、packaged `-runtime-dir` smoke |
+
+应用与 runtime 是独立发布单元；只有上表组合在本机验收过，其它组合需重新验证。
 
 2026-10-23 本机（Windows）实跑结果：
 
@@ -145,6 +157,10 @@ node scripts/smoke-installer.mjs                # 未运行：本机已安装 ds
 2026-10-26 阶段 4 View 子状态与动作边界：`view.Model` 按 Chat/Composer/Sessions/Settings/ModelRoute/Interaction/Recovery 区域组合，字段地址与控件 key 保持；各区域只消费自己的动作结构，能力门禁与回调缺席分离。菜单导航与建议持久化移到构建结束后的有界队列，普通 render 不执行发送/取消/切换/保存；Markdown 主题与安全链接集中配置且不保存帧作用域值。应用自有提示改用 i18n 具名 key 与参数，技术详情保持原文；composer 与 session 面板按语义拆分，重复控制/图标/header/缩略图尺寸进入 token。
 
 本批验证：`go test ./...`、`CGO_ENABLED=0 go test ./...`、`go test -race ./...` 各 758 项通过；Node Host 96 项、scripts 10 项通过；`TestAgainstMygoRealComposition`/`TestAgainstMygoFirstUse` 与 `node scripts/test-real-host.mjs --runtime` 通过（mock provider）；MyGo vet、Go vet、gofmt、`git diff --check` 通过。wire、protocolVersion、能力与 Node handlers 不变；Windows 原生窗口/UI Automation、安装器与 macOS 未重验。阶段 4 的 4.1–4.5 全部完成，后续按计划进入阶段 5；发布阻塞与产品体验缺口不变。
+
+2026-10-26 阶段 5 入口、Node、共用工具与工程验收：启动解析与 `launchMode` 从窗口创建分离；Node channel 改为显式方法→能力→handler 路由表，保留 shutdown/stopping/config pending/permission 门禁顺序；SDK 点分通知、contentBlocks、initialize 形态收拢到显式 adapter；会话类字符串 ID 复用统一规则，文本截断工具按契约保留独立；新增生产 AST 度量、View/projection 依赖方向测试与生成物/私钥跟踪检查，Windows CI 增加 metrics 与 repository check。
+
+本批验证：Go 全量/纯 Go/race 各 766 项通过；Node Host 96、scripts 11 通过；source checkout 真实组合/Restart/resync/协议生命周期 16 项通过；rebuild runtime 后 real-host runtime 套件通过；`go tool mygo build` 与 packaged smoke 通过，首启引导、显式 runtime 启动、同会话连续启动与 host 进程树回收均通过；原生终端 round-trip 与隐藏/换项目/退出回收 smoke 通过；MyGo vet、Go vet、gofmt、`git diff --check`、repository artifact check 通过。未上传 Release、未运行安装器覆盖用户安装、未修改系统证书信任；Windows 原生窗口/UI Automation、干净 VM、macOS 与付费模型仍未执行。代码审查重构全部阶段完成，实施计划文件已关闭。
 
 ## 4. 缺口
 

@@ -66,6 +66,8 @@ func (c *sessionCatalog) takeDirty() bool {
 	return dirty
 }
 
+func (c *sessionCatalog) dirty() bool { return c.sessionCatalogDirty }
+
 func (c *sessionCatalog) setTitle(seq uint64, title string) {
 	c.sessionTitleSeq = seq
 	c.sessionTitle = title
@@ -80,14 +82,6 @@ func (c *sessionCatalog) reset() {
 	c.clearTitle()
 	c.sessionNeedsHistory = false
 	c.sessionCatalogDirty = false
-	c.retiredSessions = nil
-}
-
-// hostChanged keeps catalog hints out of a new Host generation. Navigation
-// state is invalidated separately by the App's HostReady sequence.
-func (c *sessionCatalog) hostChanged() {
-	c.sessionCatalogDirty = false
-	c.sessionNeedsHistory = false
 	c.retiredSessions = nil
 }
 

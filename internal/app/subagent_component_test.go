@@ -74,5 +74,4 @@ func TestSubagentComponentKeepsLiveStateAndInspectionSeparate(t *testing.T) {
 	if component.open || component.summariesView() != nil {
 		t.Fatal("session change kept the previous parent state")
 	}
-	component.hostChanged()
 }

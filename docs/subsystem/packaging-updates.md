@@ -213,7 +213,7 @@ runtime/                            # 构建源，独立于应用安装目录
 - 签名校验与 smoke 按 `versions.json` 精确选择本版安装器，目录中保留旧安装器时也不能误验旧版。
 - 用户已有安装时，安装/卸载 smoke 保持拒绝覆盖的保护；使用隔离 profile 验证原生连续启动与旧 Host 包升级。用户安装目录的修复或升级保留模型、凭据与会话，验证时不发送付费 prompt。
 
-- 打包 smoke：`node scripts/smoke-packaged.mjs` 检查 `build/windows-amd64` 的 exe、安装器、host 与图标，并断言安装布局不含 `runtime/`；校验独立 runtime（默认 `runtime/`，可用 `DSH_MYGO_RUNTIME_DIR` 覆盖）的 manifest 与版本。首次用空 runtime store 启动，断言不创建 profile/session、不启动 Host；再用 `-runtime-dir` 启动，等待 profile、session、日志与 host pid。
+- 打包 smoke：`node scripts/smoke-packaged.mjs` 检查 `build/windows-amd64` 的 exe、安装器、host 与图标，并断言安装布局不含 `runtime/`；校验独立 runtime（默认 `runtime/`，可用 `DSH_MYGO_RUNTIME_DIR` 覆盖）的 manifest 与版本。首次用空 runtime store 启动，断言不创建 profile/session、不启动 Host；再用 `-runtime-dir` 启动，等待 profile、session、日志与 host pid，并用同一 `DSH_HOME`/UI 状态再次启动确认恢复同一会话。
 - 安装器 smoke：`node scripts/smoke-installer.mjs` 静默安装到 `.tmp`，校验安装布局（无 runtime）、Start Menu 快捷方式与 HKCU 卸载键、安装后 exe 与 `Uninstall.exe` 签名；首次启动验证运行时引导，再用独立 runtime 启动并等待 profile/session；卸载后确认安装目录、快捷方式和卸载键被移除，且 `$DSH_HOME` 与会话历史保留。检测到已有 dsh-mygo 安装时拒绝运行；发布验收使用干净 Windows VM。`--keep` 保留临时目录。
 - 运行时发布：`node --test scripts/prepare-runtime-release.test.mjs` 校验 catalog/归档/兼容范围；`node scripts/prepare-runtime-release.mjs` 生成独立资产。
 - 签名校验：Windows `signtool verify`（`node scripts/verify-signatures.mjs`，可用 `--require-trusted` 要求证书链受信）；安装器 smoke 额外校验 `Uninstall.exe`；macOS `codesign --verify` 与公证。

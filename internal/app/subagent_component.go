@@ -66,11 +66,6 @@ func (s *subagentComponent) reset(session string) {
 	s.close()
 }
 
-func (s *subagentComponent) hostChanged() {
-	s.summaries = nil
-	s.close()
-}
-
 // applyStatus validates and stores one live child status for the current
 // parent. Foreign or stale parents are dropped.
 func (s *subagentComponent) applyStatus(params json.RawMessage, finished bool) bool {
