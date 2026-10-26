@@ -9,7 +9,6 @@ import (
 	mgo "github.com/egoist/mygo/ui"
 	"github.com/egoist/mygo/ui/markdown"
 
-	"dsh-mygo/internal/interaction"
 	"dsh-mygo/internal/preferences"
 	"dsh-mygo/internal/projection"
 )
@@ -83,128 +82,36 @@ type RuntimeChoice struct {
 
 // Model is the window's state. The app mutates it on the main thread and
 // keeps the transcript and draft outside the view.
+//
+// Region states are embedded so existing bindings keep their addresses while
+// ownership stays readable: Chat/Composer/Sessions/Settings/Interaction/
+// Recovery own their fields, and device resources stay in named substates.
 type Model struct {
-	Workspace               WorkspaceState
-	Shell                   ShellState
-	Prefs                   PreferencesState
-	Attachments             AttachmentState
-	Mention                 MentionState
-	QueryMentions           func(prefix string)
-	Items                   []projection.Item
-	Activity                map[string]*ActivityState
-	History                 HistoryState
-	Draft                   string
-	DraftChanged            func()
-	LocalState              LocalStateStatus
-	Phase                   Phase
-	ModelLabel              string
-	AppVersion              string
-	Detail                  string
-	Usage                   projection.UsageView
-	Context                 projection.ContextView
-	Tasks                   []projection.Task
-	PlanActive              bool
-	Goal                    *projection.Goal
-	Subagents               []SubagentState
-	Inspection              SubagentPanelState
-	Error                   string
-	ErrorDetail             string
-	RecoveryOpen            bool
-	Recoverable             bool
-	Restarting              bool
-	RecoveryError           string
-	Restart                 func()
-	OpenLogs                func()
-	CanOpenLogs             bool
-	Quit                    func()
-	Send                    func(text string)
-	Dismiss                 func()
-	Cancel                  func()
-	CanCancel               bool
-	CanStream               bool
-	CancelPending           bool
-	CanApprove              bool
-	ApprovalOpen            bool
-	Approvals               []interaction.Approval
-	RespondApproval         func(requestID, decision string)
-	CanQuestion             bool
-	QuestionOpen            bool
-	Questions               []*interaction.QuestionRequest
-	RespondQuestion         func(requestID string, cancel bool)
-	List                    mgo.ListState
-	ToolCards               map[string]*ToolCardState
-	Reasoning               map[string]*ActivityState
-	ToolInspector           *ToolInspectorState
-	Markdown                markdown.Options
-	InterruptedMarkdown     markdown.Options
-	ReasoningMarkdown       markdown.Options
-	CopiedMessageID         string
-	CopiedMessageText       string
-	CanHistory              bool
-	CanResync               bool
-	SessionPanel            SessionPanelState
-	SessionID               string
-	SessionCWD              string
-	Setup                   FirstUseState
-	Sessions                []SessionSummary
-	SessionsOpen            bool
-	SessionBusy             bool
-	SessionSwitching        bool
-	SessionsError           string
-	SessionList             mgo.ListState
-	OpenSessions            func()
-	RefreshSessions         func()
-	CloseSessions           func()
-	NewSession              func()
-	NewProjectSession       func(string)
-	SwitchSession           func(string)
-	CanModels               bool
-	ActiveRoute             ModelRoute
-	Catalog                 ModelCatalog
-	Runtime                 RuntimeState
-	SettingsOpen            bool
-	SettingsSearch          string
-	SettingsProviderEditing bool
-	QuickSelector           string
-	QuickSearch             string
-	SettingsSection         SettingsSection
-	SettingsConnection      bool
-	SettingsBusy            bool
-	SettingsApplying        bool
-	ModelUncertain          bool
-	SettingsError           string
-	SettingsProvider        string
-	SettingsModel           string
-	SettingsCatalogModel    string
-	SettingsEffort          string
-	OpenSettings            func()
-	CloseSettings           func()
-	RefreshSettings         func()
-	ApplySettings           func()
+	ChatState
+	ComposerState
+	SessionsState
+	SettingsState
+	ModelRouteState
+	InteractionState
+	RecoveryState
 
-	CanConfigure                 bool
-	Permission                   PermissionState
-	Configuration                Configuration
-	ConfigurationReady           bool
-	ConfigurationUncertain       bool
-	SettingsWritingConfiguration bool
-	CredentialDraft              CredentialDraft
-	CredentialVersion            uint64
-	ConfirmCredentialClear       bool
-	SettingsNotice               string
-	SaveDefaultModel             func()
-	SaveCredential               func()
-	ClearCredential              func()
+	Workspace  WorkspaceState
+	Shell      ShellState
+	Prefs      PreferencesState
+	LocalState LocalStateStatus
+	Runtime    RuntimeState
+	AppVersion string
+	Detail     string
 }
 
 // NewModel returns a model with a list that follows the newest row and keeps
 // row state by item ID.
 func NewModel() *Model {
-	model := &Model{Phase: PhaseStarting,
-		Markdown:            markdown.Options{Theme: &markdown.Theme{FontSize: textReading, LineHeight: 1.62}, Reveal: &markdown.Reveal{Unit: markdown.AtOnce, Fade: -1}},
-		InterruptedMarkdown: markdown.Options{Theme: &markdown.Theme{FontSize: textReading, LineHeight: 1.62}},
-		ReasoningMarkdown:   markdown.Options{Theme: &markdown.Theme{FontSize: 13.5, LineHeight: 1.55}, Reveal: &markdown.Reveal{Unit: markdown.AtOnce, Fade: -1}},
-	}
+	model := &Model{}
+	model.Phase = PhaseStarting
+	model.Markdown = markdown.Options{Theme: &markdown.Theme{FontSize: textReading, LineHeight: 1.62}, Reveal: &markdown.Reveal{Unit: markdown.AtOnce, Fade: -1}}
+	model.InterruptedMarkdown = markdown.Options{Theme: &markdown.Theme{FontSize: textReading, LineHeight: 1.62}}
+	model.ReasoningMarkdown = markdown.Options{Theme: &markdown.Theme{FontSize: 13.5, LineHeight: 1.55}, Reveal: &markdown.Reveal{Unit: markdown.AtOnce, Fade: -1}}
 	model.List.FollowEnd = true
 	model.Markdown.CodeBlock = nativeCodeBlock
 	model.ReasoningMarkdown.CodeBlock = nativeCodeBlock
