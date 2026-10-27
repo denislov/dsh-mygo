@@ -50,7 +50,7 @@ runtime/                            # 构建源，独立于应用安装目录
    - 写入 `runtime/manifest.json`；把 `runtime/` 打成确定性 `.tgz`：`manifest.json` 第一项、路径排序、固定 mtime/UID/GID/mode、包含隐藏文件、排除 `go.mod`。
    - 生成 `runtime-catalog.json` 与 SHA256/size；输出 `build/runtime/`。
 2. `go tool mygo build`：编译 Go 二进制、复制 `resources/`（仅 `host/` 与图标），生成 Windows 安装器；不再运行 runtime 构建，也不把 `runtime/` 打进应用。
-3. profile seed 不预生成目录：首启由 Host 启动前从所选 runtime 的 `host/`（managed/legacy/direct）或应用 `resources/host`（external）复制到 `$DSH_HOME/profiles/mygo`；升级只刷新 Host 包并备份旧包，保留 profile 配置与数据，见 [宿主监督](host-supervisor.md#首启-profile)。
+3. profile seed 不预生成目录：首启由 Host 启动前从所选 runtime 的 `host/`（managed/legacy/direct）或应用 `resources/host`（external）复制到 `$DSH_HOME/profiles/mygo`；内容指纹变化时刷新 Host 包并备份旧包（同版本开发构建同样生效），保留 profile 配置与数据，见 [宿主监督](host-supervisor.md#首启-profile)。
 4. 签名/公证（见下）。
 5. 生成应用发布资产与 runtime 发布资产，分别校验。
 

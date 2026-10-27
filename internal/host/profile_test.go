@@ -147,6 +147,32 @@ func TestEnsureProfileUpgradesOwnedBundleAndPreservesUserConfiguration(t *testin
 	}
 }
 
+func TestEnsureProfileSynchronizesSameVersionContent(t *testing.T) {
+	home, bundle := t.TempDir(), testBundle(t)
+	if err := EnsureProfile(home, bundle, "mygo"); err != nil {
+		t.Fatal(err)
+	}
+	profile := filepath.Join(home, "profiles", "mygo")
+	installed := filepath.Join(profile, "node_modules", "@dsh-mygo", "host")
+	index := filepath.Join(installed, "index.mjs")
+	if err := os.WriteFile(index, []byte("stale development copy\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := EnsureProfile(home, bundle, "mygo"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	data, err := os.ReadFile(index)
+	if err != nil || string(data) != "export const name = 'mygo-app-startup'\n" {
+		t.Fatalf("same-version Host content was not synchronized: %q, %v", data, err)
+	}
+	backups, _ := filepath.Glob(filepath.Join(profile, "node_modules", "@dsh-mygo", ".host-backup-*", "index.mjs"))
+	if len(backups) != 1 {
+		t.Fatalf("stale copy backups = %d, want 1", len(backups))
+	}
+}
+
 func TestEnsureProfileFailedUpgradeRetainsInstalledBundle(t *testing.T) {
 	home, bundle := t.TempDir(), testBundle(t)
 	if err := EnsureProfile(home, bundle, "mygo"); err != nil {

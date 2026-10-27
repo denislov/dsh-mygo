@@ -170,7 +170,7 @@ node --test resources/host/tests/*.test.mjs
 - `node scripts/test-real-host.mjs --runtime`：同一组测试改用 `runtime/` 的 Node、DSH 闭包与私有入口；用于打包前后检查运行时闭包。
 - 首次使用：`first_use_test.go` 覆盖文件夹路径校验、取消/失败/跨 generation 迟到结果、草稿与新会话边界、连接读取不依赖模型目录且不清除模型不确定状态；View Tester 验证目录/凭据禁发、精简密码表单和最小窗口。`TestAgainstMygoFirstUse` 使用 fake 与真实 mock Host 验证确认目录、新项目会话、配置读取与第一轮消息，第二 Host 从持久数据恢复项目目录和对话。入口测试验证安装版默认主目录、显式 cwd 优先与无 bundled runtime 的开发目录。
 - 发布资产：`scripts/release.test.mjs` 验证应用输出白名单、每个附件 SHA256、排除 PFX/密码/.env、版本身份冲突、拒绝内嵌 runtime 与未知输出；`scripts/prepare-runtime-release.test.mjs` 验证 runtime catalog/归档/兼容范围与校验和。打包/安装 smoke 验证安装器不含 runtime、首启引导、显式 runtime 启动；上传后检查 release tag/commit、draft 状态、资产名称/大小/digest，不以本地产物存在代替线上可下载。
-- 补丁重启回归：`runtime-bundle.test.mjs` 验证确定性归档、manifest 首项、隐藏文件与 `go.mod` 排除；真实 runtime 测试使用 bundled Node 实际导入 DSH。`profile_test.go` 覆盖应用私有 Host 升级、用户配置与旧副本保留、不完整升级失败保护、路径边界及兼容开发链接；`TestAgainstMygoProfileUpgradeAndSecondStart` 用真实 Host 从旧包升级后连续启动并恢复会话/草稿。签名脚本测试确保旧安装器不会影响本版选择。
+- 补丁重启回归：`runtime-bundle.test.mjs` 验证确定性归档、manifest 首项、隐藏文件与 `go.mod` 排除；真实 runtime 测试使用 bundled Node 实际导入 DSH。`profile_test.go` 覆盖应用私有 Host 的内容指纹同步（含同版本内容变化）、用户配置与旧副本保留、不完整升级失败保护、路径边界及兼容开发链接；`TestAgainstMygoProfileUpgradeAndSecondStart` 用真实 Host 从旧包升级后连续启动并恢复会话/草稿。签名脚本测试确保旧安装器不会影响本版选择。
 
 需要真实模型与 key 的 `TestAgainstMygoRealModel` 默认跳过；运行前确认会产生 API 调用费用。
 

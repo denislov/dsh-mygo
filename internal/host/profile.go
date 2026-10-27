@@ -1,6 +1,7 @@
 package host
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -99,7 +100,7 @@ func upgradeHostBundle(profileDir, bundleDir string) error {
 	if _, err := os.Stat(filepath.Join(bundleDir, "package.json")); errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
-	sourceName, sourceVersion, err := readIdentity(bundleDir)
+	sourceName, _, err := readIdentity(bundleDir)
 	if err != nil || sourceName != "@dsh-mygo/host" {
 		return errors.New("host: bundled Host package identity is invalid")
 	}
@@ -112,15 +113,30 @@ func upgradeHostBundle(profileDir, bundleDir string) error {
 	if err != nil || !info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
 		return errors.New("host: profile Host package is not an app-owned directory")
 	}
-	targetName, targetVersion, err := readIdentity(target)
+	targetName, _, err := readIdentity(target)
 	if err != nil || targetName != sourceName {
 		return errors.New("host: cannot verify the installed profile Host package")
 	}
-	if sourceVersion == targetVersion {
+	compareTarget := target
+	if info.Mode()&os.ModeSymlink != 0 {
+		compareTarget, err = filepath.EvalSymlinks(target)
+		if err != nil {
+			return errors.New("host: cannot resolve the linked development Host")
+		}
+	}
+	// The bundle version is release identity, not a content fingerprint. A
+	// development build can change Host code without changing 0.1.1, so an
+	// app-owned copy is synchronized by content on every start.
+	sourceDigest, err := bundleDigest(bundleDir)
+	if err != nil {
+		return fmt.Errorf("host: read bundled Host: %w", err)
+	}
+	targetDigest, compareErr := bundleDigest(compareTarget)
+	if compareErr == nil && sourceDigest == targetDigest {
 		return nil
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("host: linked development Host has a different version; update its source before starting")
+		return errors.New("host: linked development Host differs from the bundled Host; update its source before starting")
 	}
 	if info, err := os.Stat(filepath.Join(bundleDir, "index.mjs")); err != nil || !info.Mode().IsRegular() {
 		return errors.New("host: bundled Host entry is missing; the installed package was retained")
@@ -163,6 +179,45 @@ func upgradeHostBundle(profileDir, bundleDir string) error {
 		return err
 	}
 	return nil
+}
+
+// bundleDigest identifies one Host bundle by relative paths and file bytes.
+// Versions name releases; this digest decides whether an app-owned profile
+// copy still matches the bundle shipped by the running app.
+func bundleDigest(root string) (string, error) {
+	digest := sha256.New()
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() && entry.Name() == "node_modules" {
+			return filepath.SkipDir
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if relative == "." {
+			return nil
+		}
+		relative = filepath.ToSlash(relative)
+		if entry.IsDir() {
+			fmt.Fprintf(digest, "d %s\n", relative)
+			return nil
+		}
+		if !entry.Type().IsRegular() && entry.Type()&fs.ModeSymlink == 0 {
+			return fmt.Errorf("host: bundle contains unsupported file %s", relative)
+		}
+		// copyTree follows file links, so the digest compares their content.
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(digest, "f %s %d\n", relative, len(data))
+		_, err = digest.Write(data)
+		return err
+	})
+	return fmt.Sprintf("%x", digest.Sum(nil)), err
 }
 
 // copyTree copies regular files and directories, skipping dependency trees.

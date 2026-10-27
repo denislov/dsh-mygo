@@ -194,7 +194,7 @@ node resources/host/setup-profile.mjs --dsh-home D:/Temp/dsh-mygo-dev
 
 `host.EnsureProfile` 在启动 Host 前检查 `$DSH_HOME/profiles/mygo`：
 
-1. profile 已存在且完整时，仅按宿主 bundle 身份决定是否升级。
+1. profile 已存在且完整时，比较应用自有 Host 包与当前 bundle 的内容指纹；相同则保持，不同则先保留旧副本再替换。版本号只用于身份与兼容性校验，不单独决定是否同步。
 2. 不存在时在 staging 目录创建 profile：把选中 runtime 的 Host bundle 复制到 `node_modules/@dsh-mygo/host`（managed/legacy/direct 用 runtime 自带 `host/`，external 用应用安装目录的 `host/`），写入 `dsh.profile.bundles: ["@deepseek-ai/dsh-base", "@dsh-mygo/host"]` 与空 `cordis.patch.yml`，再原子改名到目标目录。
 3. 创建失败时窗口进入 `Host error`，不启动 Host。
 
@@ -222,7 +222,7 @@ node resources/host/setup-profile.mjs --dsh-home D:/Temp/dsh-mygo-dev
 - 与 DSH 版本绑定：`engines.dsh` 与 `dshVersion` 一起写入 identity；managed runtime 的 manifest 必须一致，existing DSH 必须精确匹配，`initialize` 响应返回实际值供 UI 展示。
 - bundle 的 peer 依赖与 `dsh` 版本对齐；不依赖 `src/` 或未导出的内部模块。
 - 应用与 Host bundle 不再要求版本完全相等：`appMin <= app < appMaxExclusive`，`protocolVersion` 精确匹配。旧 Host 不返回范围时回退到精确版本校验。
-- 运行时切换或应用升级时，profile 中应用自有的 `@dsh-mygo/host` 副本按 `version + engines.dsh` 更新；先验证包身份与目录边界，保留旧副本再替换，失败回滚。用户 manifest、patch、设置、凭据和 session log 不参与此替换；兼容的开发链接保持原样，指向外部的异版本包交由开发者更新。
+- 运行时切换、应用升级或同版本的开发构建启动时，profile 中应用自有的 `@dsh-mygo/host` 副本按 bundle 内容指纹同步；先验证包身份与目录边界，保留旧副本再替换，失败回滚。版本号与 `engines.dsh` 继续用于身份和兼容性校验，但版本相同、内容不同同样会同步。用户 manifest、patch、设置、凭据和 session log 不参与此替换；兼容的开发链接保持原样，指向外部的内容不一致包交由开发者更新。
 - 使用公开服务：`ctx.agents`、`ctx.session*`、`ctx.userQuestions`、`ctx.approval`、`ctx.settings`、`ctx.credentials` 等。
 - 可选服务用 `ctx.get(name)`，缺失时降级并报告，而不是崩溃。
 - 子代理只读查询使用公开 `ctx.subagents.listChildren` 与 `ctx.sessionQuery.observeSession`；两者同时可用才协商 `subagent.inspection`。只查询所属父会话的直接子代理，观察句柄及时 dispose，不调用 agents.resume、不注册子 Agent、不依赖私有日志结构。查询期间预占父句柄并参与退出中止与排空；线协议边界见 [通道协议](channel-protocol.md#子代理只读查询)。
@@ -235,7 +235,7 @@ node resources/host/setup-profile.mjs --dsh-home D:/Temp/dsh-mygo-dev
 3. 在 DSH checkout 执行 `pnpm run build:artifacts`、`pnpm run typecheck`、`pnpm run test`，确认公开服务/行 id/事件字段仍存在。
 4. 重新生成 Host bundle 与 managed runtime，运行 `node scripts/build-runtime.mjs`；确认 manifest identity、协议版本、app 范围和 Host bundle 目录一致。
 5. 运行 Node Host 全量、Go 全量/纯 Go/race、真实 composition/first-use/resync/管理白名单；至少一个 fake 与一个真实 mock Host 通过，不用真实 key。
-6. 验证升级路径：旧 profile 的 `@dsh-mygo/host` 副本按 `version + engines.dsh` 更新，旧副本保留且失败可回滚；旧应用/新 Host 与旧 Host/新应用的拒绝路径明确。
+6. 验证升级路径：旧 profile 的 `@dsh-mygo/host` 副本按内容指纹同步（含版本号相同但内容变化的开发构建），旧副本保留且失败可回滚；旧应用/新 Host 与旧 Host/新应用的拒绝路径明确。
 7. 执行本机构建与 packaged smoke（应用 + 选中 runtime），确认首启、连续启动、退出无残留进程；干净 VM、macOS、签名信任与付费模型未执行时保留为发布缺口。
 8. 只有以上检查通过后才更新发布 tag/catalog；不上传 Release 或覆盖用户安装来替代验证。
 
@@ -256,7 +256,7 @@ node resources/host/setup-profile.mjs --dsh-home D:/Temp/dsh-mygo-dev
 - **real-composition**：通过 Loader 启动真实 profile，验证 `profileContext`、stdout 纯净、channel ready。
 - **profile 初始化**：临时 `DSH_HOME`，执行安装/初始化，断言 manifest。
 - **兼容性**：模拟 bundle 缺失、版本不符、base 行缺失、app 范围不匹配。
-- **运行时切换**：两个 runtime 的 Host bundle 身份不同，断言 profile 升级、备份与失败回滚。
+- **运行时切换**：两个 runtime 的 Host bundle 内容不同，断言 profile 同步、备份与失败回滚；同版本内容变化也走同一路径。
 
 ## 相关文档
 

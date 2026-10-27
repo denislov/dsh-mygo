@@ -50,7 +50,7 @@ managed runtime 缺少 Node、入口、manifest 或与本 app/协议/DSH 不兼�
 - managed/legacy/direct 使用该 runtime 自己的 `host/`；
 - external 使用应用安装目录下的 `host/`。
 
-已有 profile 的 manifest、patch、设置和凭据保持原样；Host 包版本或 `engines.dsh` 不同时，先将旧包保留到同一命名空间下的 `.host-backup-*`，再以暂存副本替换，替换失败回滚。升级前校验包身份、入口和解析后的目录归属；同版本开发链接保持，异版本外部链接不自动替换。创建或升级失败时窗口进入 `Host error`，不启动 Host。
+已有 profile 的 manifest、patch、设置和凭据保持原样；应用自有 Host 包与当前 bundle 内容指纹不同时（不要求版本号不同），先将旧包保留到同一命名空间下的 `.host-backup-*`，再以暂存副本替换，替换失败回滚。内容相同则不做 I/O 替换；版本号与 `engines.dsh` 仍用于身份和兼容性校验。同步前校验包身份、入口和解析后的目录归属；兼容的开发链接在内容一致时保持，内容不一致的外部链接不自动替换。创建或同步失败时窗口进入 `Host error`，不启动 Host。
 
 ### 环境
 
