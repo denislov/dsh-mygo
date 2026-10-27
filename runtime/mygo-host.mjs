@@ -3,6 +3,11 @@
 import { resolve } from 'node:path'
 import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
+import { routeConsoleToStderr } from './host/stdout-guard.mjs'
+
+// Install before the profile loads so plugin diagnostics cannot enter the
+// JSON-RPC stdout channel, including logs emitted while plugins are applied.
+routeConsoleToStderr()
 
 const argv = process.argv.slice(2)
 const profile = argv.shift() ?? 'mygo'

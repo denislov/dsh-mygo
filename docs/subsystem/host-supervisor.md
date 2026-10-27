@@ -83,6 +83,7 @@ Go ◀─ stderr ── Host      (日志、诊断、插件输出)
 ```
 
 - stdout 只允许 JSON-RPC 帧。任何非协议输出都是缺陷。
+- Host 入口与 `@dsh-mygo/host` 在加载插件前把 console 的 stdout 方法（`log/info/debug`、`dir/table`、`count/group/time` 等）改道 stderr；`warn/error/trace/assert` 保持原生 stderr。DSH 插件（如账号模型目录）的诊断不得进入协议。该改道不是协议容错：stdout 出现非 JSON 行仍关闭连接并报告致命错误。
 - stderr 进入有界环形缓冲（例如最后 64 KiB），用于崩溃对话框与技术详情。
 - 协议帧有最大长度；超长帧关闭连接并报告错误。
 - 编码 UTF-8；一行一个 JSON 对象；拒绝二进制帧。

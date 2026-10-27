@@ -8,10 +8,11 @@ import { markdownPrefix, markdownReply } from './markdown-sample.mjs'
 
 class MygoMockAdapter extends LlmAdapter {
   async listModels(provider) {
-    return [{ provider, id: 'echo', name: 'Echo' }, { provider, id: 'route-probe', name: 'Route probe' }, { provider, id: 'todo-probe', name: 'Todo probe' }, { provider, id: 'subagent-probe', name: 'Subagent probe' }]
+    return [{ provider, id: 'echo', name: 'Echo' }, { provider, id: 'route-probe', name: 'Route probe' }, { provider, id: 'todo-probe', name: 'Todo probe' }, { provider, id: 'subagent-probe', name: 'Subagent probe' }, { provider, id: 'stdout-probe', name: 'Stdout probe' }]
   }
 
   async resolveModel(provider, model) {
+    if (model === 'stdout-probe') console.info('[mygo-mock] metadata for', model)
     return { provider, id: model, name: model, ...(model === 'route-probe' ? { reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }] } } : {}) }
   }
 

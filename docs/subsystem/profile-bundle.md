@@ -128,7 +128,7 @@ base 已经包含这些行；bundle 不应重复插入，除非需要覆盖配�
 
 - 复用 CLI 的 profile 解析、`profileContext`、插件管理、`--patch`。
 - 需要 startup provider 处理参数与 help，避免 `dsh --profile mygo` 打印帮助后退出。
-- stdout 必须只属于 channel。
+- stdout 必须只属于 channel；`@dsh-mygo/host` 加载时把 console 的 stdout 方法改道 stderr。
 
 ### 发布入口：私有 `mygo-host`
 
@@ -136,7 +136,8 @@ base 已经包含这些行；bundle 不应重复插入，除非需要覆盖配�
 
 - 直接 `import { runProfile } from '@deepseek-ai/dsh/profile-boot'`，用 `loadLayeredEnv('dsh')` 提供 `environment`。
 - 接收 profile 名与 `--patch` 覆盖；其余参数交给 `runProfile` 的 `args`。
-- channel、审批、提问与 ready 由 profile 的 `@dsh-mygo/host` bundle 在 `runProfile` 内安装；入口不写 stdout。
+- 入口在 `runProfile` 之前安装 console stdout→stderr 保护，自身不写 stdout；同一保护也随 Host bundle 在开发入口加载。
+- channel、审批、提问与 ready 由 profile 的 `@dsh-mygo/host` bundle 在 `runProfile` 内安装。
 - managed runtime 使用该入口；existing DSH 走其 `dsh` 命令并加载应用自带的 Host bundle。
 
 两种方案都必须在 `runProfile` 之后：

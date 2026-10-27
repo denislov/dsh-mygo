@@ -17,8 +17,8 @@
 | 提交 | 拆分工作从 `9faa9b6` 起至 `06bf5dd`；2026-10-24 → 2026-10-25 |
 | 规模 | `docs/` 21 篇；Go 生产/测试与 Node Host/测试继续增长；runtime lock 约 400 KB |
 | 版本 | identifier `com.denislov.dshmygo`；app/host `0.1.1`、`protocolVersion 1`、DSH `0.2.1-rc.2`、`appCompatibility 0.1.1 <= app < 0.2.0`、MyGo `v0.6.2`、Node 24+、runtime Node `24.14.0` |
-| 测试 | 2026-10-27 复核：Go 全量/纯 Go 各 789 项、view/app/i18n race 484 项；Node Host 101、scripts 11、source 真实白名单 17 项与 packaged smoke 记录见下文 |
-| 构建产物 | 2026-10-26 本机构建：应用 exe 15.3 MB、安装器 5.8 MB；runtime `.tgz` 222,545,475 B（约 212.2 MiB）与 catalog；未发布新资产。线上仍为旧 v0.1.1 单体安装器 |
+| 测试 | 2026-10-27 复核：Go 全量/纯 Go 各 789 项、view/app/i18n race 484 项；Node Host 102、scripts 11、source 真实白名单 17 项与 packaged smoke 记录见下文 |
+| 构建产物 | 2026-10-27 本机构建：应用 exe 15.4 MB、安装器 5.8 MB；runtime `.tgz` 222,544,513 B（约 212.2 MiB）与 catalog；未发布新资产。线上仍为旧 v0.1.1 单体安装器 |
 | 工程基线 | 公共 GitHub remote（2026-10-25 切换）；tag `v0.1.1` 指向 `728a3ed`；发布提交的 Windows 全量与 Linux Go CI 全绿 |
 
 ### 提交质量复核（2026-10-27）
@@ -49,6 +49,13 @@
 
 - transcript 视图按 turn 聚合 process：最终 assistant 回答之前的 reasoning、tool 与 assistant 文本进入默认折叠的活动组，最终回答单独展示并保留该回合唯一的 `Copy Markdown`。回合以工具活动结束时没有最终回答，全部文本留在活动组；展开活动组可读更早 narration，但没有消息级复制动作。无可用 turn 位置的行沿用原有 reasoning/tool 折叠。
 - 验证：`go test ./...` 与 `CGO_ENABLED=0 go test ./...` 各 789 项，`go test -race ./internal/view ./internal/app ./internal/i18n` 484 项，Node Host 101、scripts 11，`node scripts/test-real-host.mjs D:/Workspace/deepseek-harness` 通过；Go/MyGo vet、gofmt、差异检查与 `go tool mygo build`（exe 15.4 MB、安装器 5.8 MB）通过。Windows 原生窗口用 fake Host 回合 fixture 复核：同一 turn 显示 `Worked for 2s · 1 tool` 活动组与单一最终回答；展开后更早 narration 与工具位于组内，UI Automation 只发现一个 `Copy Markdown`（最终回答），用户消息仍只有一个 `Copy message`。未重建 runtime、未发布资产，未验证 macOS。
+
+### 账号 provider 的 stdout 污染崩溃（2026-10-27）
+
+- 复现：用已安装 runtime 的私有入口加载真实 `mygo` profile 与隔离 DSH_HOME 的账号凭据，调用 `model/list`（provider=`deepseek-account`）。`@deepseek-ai/dsh-llm-deepseek-account` 在模型列表成功后用 `console.info` 输出诊断；Node 默认把它写到 stdout，Go channel 读到非 JSON 行后按协议错误关闭连接，Host 以 exit 1 退出，stderr 为空。这与用户 crash 报告的 `invalid JSON-RPC frame` 一致。
+- 修复：新增 `resources/host/stdout-guard.mjs`，把 console 的 stdout 方法（`log/info/debug`、`dir/table`、`count/group/time` 等）改道 stderr，保留 `warn/error/trace/assert` 原行为；`runtime/mygo-host.mjs` 在 `runProfile` 前安装，`@dsh-mygo/host` 加载时再安装一次作为开发/external 入口兜底。stdout 仍只属于 JSON-RPC，Go 侧继续把非协议行视为致命错误，不放宽协议解析。
+- 回归：mock LLM 新增 `stdout-probe`，在 metadata 解析时写 `console.info`；`TestAgainstMygoModelSettings` 的真实组打开模型目录并选择该模型，验证 Host 不崩溃且路由生效。Node `stdout-guard` 测试覆盖改道范围、`warn/error` 保留与重复安装幂等。
+- 验证：`go test ./...` 与 `CGO_ENABLED=0 go test ./...` 各 789 项，`go test -race ./internal/view ./internal/app ./internal/i18n` 484 项，Node Host 102、scripts 11。`node scripts/test-real-host.mjs D:/Workspace/deepseek-harness`（221.0s）与 `node scripts/test-real-host.mjs --runtime`（195.1s）通过；重建 runtime `.tgz` 222,544,513 B（SHA-256 `9a7663b11a76f4637bc30a21e8bb94141850a2f7cf3cb5b69ac44f57eb00da5f`），`go tool mygo build` 生成应用 exe 15.4 MB 与安装器 5.8 MB。隔离复现中 `model/list` 返回 2 个账号模型，随后 `model/select` 路由到 `deepseek-account/deepseek-flash`，stdout 无额外行、诊断仅在 stderr。Go/MyGo vet、gofmt、差异检查通过；已安装的旧 runtime 需要重新安装新 runtime 资产才会获得该修复，未发布资产、未验证 macOS。
 
 ### 2.1 当前验证组合
 

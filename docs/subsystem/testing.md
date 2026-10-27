@@ -147,7 +147,7 @@ node --test resources/host/tests/*.test.mjs
 - `TestAgainstMygoRealStreaming`：mock adapter 暂停生成，验证流式先可见、reasoning 与 text 分列、提交替换、取消与同会话继续。
 - `TestMygoRealHistoryAfterRestart`：两个进程共享同一 `DSH_HOME`，验证列表、恢复、分页回放与继续发送。
 - `TestMygoRealHistoryAfterRestart` 同时覆盖重命名提交、冷列表标题/更新时间、单写者冲突后重试、归档跨进程重启保留、取消归档及完整日志前缀不变；全程使用 mock provider，不调用付费模型。
-- `TestAgainstMygoSessionSwitching`、`TestAgainstMygoModelSettings`、`TestAgainstMygoConfiguration`、`TestAgainstMygoToolDiffs`：真实会话切换、模型请求、配置持久化与 write/edit diff。
+- `TestAgainstMygoSessionSwitching`、`TestAgainstMygoModelSettings`、`TestAgainstMygoConfiguration`、`TestAgainstMygoToolDiffs`：真实会话切换、模型请求、配置持久化与 write/edit diff。模型设置的真实组包含一个在 metadata 解析时写 `console.info` 的 mock 模型，验证插件诊断被改道 stderr、stdout 仍只有 JSON-RPC；`stdout-guard.test.mjs` 覆盖改道范围与幂等性。
 - `TestAgainstMygoSessionManagement`：fake/真实 Host 的目录启动加载、冷目标及当前会话重命名、提交确认、归档/恢复、草稿隔离与继续发送；真实组还覆盖归档当前会话后 kill/Restart、新建会话和恢复原草稿。Tester 覆盖侧栏/弹窗切换、标题过滤、归档筛选与表单身份，Windows UI Automation 验证原生按钮和输入流程。
 - `TestAgainstMygoResync`：fake Host 与真实 Host 传输过滤器丢弃持久通知或文本块起始帧，不修改日志；验证同一 Host/会话自动补齐、用户消息唯一、流式提交不重复、草稿保留、后续回合、审批/提问继续。baseline-complete/cancel 在真实模型 adapter 暂停时验证无需新 start 就恢复文本，并续流或取消。`resync_test.go`、`stream_baseline_test.go` 覆盖状态基线、流式续接/重放、分页变化、连续性重试上限、溢出、失败后迟到结果及取消确认屏障；Node 历史与 baseline 测试覆盖同步捕获、固定分页、能力隔离、资源限制、reasoning 能力门控与工具参数排除。
 - `TestAgainstMygoRestart`：完成一个回合后 kill Host，等待恢复对话框，Restart 后 resume 同一会话、回放 transcript 并继续发送。

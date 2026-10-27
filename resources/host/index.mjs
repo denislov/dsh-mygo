@@ -1,6 +1,11 @@
 import { Command } from 'commander'
 import Schema from '@deepseek-ai/schemastery'
 import { exitOnStdinEnd, parseCmdline } from '@deepseek-ai/dsh-cmdline'
+import { routeConsoleToStderr } from './stdout-guard.mjs'
+
+// Plugins loaded after this bundle may log through console.log/info while
+// handling requests. stdout carries the JSON-RPC channel, so keep it clean.
+routeConsoleToStderr()
 
 export const name = 'mygo-app-startup'
 export const inject = ['cmdlineArgs', 'appExit', 'appReady']

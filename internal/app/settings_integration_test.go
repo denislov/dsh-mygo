@@ -49,10 +49,11 @@ func TestAgainstMygoModelSettings(t *testing.T) {
 				application.OpenSettings()
 				waitFor(t, application, updates, 20*time.Second, func() bool { return !application.model.SettingsBusy })
 				// The fake host advertises echo and route-probe; the real mock
-				// adapter also advertises todo-probe and subagent-probe.
+				// adapter also advertises todo-probe, subagent-probe and the
+				// stdout-probe that logs during metadata resolution.
 				wantCatalog := 2
 				if mode == "real" {
-					wantCatalog = 4
+					wantCatalog = 5
 				}
 				if len(application.model.Catalog.Models) != wantCatalog {
 					t.Fatalf("catalog model count = %d; error = %s", len(application.model.Catalog.Models), application.model.SettingsError)
@@ -92,6 +93,13 @@ func TestAgainstMygoModelSettings(t *testing.T) {
 			}
 			application.Send("continue selected model after switching")
 			waitFor(t, application, updates, 30*time.Second, func() bool { return application.model.Phase == view.PhaseIdle && assistantAnswers(application) == 4 })
+			if mode == "real" {
+				// The mock adapter writes console.info while resolving this
+				// model. Plugin diagnostics must stay off the JSON-RPC stdout
+				// channel, including during model selection.
+				application.model.Draft = "keep model draft"
+				selectModel("stdout-probe", "")
+			}
 		})
 	}
 }
