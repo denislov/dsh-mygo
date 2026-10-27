@@ -87,6 +87,26 @@ func TestSessionPickerOpensSelectsAndRestoresFocus(t *testing.T) {
 	}
 }
 
+func TestSessionChromeStaysVisibleButInertWhileLoading(t *testing.T) {
+	model := sessionModel()
+	model.SessionBusy, model.SessionSwitching = true, true
+	if !model.SessionChromeEnabled() {
+		t.Fatal("session switch dimmed the navigation chrome")
+	}
+	created, switched := 0, 0
+	model.NewSession = func() { created++ }
+	model.SwitchSession = func(string) { switched++ }
+	tt := tester(model)
+	if _, ok := tt.Find("New conversation"); !ok {
+		t.Fatal("New conversation disappeared while loading")
+	}
+	_ = tt.Click("New conversation")
+	_ = tt.Click("Session two")
+	if created != 0 || switched != 0 {
+		t.Fatalf("loading chrome accepted actions: created=%d switched=%d", created, switched)
+	}
+}
+
 func TestSessionPickerLoadingErrorsNewAndRefresh(t *testing.T) {
 	model := sessionModel()
 	model.SessionsOpen = true

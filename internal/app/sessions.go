@@ -111,6 +111,7 @@ func (a *App) refreshSessions() {
 
 func (a *App) NewSession() {
 	if a.canReuseBlankSession(a.model.SessionCWD) {
+		a.model.SessionsError = ""
 		a.CloseSessions()
 		return
 	}
@@ -120,6 +121,7 @@ func (a *App) NewSession() {
 // NewProjectSession only accepts a directory from the Host's visible catalog.
 func (a *App) NewProjectSession(cwd string) {
 	if a.canReuseBlankSession(cwd) {
+		a.model.SessionsError = ""
 		a.CloseSessions()
 		return
 	}
@@ -189,6 +191,7 @@ func (a *App) SwitchSession(id string) {
 		return
 	}
 	if id == a.sessionID {
+		a.model.SessionsError = ""
 		a.CloseSessions()
 		return
 	}

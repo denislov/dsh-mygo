@@ -393,10 +393,11 @@ func TestNewSessionReusesCurrentBlankSession(t *testing.T) {
 	}}
 	application, updates := sessionTestApp(client)
 	application.sessionBlank = true
+	application.model.SessionsError = "stale error"
 	application.model.Sessions = []view.SessionSummary{{ID: "original", Provider: "test", Model: "echo", Blank: true}}
 	application.NewSession()
-	if calls != 0 || application.model.SessionBusy {
-		t.Fatal("blank session was not reused")
+	if calls != 0 || application.model.SessionBusy || application.model.SessionsError != "" {
+		t.Fatal("blank session was not reused cleanly")
 	}
 	application.sessionBlank = false
 	application.NewSession()

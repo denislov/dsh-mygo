@@ -14,7 +14,11 @@ func composerToolbar(c *mgo.Context, model *Model) {
 			}
 			b := mgo.Button(c.Key("composer-project"), "").Label(model.T("Choose project folder")).Tooltip(model.SessionCWD).
 				Padding(space4, space6).Gap(space6).MaxWidth(180).Radius(radiusSm).Background(mgo.Transparent).Border(0, mgo.Transparent).
-				Disabled(!model.CanChooseSession()).OnClick(model.Setup.ChooseFolder)
+				Disabled(!model.SessionChromeEnabled()).OnClick(func() {
+				if model.CanChooseSession() && model.Setup.ChooseFolder != nil {
+					model.Setup.ChooseFolder()
+				}
+			})
 			if b.Hovered() {
 				b.Background(tokens.SurfaceHover)
 			}
@@ -34,7 +38,7 @@ func composerToolbar(c *mgo.Context, model *Model) {
 				}
 			}
 			anchor := quickChip(c.Key("composer-permissions"), model.T("Choose permissions"), label).MaxWidth(190).
-				Disabled(!model.CanEditSettings() || model.SettingsOpen).OnClick(func() { model.openQuickSelector("permission") })
+				Disabled((!model.CanEditSettings() && !model.SessionSwitching) || model.SettingsOpen).OnClick(func() { model.openQuickSelector("permission") })
 			quickSelector(c, model, anchor, "permission")
 		}
 		mgo.Spacer(c)
@@ -55,7 +59,7 @@ func composerToolbar(c *mgo.Context, model *Model) {
 				label += " · " + model.ActiveRoute.Effort
 			}
 			anchor := quickChip(c.Key("composer-model"), model.T("Choose model"), label).MaxWidth(360).
-				Tooltip(model.ModelLabel).Disabled(!model.CanEditSettings() || model.SettingsOpen).OnClick(func() { model.openQuickSelector("model") })
+				Tooltip(model.ModelLabel).Disabled((!model.CanEditSettings() && !model.SessionSwitching) || model.SettingsOpen).OnClick(func() { model.openQuickSelector("model") })
 			quickSelector(c, model, anchor, "model")
 		}
 		if contextUsageAvailable(model) {

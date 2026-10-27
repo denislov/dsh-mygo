@@ -12,12 +12,12 @@ import (
 func composer(c *mgo.Context, model *Model) {
 	tokens := tokensFor(c.Theme())
 	services := c.Services()
-	stopped := model.Runtime.SetupRequired || model.Phase == PhaseStopped || model.Phase == PhaseFailed || model.Phase == PhaseResyncing || model.SessionSwitching || model.RecoveryOpen || model.LocalState.Closing || model.Inspection.Open
+	stopped := composerInputStopped(model)
 	canSend := model.Send != nil && model.CanSendPrompt()
 	attachments := &model.Attachments
 	hasContent := func() bool { return strings.TrimSpace(model.Draft) != "" || len(attachments.Pending) > 0 }
 	zone := mgo.Column(c.Key("composer-zone")).FillWidth().Padding(space8, space24, space12, space24).Gap(space6).AlignItems(mgo.Center)
-	if paths := zone.DroppedFiles(); len(paths) > 0 && attachments.AttachFiles != nil {
+	if paths := zone.DroppedFiles(); len(paths) > 0 && !model.SessionSwitching && attachments.AttachFiles != nil {
 		attachments.AttachFiles(paths)
 	}
 	if zone.FileDragOver() {
@@ -30,6 +30,14 @@ func composer(c *mgo.Context, model *Model) {
 		composerToolbar(c, model)
 		composerStatus(c, model)
 	})
+}
+
+// composerInputStopped names the states that disable typing itself. A session
+// switch is not one of them: the pane shows loading, while the composer keeps
+// its contrast and the send boundary remains closed through CanSendPrompt.
+func composerInputStopped(model *Model) bool {
+	return model.Runtime.SetupRequired || model.Phase == PhaseStopped || model.Phase == PhaseFailed ||
+		model.Phase == PhaseResyncing || model.RecoveryOpen || model.LocalState.Closing || model.Inspection.Open
 }
 
 func composerSurface(c *mgo.Context, model *Model, stopped, canSend bool, hasContent func() bool, services mgo.Services, attachments *AttachmentState) {
@@ -65,7 +73,7 @@ func composerStagedAttachments(c *mgo.Context, model *Model, stopped bool, attac
 					}
 					mgo.Text(c, draftLabel(model, draft)).FontSize(textMicro).TextColor(tokens.TextMuted).SingleLine().Grow(1)
 					remove := fmt.Sprintf("%s %d", model.T("Remove"), index+1)
-					iconButton(c.Key("remove"), remove, iconClose).Disabled(stopped).
+					iconButton(c.Key("remove"), remove, iconClose).Disabled(stopped || model.SessionSwitching).
 						OnClick(func() { attachments.Remove(index) })
 				})
 			}
@@ -81,7 +89,7 @@ func composerInputRow(c *mgo.Context, model *Model, stopped, canSend bool, hasCo
 	attachments := &model.Attachments
 	mgo.Row(c.Key("composer-input-row")).FillWidth().Gap(space4).AlignItems(mgo.End).Children(func() {
 		if attachments.Supported && attachments.PickAttachment != nil {
-			iconButton(c.Key("attach-image"), model.T("Attach image…"), iconPlus).Background(mgo.Transparent).Border(0, mgo.Transparent).Disabled(stopped || model.SettingsOpen).OnClick(attachments.PickAttachment)
+			iconButton(c.Key("attach-image"), model.T("Attach image…"), iconPlus).Background(mgo.Transparent).Border(0, mgo.Transparent).Disabled(stopped || model.SessionSwitching || model.SettingsOpen).OnClick(attachments.PickAttachment)
 		}
 		area := mgo.TextArea(c.Key("composer-"+model.SessionID), &model.Draft).Lines(1, composerLines(c)).MinHeight(0).Grow(1).MinWidth(0).
 			FontSize(textReading).Padding(space6, space8).Border(0, mgo.Transparent).FocusRing(false).Background(mgo.Transparent).
@@ -92,7 +100,7 @@ func composerInputRow(c *mgo.Context, model *Model, stopped, canSend bool, hasCo
 				}
 			}).
 			OnPaste(func(text string) bool {
-				if text != "" || attachments.AttachImage == nil {
+				if text != "" || model.SessionSwitching || attachments.AttachImage == nil {
 					return false
 				}
 				png, err := services.ReadClipboardData(transfer.PNG).Read(transfer.PNG)

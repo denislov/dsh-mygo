@@ -17,7 +17,7 @@
 | 提交 | 拆分工作从 `9faa9b6` 起至 `06bf5dd`；2026-10-24 → 2026-10-25 |
 | 规模 | `docs/` 21 篇；Go 生产/测试与 Node Host/测试继续增长；runtime lock 约 400 KB |
 | 版本 | identifier `com.denislov.dshmygo`；app/host `0.1.1`、`protocolVersion 1`、DSH `0.2.1-rc.2`、`appCompatibility 0.1.1 <= app < 0.2.0`、MyGo `v0.6.2`、Node 24+、runtime Node `24.14.0` |
-| 测试 | 2026-10-27 复核：Go 全量/纯 Go 各 780 项、view/app/i18n race 476 项；Node Host 101、scripts 11、source 真实白名单 17 项与 packaged smoke 记录见下文 |
+| 测试 | 2026-10-27 复核：Go 全量/纯 Go 各 783 项、view/app/i18n race 478 项；Node Host 101、scripts 11、source 真实白名单 17 项与 packaged smoke 记录见下文 |
 | 构建产物 | 2026-10-26 本机构建：应用 exe 15.3 MB、安装器 5.8 MB；runtime `.tgz` 222,545,475 B（约 212.2 MiB）与 catalog；未发布新资产。线上仍为旧 v0.1.1 单体安装器 |
 | 工程基线 | 公共 GitHub remote（2026-10-25 切换）；tag `v0.1.1` 指向 `728a3ed`；发布提交的 Windows 全量与 Linux Go CI 全绿 |
 
@@ -37,6 +37,13 @@
 - `SessionSummary` 增加可选 `blank`；Host 优先读取 DSH 自带 `sessionListMetadata` 投影，只有旧缓存缺少该投影时才做一次按 revision 缓存的 64 事件前缀探测。旧缓存只有公开 `title` 投影时只读复用标题；无标题时返回空串，不再把 id 前 8 位当标题。会话事件同步维护 `record.metadata.blank`，`turn/start` 后不再空白。
 - App 只显示当前空白会话并标为本地化 New conversation，其他空白会话从列表隐藏；当前会话已是同目录、同模型路由的空白会话时，New conversation 复用它而不追加空日志，目录或路由改变时新建。空白状态来自 create/resume 摘要、目录刷新与已提交事件，非提示类系统事件不会误清空。
 - 验证：`go test ./...` 与 `CGO_ENABLED=0 go test ./...` 各 780 项，`go test -race ./internal/view ./internal/app ./internal/i18n` 476 项，`node --test resources/host/tests/*.test.mjs` 101 项、`node --test scripts/*.test.mjs` 11 项，`node scripts/test-real-host.mjs D:/Workspace/deepseek-harness` 全部通过；Go/MyGo vet、gofmt 与差异检查通过。Windows 原生窗口使用隔离的真实 DSH_HOME 复核：当前空白会话显示 New conversation，列表无 `Session ` 回退名，界面显示当前空白与 14 条有标题会话；Host 列表 27 条摘要中 13 条空白、14 条有标题、0 条非空未命名；点击 New conversation 前后会话目录数均为 35。未重建 runtime/安装器，未验证 macOS。
+
+### 会话加载与 profile Host 同步（2026-10-27）
+
+- 排查发现空白会话与打开失败并非 App 逻辑回退：`$DSH_HOME/profiles/mygo` 中应用自有的 `@dsh-mygo/host` 仍是旧内容，但版本同为 `0.1.1`，原 `EnsureProfile` 只比较版本而跳过升级，新 Host 的 `blank`/标题逻辑未生效，旧摘要继续暴露空会话与 8 位短标题。
+- `EnsureProfile` 改为按 bundle 内容指纹同步应用自有 Host 副本：内容相同不替换，不同则校验包身份、入口与目录边界后备份旧包并原子替换；版本号只参与身份与兼容性校验。用户 manifest、patch、设置、凭据和 session log 保持原样，兼容开发链接在内容一致时保留。
+- 会话切换的 Loading 只占对话区：侧栏、项目头、输入框与工具按钮不再整体降透明度；输入仍可编辑，但发送、附件、导航和写入动作在切换完成前保持不可用。真正不可用的按钮仍显示禁用态。
+- 验证：`go test ./...` 与 `CGO_ENABLED=0 go test ./...` 各 783 项，`go test -race ./internal/view ./internal/app ./internal/i18n` 478 项、含 host 的 race 506 项，Node Host 101、scripts 11，`node scripts/test-real-host.mjs D:/Workspace/deepseek-harness` 全部通过；Go/MyGo vet、gofmt 与差异检查通过，`go tool mygo build` 生成应用 exe 15.4 MB 与安装器 5.8 MB。Windows 原生窗口使用隔离的真实 DSH_HOME：启动后旧 Host 副本被内容同步替换，当前空白显示 New conversation、列表无 `Session ` 回退名；逐条打开 12 个有标题会话 0 失败、0 次“无法打开会话”，New conversation 正常进入新空白；页面加载截图确认侧栏与输入区保持正常对比度，仅对话区显示 Loading。未重建 runtime、未验证 macOS 与干净安装。
 
 ### 2.1 当前验证组合
 

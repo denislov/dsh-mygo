@@ -73,6 +73,13 @@ func (model *Model) CanChooseSession() bool {
 	return model.CanRefreshSessions() && !model.SessionPanel.Uncertain && model.SessionPanel.EditingID == "" && model.SessionPanel.ArchiveID == ""
 }
 
+// SessionChromeEnabled keeps navigation visible during a conversation switch:
+// the pane reports loading, but the shell does not dim. Click handlers still
+// require CanChooseSession, so these controls stay inert until it completes.
+func (model *Model) SessionChromeEnabled() bool {
+	return model.SessionSwitching || model.CanChooseSession()
+}
+
 func (model *Model) CanRefreshSessions() bool {
 	if model.Runtime.SetupRequired || model.Inspection.Open || model.Setup.Picking {
 		return false
@@ -96,7 +103,12 @@ func sessionSidebar(c *mgo.Context, model *Model) {
 			button := mgo.Button(c.Key("new"), "").Label(model.T("New conversation")).FillWidth().
 				Justify(mgo.Start).
 				Padding(space8, space12).Radius(radiusMd).Background(mgo.Transparent).Border(0, mgo.Transparent).
-				Transition(quietTransition).Disabled(!model.CanChooseSession() || model.NewSession == nil).OnClick(model.NewSession)
+				Transition(quietTransition).Disabled(!model.SessionChromeEnabled() || model.NewSession == nil).
+				OnClick(func() {
+					if model.CanChooseSession() && model.NewSession != nil {
+						model.NewSession()
+					}
+				})
 			button.Children(func() {
 				mgo.Row(c).Gap(space8).AlignItems(mgo.Center).Children(func() {
 					mgo.Icon(c, iconPlus).Size(16, 16).TextColor(tokens.Accent)
@@ -117,7 +129,12 @@ func sessionSidebar(c *mgo.Context, model *Model) {
 					Menu(func(menu *mgo.Menu) { sessionFilterMenu(menu, model) })
 			}
 			iconButton(c.Key("refresh"), model.T("Refresh sessions"), iconRefresh).
-				Disabled(!model.CanRefreshSessions() || model.RefreshSessions == nil).OnClick(model.RefreshSessions)
+				Disabled(!model.SessionChromeEnabled() || model.RefreshSessions == nil).
+				OnClick(func() {
+					if model.CanRefreshSessions() && model.RefreshSessions != nil {
+						model.RefreshSessions()
+					}
+				})
 		})
 		mgo.Row(c.Key("sidebar-section")).Padding(space12, space12, space4, space12).AlignItems(mgo.Center).Children(func() {
 			sectionLabel(c, model.T("Conversations"))
@@ -129,7 +146,11 @@ func sessionSidebar(c *mgo.Context, model *Model) {
 			mgo.Text(c, model.T(phaseLabel(model.Phase))).FontSize(textMicro).TextColor(tokens.TextMuted).SingleLine()
 			mgo.Spacer(c)
 			iconButton(c.Key("open-settings"), model.T("Open settings"), iconSettings).
-				Disabled(!model.CanOpenPreferences()).OnClick(model.OpenPreferences)
+				Disabled(!model.CanOpenPreferences() && !model.SessionSwitching).OnClick(func() {
+				if model.CanOpenPreferences() {
+					model.OpenPreferences()
+				}
+			})
 		})
 	})
 }
@@ -152,7 +173,7 @@ func sessionSearch(c *mgo.Context, model *Model) {
 func sessionPanel(c *mgo.Context, model *Model, modal bool) {
 	panel := &model.SessionPanel
 	tokens := tokensFor(c.Theme())
-	disabled := !model.CanChooseSession()
+	rowDisabled := !model.SessionChromeEnabled()
 	sessionPanelStatus(c, model, panel, modal, tokens)
 	entries := model.projectSessionEntries()
 	if len(entries) == 0 && !model.SessionBusy && !panel.Refreshing && model.SessionsError == "" {
@@ -178,10 +199,10 @@ func sessionPanel(c *mgo.Context, model *Model, modal bool) {
 	list.Rows(func(row mgo.ListRow) {
 		entry := entries[row.Index]
 		if entry.Header {
-			sessionProjectHeader(c, model, entry, modal, disabled, tokens)
+			sessionProjectHeader(c, model, entry, modal, rowDisabled, tokens)
 			return
 		}
-		sessionConversationRow(c, model, entry, modal, disabled, tokens)
+		sessionConversationRow(c, model, entry, modal, rowDisabled, tokens)
 	})
 	sessionManagementForms(c, model, panel)
 }
@@ -219,7 +240,11 @@ func sessionProjectHeader(c *mgo.Context, model *Model, entry sessionListEntry, 
 		if entry.Project != "" && model.NewProjectSession != nil {
 			iconButton(c.Key("new-project"), model.T("New conversation in project")+" · "+entry.Project, iconPlus).
 				Size(compactActionSize, compactActionSize).Padding(4).Background(mgo.Transparent).Disabled(disabled).
-				OnClick(func() { model.NewProjectSession(entry.Project) })
+				OnClick(func() {
+					if model.CanChooseSession() {
+						model.NewProjectSession(entry.Project)
+					}
+				})
 		}
 	})
 }
@@ -245,7 +270,11 @@ func sessionConversationRow(c *mgo.Context, model *Model, entry sessionListEntry
 			selectButton := mgo.Button(c.Key("select"), "").Label(label).Tooltip(sessionTooltip(model, session)).Grow(1).MinWidth(0).
 				Padding(space8, space12).Background(background).Border(0, mgo.Transparent).
 				Radius(radiusMd).Transition(quietTransition).Disabled(disabled || session.Archived || model.SwitchSession == nil).
-				OnClick(func() { model.SwitchSession(session.ID) })
+				OnClick(func() {
+					if model.CanChooseSession() && model.SwitchSession != nil {
+						model.SwitchSession(session.ID)
+					}
+				})
 			if !disabled && !session.Archived && model.SwitchSession != nil {
 				if selectButton.Pressed() {
 					selectButton.Background(tokens.SurfacePressed)
