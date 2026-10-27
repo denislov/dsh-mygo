@@ -11,7 +11,7 @@ import (
 )
 
 // transcriptRow is one row of the transcript list: either a plain item or an
-// activity group that folds consecutive reasoning and tool rows together.
+// activity group that folds a turn's process rows together.
 type transcriptRow struct {
 	key      string
 	item     *projection.Item
@@ -36,12 +36,21 @@ func (model *Model) activityState(key string) *ActivityState {
 	return model.Activity[key]
 }
 
-// buildTranscriptRows folds adjacent reasoning and tool rows into groups. A
-// group never crosses a turn boundary or a visible assistant/user row.
+// buildTranscriptRows folds a turn's process rows together. A turn's process is
+// its reasoning, tool calls, and any assistant text before the final answer;
+// only the final answer stays a standalone, copyable message. A turn that ends
+// in tool activity has no final answer, so all of its text joins the process.
+// Rows without a usable turn position fall back to folding adjacent reasoning
+// and tool rows, which keeps previews and older history readable.
 func buildTranscriptRows(items []projection.Item) []transcriptRow {
 	rows := make([]transcriptRow, 0, len(items))
 	used := make(map[string]int)
 	for index := 0; index < len(items); {
+		if group, end := turnProcessGroup(items, index); group != nil {
+			rows = append(rows, groupRow(group, used))
+			index = end
+			continue
+		}
 		item := &items[index]
 		if !isActivityItem(*item) {
 			rows = append(rows, transcriptRow{key: item.ID, item: item})
@@ -52,20 +61,51 @@ func buildTranscriptRows(items []projection.Item) []transcriptRow {
 		for end < len(items) && isActivityItem(items[end]) && sameTurn(*item, items[end]) {
 			end++
 		}
-		group := &activityGroup{items: items[index:end]}
-		group.key = activityGroupKey(group)
-		if used[group.key] > 0 {
-			group.key += ":" + group.items[0].ID
-		}
-		used[group.key]++
-		rows = append(rows, transcriptRow{key: group.key, activity: group})
+		rows = append(rows, groupRow(&activityGroup{items: items[index:end]}, used))
 		index = end
 	}
 	return rows
 }
 
+// turnProcessGroup folds the contiguous process rows of one turn. When the
+// turn ends in an assistant row, that row is the final answer and stays
+// outside the group; otherwise every process row is folded. The second return
+// value is where the caller resumes after the group.
+func turnProcessGroup(items []projection.Item, index int) (*activityGroup, int) {
+	first := items[index]
+	if first.Turn == 0 || !isProcessItem(first) {
+		return nil, index
+	}
+	end := index + 1
+	for end < len(items) && items[end].Turn == first.Turn && isProcessItem(items[end]) {
+		end++
+	}
+	finalAnswer := items[end-1].Kind == projection.KindAssistant
+	processEnd := end
+	if finalAnswer {
+		processEnd = end - 1
+	}
+	if processEnd <= index {
+		return nil, index
+	}
+	return &activityGroup{items: items[index:processEnd]}, processEnd
+}
+
+func isProcessItem(item projection.Item) bool {
+	return item.Kind == projection.KindAssistant || isActivityItem(item)
+}
+
 func isActivityItem(item projection.Item) bool {
 	return item.Kind == projection.KindReasoning || item.Kind == projection.KindTool
+}
+
+func groupRow(group *activityGroup, used map[string]int) transcriptRow {
+	group.key = activityGroupKey(group)
+	if used[group.key] > 0 {
+		group.key += ":" + group.items[0].ID
+	}
+	used[group.key]++
+	return transcriptRow{key: group.key, activity: group}
 }
 
 func sameTurn(a, b projection.Item) bool {
@@ -118,6 +158,8 @@ func activityCard(c *mgo.Context, model *Model, group *activityGroup) {
 				mgo.Divider(c)
 				for _, item := range group.items {
 					switch item.Kind {
+					case projection.KindAssistant:
+						processMessage(c, model, item)
 					case projection.KindReasoning:
 						reasoningBlock(c, model, item)
 					case projection.KindTool:
@@ -126,6 +168,33 @@ func activityCard(c *mgo.Context, model *Model, group *activityGroup) {
 				}
 			})
 		})
+	})
+}
+
+// processMessage shows assistant text that belongs to a turn's process. It has
+// no message copy action: the turn's final answer remains the one copyable row.
+func processMessage(c *mgo.Context, model *Model, item projection.Item) {
+	tokens := tokensFor(c.Theme())
+	mgo.Column(c.Key("process-message-"+item.ID)).FillWidth().Gap(space4).Padding(space2, 0).Children(func() {
+		if item.Detail != "" {
+			color := tokens.TextMuted
+			if item.State == "interrupted" {
+				color = tokens.Warning
+			}
+			mgo.Text(c, model.T(item.Detail)).FontSize(textMicro).TextColor(color)
+		}
+		switch item.State {
+		case "streaming":
+			markdown.Stream(c.Key("process-markdown-"+item.ID), item.Text, &model.Markdown).FillWidth()
+		case "interrupted":
+			markdown.View(c.Key("process-markdown-"+item.ID), item.Text, &model.InterruptedMarkdown).FillWidth()
+		default:
+			markdown.View(c.Key("process-markdown-"+item.ID), item.Text, &model.Markdown).FillWidth()
+		}
+		if item.Truncated {
+			mgo.Text(c, model.T("Truncated message: only the visible prefix is available.")).
+				FontSize(textMicro).TextColor(tokens.Warning)
+		}
 	})
 }
 
@@ -187,14 +256,16 @@ func singleLineSummary(text string, limit int) string {
 }
 
 // activitySummary describes the group in one line: live status first, then a
-// duration and tool count. It also reports whether work is still running and
-// whether any tool failed.
+// duration, tool count, or earlier-message label. It also reports whether work
+// is still running and whether any tool failed.
 func (model *Model) activitySummary(group *activityGroup) (string, bool, bool) {
-	thoughts, tools := 0, 0
+	thoughts, tools, messages := 0, 0, 0
 	running, failed, interrupted := false, false, false
 	var first, last int64
 	for _, item := range group.items {
 		switch item.Kind {
+		case projection.KindAssistant:
+			messages++
 		case projection.KindReasoning:
 			thoughts++
 		case projection.KindTool:
@@ -235,6 +306,8 @@ func (model *Model) activitySummary(group *activityGroup) (string, bool, bool) {
 		label = fmt.Sprintf(model.T("Worked for %s"), formatDuration(last-first))
 	case tools > 0:
 		label = model.activityToolNames(group)
+	case messages > 0:
+		label = model.T("Earlier messages")
 	default:
 		label = model.T("Activity")
 	}

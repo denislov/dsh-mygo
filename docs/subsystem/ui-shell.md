@@ -43,10 +43,10 @@ UI 壳层是 MyGo 进程里的原生界面：
 - 聊天与输入区共享最大 860 DIP 的居中阅读宽度与水平留白。助手消息直接在页面上靠左排版，用户消息以自然内容宽度、最大 620 DIP 的圆角气泡靠右排版；正文使用 16 DIP 字号，助手 Markdown 使用 1.62 行高，用户原文保持字面语义。角色名保留为消息容器的可访问名称。复制动作位于正文/气泡外侧下方，用户消息靠右、助手消息靠左；平时透明，在消息 hover 或键盘焦点进入时显示。按钮保留名称、Tooltip 和复制反馈，透明时仍可通过键盘聚焦。
 
 - transcript 显示提交后的 user 消息、assistant 文本、reasoning、tool call/result 与 turn 结束通知；不显示 synthetic user context、system/developer 消息。
-- 同一回合内连续的 reasoning 与 tool 行显示为默认折叠的活动组：折叠头给出思考时长、工具数量或工具名。展开后各条思考与工具仍默认折叠为单行：思考显示有界的纯文本预览；工具显示动作名称，以及参数中的命令说明、路径或命令摘要，省略成功状态 pill，保留运行指示与失败状态。进一步展开可查看原文与完整详情。思考展开状态使用跨流式/提交的 ActivityKey（缺失时使用行 ID），不写入会话日志；窗口淘汰与切换清理状态。活动组是视图派生的展示行，工具行身份与详情入口保持不变。
+- 同一回合的 process 行（reasoning、tool，以及最终回答之前的 assistant 文本）显示为默认折叠的活动组；回合的最终 assistant 回答保留为独立的展开消息。折叠头给出思考时长、工具数量、工具名或更早消息摘要。展开后各条思考与工具仍默认折叠为单行：思考显示有界的纯文本预览；工具显示动作名称，以及参数中的命令说明、路径或命令摘要，省略成功状态 pill，保留运行指示与失败状态；组内 assistant 文本按 Markdown 只读显示，不带消息级复制动作。进一步展开可查看原文与完整详情。思考展开状态使用跨流式/提交的 ActivityKey（缺失时使用行 ID），不写入会话日志；窗口淘汰与切换清理状态。活动组是视图派生的展示行，工具行身份与详情入口保持不变。
 - 协商 `session.assistant-stream` 后，额外展示带 `Streaming…` 标记的临时 assistant 行与 `Thinking…` 的临时 reasoning 行，稳定绑定 attemptId；提交时由 durable 行替换。没有可见 text 时不显示空卡片；缺口/abandoned/idle/失败/关闭移除临时行，不改 composer 草稿。
 - 助手正文使用 MyGo 原生 `markdown.Stream` / `markdown.View`：标题、强调、列表、表格、内联代码与只读语法高亮代码块。流式同一 key 增量解析，直接显示已收到内容，不额外逐字延迟；最终提交使用 durable 行身份，不把 Markdown 展示状态写回历史。用户输入、工具参数/结果仍为可选择的原文，不解释为 Markdown。
-- `Copy Markdown` 复制保留的助手源文，`Copy message` 复制可见用户文本；流式按钮标为 `Copy current text`。代码块有独立复制按钮，复制解析后的代码正文（代码行以换行结尾），不带围栏；正在生成的开放代码块禁用复制。Interrupted 消息的代码块也禁用完整代码复制，可显式 `Copy partial Markdown`。
+- 回合的最终 assistant 回答提供 `Copy Markdown`，复制保留的助手源文；活动组内的 assistant 文本不提供消息级复制动作。`Copy message` 复制可见用户文本；流式按钮标为 `Copy current text`。代码块有独立复制按钮，复制解析后的代码正文（代码行以换行结尾），不带围栏；正在生成的开放代码块禁用复制。Interrupted 消息的代码块也禁用完整代码复制，可显式 `Copy partial Markdown`。
 - 复制反馈绑定消息 ID 与源文；流式源文改变或换消息时不继承“已复制”。超过 65536 rune 的提交正文（reasoning/临时正文各 8000 rune）明确标为截断，回退原文展示并只提供 `Copy visible text`，不把截断围栏解释为完整代码。复制的是当前保留内容，不承诺复制完整历史。
 - 图片只显示描述，不配置网络或文件加载器；HTML 不接入执行/浏览器渲染器，代码不执行。链接只响应显式点击，并限制为无凭据、无控制字符的 HTTP(S) 地址；file/javascript/data/mailto/相对路径等不打开。剪贴板/URL 回调仅捕获 `c.Services()`，不保存帧作用域 Context/Element。
 - Enter 发送，Shift+Enter 换行；发送期间仍可编辑草稿，但发送按钮与 Enter 发送禁用。

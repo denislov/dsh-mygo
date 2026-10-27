@@ -33,7 +33,7 @@
 - 列表预览按 rune 截断：提交消息 65536、reasoning/临时正文各 8000、工具参数/结果 4000；工具详情按下述独立字节预算保留，超限或淘汰必须提示，不冒充完整内容。打开历史也遵守相同展示上限，不承诺完整原文复制或按需加载被淘汰详情。
 - 附件只投影显示元数据：`attachmentId`（不透明标识）、`mediaType`、`bytes`、`width`、`height`、可选 `name`；不读取或缓存图片字节，不把引用解释成路径。只有 png/jpeg/webp/gif 且引用字段有界的块才进入 UI，畸形引用丢弃而不是渲染可疑内容；纯图片消息同样保留一行，不能因文本为空而消失。附件不进入本地草稿文件。
 - 助手 Markdown 增量展示及工具折叠/只读 diff；工具参数不展示为临时正文。reasoning 作为独立的静音文本行展示。原生 Sessions 历史入口回放正文；usage/context 作为会话级指标展示，不进入正文。
-- 同一回合内连续的 reasoning 与 tool 行聚合为默认折叠的活动组；组头显示思考时长、工具数量或工具名，展开后按事件顺序显示 reasoning 与工具卡片。分组是视图派生的展示行，不改变 flat transcript、seq 去重或工具行身份。
+- 同一回合内，最终 assistant 回答之前的 reasoning、tool 与 assistant 文本聚合为默认折叠的活动组；最终回答保持独立，作为该回合唯一带消息级复制动作的正文。回合以工具活动结束时没有最终回答，全部正文留在活动组。组头显示思考时长、工具数量、工具名或更早消息，展开后按事件顺序显示 assistant 文本、reasoning 与工具卡片。分组是视图派生的展示行，不改变 flat transcript、seq 去重或工具行身份。
 - 会话指标取最新值而不累计：`assistant/message.usage` 提供最近一步的 token 计数（工具-only 步骤也更新），`request/context` 提供路由 `provider`/`model` 与 `contextWindow`。计数为负数或超出安全上界时按缺失处理；未知容量/用量保持未知，不推算、不跨历史窗口求和。展示只读取投影，不回写日志、不改变 nextSeq，也不进入下一次请求内容。
 - 深度快照同样只显示最新值：`todo/write` 最多 64 行、内容单行截断 200 rune，非法状态/空内容跳过，下一 `turn/start` 清空，与 DSH `todos` 折叠一致；`plan/mode` 为 latest-wins；`goal/change` 只接受 active/paused/blocked/complete，objective 单行截断 400 rune，clear 清除当前目标。所有快照不进入正文、不推测缺失字段。
 - `subagent/started|finished` 是实时通知而非 session 事件：只为当前父会话维护最多 8 条子代理状态，父/子 id 与 provider 经白名单校验，`reason` 取固定枚举；切换会话或新建时清空，历史回放不重建该状态。子代理消息与结果正文不进入主 transcript。

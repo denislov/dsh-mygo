@@ -17,7 +17,7 @@
 | 提交 | 拆分工作从 `9faa9b6` 起至 `06bf5dd`；2026-10-24 → 2026-10-25 |
 | 规模 | `docs/` 21 篇；Go 生产/测试与 Node Host/测试继续增长；runtime lock 约 400 KB |
 | 版本 | identifier `com.denislov.dshmygo`；app/host `0.1.1`、`protocolVersion 1`、DSH `0.2.1-rc.2`、`appCompatibility 0.1.1 <= app < 0.2.0`、MyGo `v0.6.2`、Node 24+、runtime Node `24.14.0` |
-| 测试 | 2026-10-27 复核：Go 全量/纯 Go 各 783 项、view/app/i18n race 478 项；Node Host 101、scripts 11、source 真实白名单 17 项与 packaged smoke 记录见下文 |
+| 测试 | 2026-10-27 复核：Go 全量/纯 Go 各 789 项、view/app/i18n race 484 项；Node Host 101、scripts 11、source 真实白名单 17 项与 packaged smoke 记录见下文 |
 | 构建产物 | 2026-10-26 本机构建：应用 exe 15.3 MB、安装器 5.8 MB；runtime `.tgz` 222,545,475 B（约 212.2 MiB）与 catalog；未发布新资产。线上仍为旧 v0.1.1 单体安装器 |
 | 工程基线 | 公共 GitHub remote（2026-10-25 切换）；tag `v0.1.1` 指向 `728a3ed`；发布提交的 Windows 全量与 Linux Go CI 全绿 |
 
@@ -44,6 +44,11 @@
 - `EnsureProfile` 改为按 bundle 内容指纹同步应用自有 Host 副本：内容相同不替换，不同则校验包身份、入口与目录边界后备份旧包并原子替换；版本号只参与身份与兼容性校验。用户 manifest、patch、设置、凭据和 session log 保持原样，兼容开发链接在内容一致时保留。
 - 会话切换的 Loading 只占对话区：侧栏、项目头、输入框与工具按钮不再整体降透明度；输入仍可编辑，但发送、附件、导航和写入动作在切换完成前保持不可用。真正不可用的按钮仍显示禁用态。
 - 验证：`go test ./...` 与 `CGO_ENABLED=0 go test ./...` 各 783 项，`go test -race ./internal/view ./internal/app ./internal/i18n` 478 项、含 host 的 race 506 项，Node Host 101、scripts 11，`node scripts/test-real-host.mjs D:/Workspace/deepseek-harness` 全部通过；Go/MyGo vet、gofmt 与差异检查通过，`go tool mygo build` 生成应用 exe 15.4 MB 与安装器 5.8 MB。Windows 原生窗口使用隔离的真实 DSH_HOME：启动后旧 Host 副本被内容同步替换，当前空白显示 New conversation、列表无 `Session ` 回退名；逐条打开 12 个有标题会话 0 失败、0 次“无法打开会话”，New conversation 正常进入新空白；页面加载截图确认侧栏与输入区保持正常对比度，仅对话区显示 Loading。未重建 runtime、未验证 macOS 与干净安装。
+
+### 回合过程折叠（2026-10-27）
+
+- transcript 视图按 turn 聚合 process：最终 assistant 回答之前的 reasoning、tool 与 assistant 文本进入默认折叠的活动组，最终回答单独展示并保留该回合唯一的 `Copy Markdown`。回合以工具活动结束时没有最终回答，全部文本留在活动组；展开活动组可读更早 narration，但没有消息级复制动作。无可用 turn 位置的行沿用原有 reasoning/tool 折叠。
+- 验证：`go test ./...` 与 `CGO_ENABLED=0 go test ./...` 各 789 项，`go test -race ./internal/view ./internal/app ./internal/i18n` 484 项，Node Host 101、scripts 11，`node scripts/test-real-host.mjs D:/Workspace/deepseek-harness` 通过；Go/MyGo vet、gofmt、差异检查与 `go tool mygo build`（exe 15.4 MB、安装器 5.8 MB）通过。Windows 原生窗口用 fake Host 回合 fixture 复核：同一 turn 显示 `Worked for 2s · 1 tool` 活动组与单一最终回答；展开后更早 narration 与工具位于组内，UI Automation 只发现一个 `Copy Markdown`（最终回答），用户消息仍只有一个 `Copy message`。未重建 runtime、未发布资产，未验证 macOS。
 
 ### 2.1 当前验证组合
 

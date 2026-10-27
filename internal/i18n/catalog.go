@@ -122,6 +122,7 @@ var chinese = map[string]string{
 	"Reasoning":                                  "思考",
 	"Thinking…":                                  "正在思考…",
 	"Activity":                                   "活动",
+	"Earlier messages":                           "更早消息",
 	"Activity interrupted":                       "活动中断",
 	"Thought for %s":                             "思考了 %s",
 	"Worked for %s":                              "工作了 %s",
