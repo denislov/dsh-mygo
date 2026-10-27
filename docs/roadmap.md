@@ -1,12 +1,12 @@
 # 开发进度与路线图
 
-> 统计基线：2026-10-26（代码审查重构收口）；能力进度包含应用/runtime 拆分、首启运行时引导、设置中心 Runtime 分区与事务式切换。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
+> 统计基线：2026-10-27（0.1.2 已发布）；能力进度包含应用/runtime 拆分、首启运行时引导、设置中心 Runtime 分区与事务式切换。设计文档（`docs/architecture.md` 与 `docs/subsystem/`）描述**目标态**；本页只记录当前进度、目标差距、里程碑与验收。实现契约仍以设计文档为准；更新进度时改这里，不把同一份状态复制到其他文档。
 
 ## 1. 结论
 
-项目在约 11 小时内从零走到"核心聊天闭环全部跑通"：自定义 channel、流式、回合取消、审批、提问、历史/会话、模型与凭据设置均已落地，并有真实 DSH Loader（`0.2.1-rc.2`）集成测试覆盖。当前处于**阶段 C（Windows 私有测试版首发）**。
+项目在约 11 小时内从零走到"核心聊天闭环全部跑通"：自定义 channel、流式、回合取消、审批、提问、历史/会话、模型与凭据设置均已落地，并有真实 DSH Loader（`0.2.1-rc.2`）集成测试覆盖。当前处于**阶段 C（Windows 公开测试版首发）**。
 
-一句话：**应用与 Node+DSH runtime 已拆分；首启引导、运行时下载/导入/切换/移除与事务回滚可用，下一步是重新打包发布应用安装器与独立 runtime 资产并做干净机器验收。**
+一句话：**应用与 Node+DSH runtime 已拆分并发布 `0.1.2`；首启引导、运行时下载/导入/切换/移除与事务回滚可用，下一步是干净机器验收、应用内 runtime 下载实测、macOS 与自动更新。**
 
 判断依据：协议与 UI 主链路已经闭环，M0 工程基线、自签名发布构建、手工崩溃恢复、会话管理、缺口恢复、权限 UI、草稿/界面偏好、附件与引用、有界历史窗口/句柄回收、运行时 store 与设置中心管理已完成；干净机器验收、运行时线上下载链路验证、多会话后台交互与 macOS 仍是主要缺口。
 
@@ -14,12 +14,12 @@
 
 | 项 | 值 |
 | --- | --- |
-| 提交 | 拆分工作从 `9faa9b6` 起至 `06bf5dd`；2026-10-24 → 2026-10-25 |
+| 提交 | 拆分工作从 `9faa9b6` 起至 `1beb6fa`；2026-10-24 → 2026-10-27 |
 | 规模 | `docs/` 21 篇；Go 生产/测试与 Node Host/测试继续增长；runtime lock 约 400 KB |
-| 版本 | identifier `com.denislov.dshmygo`；app/host `0.1.1`、`protocolVersion 1`、DSH `0.2.1-rc.2`、`appCompatibility 0.1.1 <= app < 0.2.0`、MyGo `v0.6.2`、Node 24+、runtime Node `24.14.0` |
-| 测试 | 2026-10-27 复核：Go 全量/纯 Go 各 789 项、view/app/i18n race 484 项；Node Host 102、scripts 11、source 真实白名单 17 项与 packaged smoke 记录见下文 |
-| 构建产物 | 2026-10-27 本机构建：应用 exe 15.4 MB、安装器 5.8 MB；runtime `.tgz` 222,544,513 B（约 212.2 MiB）与 catalog；未发布新资产。线上仍为旧 v0.1.1 单体安装器 |
-| 工程基线 | 公共 GitHub remote（2026-10-25 切换）；tag `v0.1.1` 指向 `728a3ed`；发布提交的 Windows 全量与 Linux Go CI 全绿 |
+| 版本 | identifier `com.denislov.dshmygo`；app/host `0.1.2`、`protocolVersion 1`、DSH `0.2.1-rc.2`、`appCompatibility 0.1.1 <= app < 0.2.0`、MyGo `v0.6.2`、Node 24+、runtime Node `24.14.0` |
+| 测试 | 2026-10-27 复核：Go 全量/纯 Go/race 各 789 项；Node Host 102、scripts 11；source 真实组合 223.1s、runtime 真实组合 186.8s、packaged smoke 通过 |
+| 构建产物 | 2026-10-27 发布：应用 exe 15.4 MB、安装器 6,078,992 B（约 5.8 MiB）；runtime `.tgz` 222,544,771 B（约 212.2 MiB）与 catalog |
+| 工程基线 | 公共 GitHub remote（2026-10-25 切换）；tag `v0.1.2` 与 runtime tag 均指向 `1beb6fa`；[Windows/Linux CI](https://github.com/denislov/dsh-mygo/actions/runs/40460761211) 全绿；历史 tag `v0.1.1` 指向 `728a3ed` |
 
 ### 提交质量复核（2026-10-27）
 
@@ -61,11 +61,11 @@
 
 | 单元 | 当前值 | 校验方式 |
 | --- | --- | --- |
-| 应用 | `0.1.1`，identifier `com.denislov.dshmygo`，Windows x64 | `go tool mygo build`、Authenticode 自签名、packaged smoke |
-| 协议 | `protocolVersion 1`，Host bundle `0.1.1` | initialize 握手、channel/Node conformance |
+| 应用 | `0.1.2`，identifier `com.denislov.dshmygo`，Windows x64 | `go tool mygo build`、Authenticode 自签名、packaged smoke |
+| 协议 | `protocolVersion 1`，Host bundle `0.1.2` | initialize 握手、channel/Node conformance |
 | 应用范围 | `0.1.1 <= app < 0.2.0` | Host initialize 返回范围与应用校验 |
 | DSH / Node | `0.2.1-rc.2` / `>=24`（managed runtime `24.14.0`） | manifest、profile seed、真实 Loader |
-| managed runtime | `dsh-0.2.1-rc.2-node-24.14.0-host-0.1.1-win32-x64` | runtime manifest、packaged `-runtime-dir` smoke |
+| managed runtime | `dsh-0.2.1-rc.2-node-24.14.0-host-0.1.2-win32-x64` | runtime manifest、packaged `-runtime-dir` smoke |
 
 应用与 runtime 是独立发布单元；只有上表组合在本机验收过，其它组合需重新验证。
 
@@ -368,6 +368,14 @@ M2-6d 子代理详情/结果已完成：新增独立 `subagent.inspection` 与 l
 应用与 runtime 拆分已完成：应用安装器只含 Go 二进制、`host/` 与图标；`runtime/` 生成 Node + DSH 闭包 + 私有 `mygo-host` + 配套 Host bundle + manifest，确定性 `.tgz` 约 212 MiB，应用安装器约 4.3 MiB、exe 约 12.4 MiB。设备级 runtime store 支持 managed/external/legacy/direct、安全解压、GitHub catalog/下载（SHA256/size）、external `.cmd`/shim 修复与事务式切换。首启无 runtime 时进入全窗口引导（已安装 DSH、下载、导入 `.tgz`）；设置中心 Runtime 分区支持查看、Use/Remove、检测 DSH、从文件安装、检查更新；切换在候选 initialize 成功后才持久化选择，失败恢复旧 profile 与旧 Host。真实窗口用 UIA 验证外部 DSH → managed 切换，会话 `d5497fc2` 保留，当前运行时/路径/版本正确显示；560×420 引导与设置页可用。
 
 本批实际检查：`go test ./...`（489）、`CGO_ENABLED=0 go test ./...`（489）、`go test -race ./internal/app ./internal/view ./internal/runtimes`（343）、`go tool mygo vet .`、`go vet ./...`、Node Host（84/84）、scripts（10/10）、`node scripts/test-real-host.mjs --runtime`、`go tool mygo build`、`node scripts/prepare-release.mjs`、`node scripts/prepare-runtime-release.mjs`、`node scripts/smoke-packaged.mjs`（源码 runtime 与解压后的发布 tgz 各一次）均通过。`smoke-installer` 因本机已安装 dsh-mygo 按设计拒绝运行；公开仓库下载链路因仓库仍为 private 未验收。干净 VM、macOS 仍需发布前确认。
+
+### 0.1.2 应用与独立 runtime 发布（2026-10-27）
+
+- 应用、`@dsh-mygo/host` 与独立 runtime 的 Host bundle 统一到 `0.1.2`，`protocolVersion 1`、`0.1.1 <= app < 0.2.0` 不变。本版包含 DeepSeek Account 模型选择时的 stdout 污染崩溃修复、回合过程折叠、空白会话复用、会话加载局部 Loading 与 profile Host 内容指纹同步。
+- 发布：[v0.1.2 应用](https://github.com/denislov/dsh-mygo/releases/tag/v0.1.2)（prerelease，target `1beb6fa`，5 个附件）与 [独立 runtime](https://github.com/denislov/dsh-mygo/releases/tag/runtime-v0.2.1-rc.2-node24.14.0-win32-x64)（prerelease，target 同提交，含 catalog、`.tgz`、notes 与 checksums）。runtime release 晚于应用 release 发布；应用发现逻辑遍历 release 列表并选择第一个含 `runtime-catalog.json` 的非草稿条目。
+- 线上校验：应用安装器 6,078,992 B、SHA-256 `7b8baf43b5ab4873af0a69478aaa5ecf2f2c9fcc431fbd919897e823eb6d8d79`；runtime `.tgz` 222,544,771 B、SHA-256 `8cb07e05baed179c9a3fd72f7122504152a9f8aa6c9d9dd26545414af1932a41`；catalog 531 B、SHA-256 `a2704b581fed1f5a2e0d3dd9f77cb1a38849d46d3b9c1a5a02472fe3645f675b`。GitHub 资产 digest 与本地一致，重新下载安装器与 catalog 后哈希一致。
+- CI：[Windows/Linux](https://github.com/denislov/dsh-mygo/actions/runs/40460761211) 全绿（Windows 1m02s、Linux 40s）。发布前 Linux 首跑暴露 `TestParseManifest/platform` 的 GOOS 假设与短归档取消测试的 panic；修正夹具后通过。
+- 未验证：干净 Windows VM 的安装/卸载、应用内从 GitHub 下载 runtime、macOS、付费模型回合（未设置 `DEEPSEEK_API_KEY`）。应用安装器不含 Node/DSH，首次启动仍需下载/导入 runtime。
 
 ## 7. 风险与依赖
 
