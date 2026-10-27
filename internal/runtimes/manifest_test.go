@@ -26,6 +26,13 @@ func validManifest() Manifest {
 	return manifest
 }
 
+func alternatePlatform(platform string) string {
+	if platform == "win32" {
+		return "linux"
+	}
+	return "win32"
+}
+
 func TestParseManifest(t *testing.T) {
 	manifest := validManifest()
 	data, _ := json.Marshal(manifest)
@@ -43,7 +50,7 @@ func TestParseManifest(t *testing.T) {
 		{"schema", func(m *Manifest) { m.SchemaVersion = 2 }},
 		{"kind", func(m *Manifest) { m.Kind = "other" }},
 		{"id", func(m *Manifest) { m.ID = "dsh-wrong" }},
-		{"platform", func(m *Manifest) { m.Platform = "linux" }},
+		{"platform", func(m *Manifest) { m.Platform = alternatePlatform(m.Platform) }},
 		{"protocol", func(m *Manifest) { m.ProtocolVersion = 99 }},
 		{"app range", func(m *Manifest) { m.AppMaxExclusive = "0.0.1" }},
 		{"entry", func(m *Manifest) { m.Entry = "../entry" }},

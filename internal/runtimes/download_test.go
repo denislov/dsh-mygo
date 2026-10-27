@@ -88,8 +88,14 @@ func TestDownloadRuntimeCancelLeavesNoPartFile(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/archive", func(w http.ResponseWriter, r *http.Request) {
 		defer close(handlerDone)
-		w.Header().Set("Content-Length", fmt.Sprint(len(archive)))
-		w.Write(archive[:1024])
+		// Declare more than we send so the client waits instead of seeing EOF
+		// when the small test archive is shorter than the first chunk.
+		w.Header().Set("Content-Length", fmt.Sprint(len(archive)+1024))
+		partial := archive
+		if len(partial) > 1024 {
+			partial = partial[:1024]
+		}
+		w.Write(partial)
 		if flusher, ok := w.(http.Flusher); ok {
 			flusher.Flush()
 		}
