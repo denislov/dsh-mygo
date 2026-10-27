@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { test } from 'node:test'
 import { MygoServer } from '../server.mjs'
 
-const handshake = { protocolVersion: 1, client: { name: 'test', version: '0.1.1', platform: 'test', locale: 'en-US' }, capabilities: ['subagent.inspection'] }
+const handshake = { protocolVersion: 1, client: { name: 'test', version: '0.1.2', platform: 'test', locale: 'en-US' }, capabilities: ['subagent.inspection'] }
 const management = JSON.parse(await readFile(new URL('../../../tests/fixtures/protocol/management.json', import.meta.url), 'utf8'))
 
 function fixture() {

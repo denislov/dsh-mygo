@@ -204,7 +204,7 @@ func TestAcceptAttachmentsInstallsPolicyAndDropsStagedUploads(t *testing.T) {
 func TestMygoInitializeParsesAttachmentPolicy(t *testing.T) {
 	handshake := `{
 		"protocolVersion": 1,
-		"server": {"name": "dsh-mygo-host", "version": "0.1.1", "dshVersion": "0.2.1-rc.2"},
+		"server": {"name": "dsh-mygo-host", "version": "0.1.2", "dshVersion": "0.2.1-rc.2"},
 		"capabilities": ["attachments"],
 		"attachments": {"image": {
 			"mediaTypes": ["image/png", "image/jpeg"],

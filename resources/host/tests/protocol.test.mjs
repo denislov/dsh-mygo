@@ -41,7 +41,7 @@ function runtime() {
 
 const handshake = {
   protocolVersion: 1,
-  client: { name: 'dsh-mygo', version: '0.1.1', platform: 'test', locale: 'zh-CN' },
+  client: { name: 'dsh-mygo', version: '0.1.2', platform: 'test', locale: 'zh-CN' },
   capabilities: ['approval', 'session.history'],
 }
 
@@ -113,7 +113,7 @@ test('handshake gates methods, rejects incompatible versions and never advertise
   await assert.rejects(server.handle('initialize', { ...handshake, protocolVersion: 2 }), { kind: 'protocol/version-mismatch' })
   const result = await server.handle('initialize', handshake)
   assert.equal(result.protocolVersion, 1)
-  assert.equal(result.server.version, '0.1.1')
+  assert.equal(result.server.version, '0.1.2')
   assert.equal(result.server.appMin, '0.1.1')
   assert.equal(result.server.appMaxExclusive, '0.2.0')
   assert.deepEqual(result.capabilities, ['approval'])
@@ -135,10 +135,10 @@ test('routing rejects unknown methods even when they name Object prototype prope
 })
 
 test('initialize accepts the declared app compatibility range and rejects versions outside it', async () => {
-  for (const version of ['0.1.1', '0.1.99']) {
+  for (const version of ['0.1.1', '0.1.2', '0.1.99']) {
     const { server } = runtime()
     const result = await server.handle('initialize', { ...handshake, client: { ...handshake.client, version } })
-    assert.equal(result.server.version, '0.1.1')
+    assert.equal(result.server.version, '0.1.2')
     await server.shutdown()
   }
   for (const version of ['0.1.0', '0.2.0', '0.1', '0.1.1-rc.1', 'v0.1.1']) {

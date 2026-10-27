@@ -125,8 +125,8 @@ func upgradeHostBundle(profileDir, bundleDir string) error {
 		}
 	}
 	// The bundle version is release identity, not a content fingerprint. A
-	// development build can change Host code without changing 0.1.1, so an
-	// app-owned copy is synchronized by content on every start.
+	// development build can change Host code without changing the release
+	// version, so an app-owned copy is synchronized by content on every start.
 	sourceDigest, err := bundleDigest(bundleDir)
 	if err != nil {
 		return fmt.Errorf("host: read bundled Host: %w", err)

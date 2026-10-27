@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { test } from 'node:test'
 import { MygoServer } from '../server.mjs'
 
-const handshake = { protocolVersion: 1, client: { name: 'dsh-mygo', version: '0.1.1', platform: 'test', locale: 'zh-CN' }, capabilities: ['model.selection'] }
+const handshake = { protocolVersion: 1, client: { name: 'dsh-mygo', version: '0.1.2', platform: 'test', locale: 'zh-CN' }, capabilities: ['model.selection'] }
 
 async function runtime(capabilities = handshake.capabilities) {
   const listeners = new Map()

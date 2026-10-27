@@ -1,7 +1,7 @@
 {
   "name": "dsh-mygo",
   "identifier": "com.denislov.dshmygo",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "out": "build",
   "windows": {
     "signCommand": "node scripts/sign-windows.mjs %1"

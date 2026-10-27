@@ -20,7 +20,7 @@ func TestInitializePayloadsMatchSharedFixture(t *testing.T) {
 	if err := json.Unmarshal(data, &fixture); err != nil {
 		t.Fatal(err)
 	}
-	request := InitializeParams{ProtocolVersion: 1, Client: ClientInfo{Name: "dsh-mygo", Version: "0.1.1", Platform: "test", Locale: "zh-CN"}, Capabilities: []string{"approval", "session.history"}}
+	request := InitializeParams{ProtocolVersion: 1, Client: ClientInfo{Name: "dsh-mygo", Version: "0.1.2", Platform: "test", Locale: "zh-CN"}, Capabilities: []string{"approval", "session.history"}}
 	for _, test := range []struct {
 		name  string
 		value any
@@ -52,7 +52,7 @@ func TestInitializePayloadsMatchSharedFixture(t *testing.T) {
 	if err := json.Unmarshal(fixture.Response, &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.ProtocolVersion != 1 || response.Server != (ServerInfo{Name: "dsh-mygo-host", Version: "0.1.1", DSHVersion: "0.2.1-rc.2", AppMin: "0.1.1", AppMaxExclusive: "0.2.0"}) || !reflect.DeepEqual(response.Capabilities, []string{"approval"}) || response.Attachments != nil {
+	if response.ProtocolVersion != 1 || response.Server != (ServerInfo{Name: "dsh-mygo-host", Version: "0.1.2", DSHVersion: "0.2.1-rc.2", AppMin: "0.1.1", AppMaxExclusive: "0.2.0"}) || !reflect.DeepEqual(response.Capabilities, []string{"approval"}) || response.Attachments != nil {
 		t.Fatalf("custom response changed: %+v", response)
 	}
 	var sdkResponse SDKInitializeResult

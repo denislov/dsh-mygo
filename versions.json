@@ -2,7 +2,7 @@
   "name": "dsh-mygo",
   "identifier": "com.denislov.dshmygo",
   "repository": "denislov/dsh-mygo",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "protocolVersion": 1,
   "appCompatibility": {
     "min": "0.1.1",

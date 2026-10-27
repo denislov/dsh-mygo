@@ -108,7 +108,7 @@ func TestInitializeUsesCapturedRecoveryRouteWithoutViewModel(t *testing.T) {
 			client := &sessionClient{request: func(_ context.Context, method string, params any) (json.RawMessage, error) {
 				switch method {
 				case "initialize":
-					return json.RawMessage(`{"protocolVersion":1,"server":{"name":"host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":["session.history","settings.configuration"]}`), nil
+					return json.RawMessage(`{"protocolVersion":1,"server":{"name":"host","version":"0.1.2","dshVersion":"0.2.1-rc.2"},"capabilities":["session.history","settings.configuration"]}`), nil
 				case "session/resume":
 					fields := requestFields(t, params)
 					if fields["sessionId"] != "saved" || fields["provider"] != "selected" || fields["model"] != "recovery" || fields["useDefaultModel"] != nil {
@@ -192,7 +192,7 @@ func TestSessionCreateRequiresTheSharedSummaryContract(t *testing.T) {
 				t.Fatal(err)
 			}
 			client := &fakeClient{results: map[string]json.RawMessage{
-				"initialize":     json.RawMessage(`{"protocolVersion":1,"server":{"name":"host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`),
+				"initialize":     json.RawMessage(`{"protocolVersion":1,"server":{"name":"host","version":"0.1.2","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`),
 				"session/create": body,
 			}}
 			application := New(Options{Provider: "test", Model: "echo"})

@@ -7,7 +7,7 @@ import (
 )
 
 func TestInitializeResponseFieldCompatibility(t *testing.T) {
-	const base = `{"protocolVersion":1,"server":{"name":"host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`
+	const base = `{"protocolVersion":1,"server":{"name":"host","version":"0.1.2","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`
 	for _, test := range []struct {
 		name  string
 		patch string
@@ -20,7 +20,7 @@ func TestInitializeResponseFieldCompatibility(t *testing.T) {
 		{"fractional protocol", `{"protocolVersion":1.5}`, "", false},
 		{"missing server", `{}`, "server", false},
 		{"null server", `{"server":null}`, "", false},
-		{"null name", `{"server":{"name":null,"version":"0.1.1","dshVersion":"0.2.1-rc.2"}}`, "", false},
+		{"null name", `{"server":{"name":null,"version":"0.1.2","dshVersion":"0.2.1-rc.2"}}`, "", false},
 		{"missing capabilities", `{}`, "capabilities", false},
 		{"null capabilities", `{"capabilities":null}`, "", false},
 		{"scalar capabilities", `{"capabilities":"approval"}`, "", false},
@@ -29,10 +29,10 @@ func TestInitializeResponseFieldCompatibility(t *testing.T) {
 		{"duplicate capability", `{"capabilities":["approval","approval"]}`, "", true},
 		{"unknown response field", `{"future":{"version":2}}`, "", true},
 		{"null absent policy", `{"attachments":null}`, "", true},
-		{"legacy null range", `{"server":{"name":"host","version":"0.1.1","dshVersion":"0.2.1-rc.2","appMin":null,"appMaxExclusive":null}}`, "", true},
-		{"legacy empty range", `{"server":{"name":"host","version":"0.1.1","dshVersion":"0.2.1-rc.2","appMin":"","appMaxExclusive":""}}`, "", true},
-		{"half null range", `{"server":{"name":"host","version":"0.1.1","dshVersion":"0.2.1-rc.2","appMin":null,"appMaxExclusive":"0.2.0"}}`, "", false},
-		{"oversized name", `{"server":{"name":"` + strings.Repeat("x", 257) + `","version":"0.1.1","dshVersion":"0.2.1-rc.2"}}`, "", false},
+		{"legacy null range", `{"server":{"name":"host","version":"0.1.2","dshVersion":"0.2.1-rc.2","appMin":null,"appMaxExclusive":null}}`, "", true},
+		{"legacy empty range", `{"server":{"name":"host","version":"0.1.2","dshVersion":"0.2.1-rc.2","appMin":"","appMaxExclusive":""}}`, "", true},
+		{"half null range", `{"server":{"name":"host","version":"0.1.2","dshVersion":"0.2.1-rc.2","appMin":null,"appMaxExclusive":"0.2.0"}}`, "", false},
+		{"oversized name", `{"server":{"name":"` + strings.Repeat("x", 257) + `","version":"0.1.2","dshVersion":"0.2.1-rc.2"}}`, "", false},
 		{"oversized capability", `{"capabilities":["` + strings.Repeat("x", 257) + `"]}`, "", false},
 		{"too many capabilities", `{"capabilities":[` + strings.TrimSuffix(strings.Repeat(`"future",`, 65), ",") + `]}`, "", false},
 	} {
@@ -65,17 +65,17 @@ func TestDecodeInitialize(t *testing.T) {
 		wire  string
 		valid bool
 	}{
-		{"compatible", `{"protocolVersion":1,"server":{"name":"dsh-mygo-host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`, true},
-		{"wrong protocol", `{"protocolVersion":2,"server":{"name":"host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`, false},
+		{"compatible", `{"protocolVersion":1,"server":{"name":"dsh-mygo-host","version":"0.1.2","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`, true},
+		{"wrong protocol", `{"protocolVersion":2,"server":{"name":"host","version":"0.1.2","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`, false},
 		{"wrong release", `{"protocolVersion":1,"server":{"name":"host","version":"0.2.0","dshVersion":"0.2.1-rc.2"},"capabilities":[]}`, false},
 		{"sdk response", `{"serverInfo":{"name":"sdk"}}`, false},
 		{"null", `null`, false},
-		{"invalid capability", `{"protocolVersion":1,"server":{"name":"host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":[1]}`, false},
-		{"attachments", `{"protocolVersion":1,"server":{"name":"dsh-mygo-host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":["attachments"],"attachments":{"image":{"mediaTypes":["image/png","image/jpeg"],"maxBase64Bytes":8388608,"maxImageBytes":6291456,"maxImagesPerMessage":8,"maxMessageImageBytes":6291456,"maxImagePixels":64000000,"maxImageDimension":8192}}}`, true},
-		{"attachment without policy", `{"protocolVersion":1,"server":{"name":"dsh-mygo-host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":["attachments"]}`, false},
-		{"policy without capability", `{"protocolVersion":1,"server":{"name":"dsh-mygo-host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":[],"attachments":{"image":{"mediaTypes":["image/png"],"maxBase64Bytes":8388608,"maxImageBytes":6291456,"maxImagesPerMessage":8,"maxMessageImageBytes":6291456,"maxImagePixels":64000000,"maxImageDimension":8192}}}`, false},
-		{"unknown attachment type", `{"protocolVersion":1,"server":{"name":"dsh-mygo-host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":["attachments"],"attachments":{"image":{"mediaTypes":["image/bmp"],"maxBase64Bytes":8388608,"maxImageBytes":6291456,"maxImagesPerMessage":8,"maxMessageImageBytes":6291456,"maxImagePixels":64000000,"maxImageDimension":8192}}}`, false},
-		{"implausible attachment limit", `{"protocolVersion":1,"server":{"name":"dsh-mygo-host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":["attachments"],"attachments":{"image":{"mediaTypes":["image/png"],"maxBase64Bytes":8388608,"maxImageBytes":0,"maxImagesPerMessage":8,"maxMessageImageBytes":6291456,"maxImagePixels":64000000,"maxImageDimension":8192}}}`, false},
+		{"invalid capability", `{"protocolVersion":1,"server":{"name":"host","version":"0.1.2","dshVersion":"0.2.1-rc.2"},"capabilities":[1]}`, false},
+		{"attachments", `{"protocolVersion":1,"server":{"name":"dsh-mygo-host","version":"0.1.2","dshVersion":"0.2.1-rc.2"},"capabilities":["attachments"],"attachments":{"image":{"mediaTypes":["image/png","image/jpeg"],"maxBase64Bytes":8388608,"maxImageBytes":6291456,"maxImagesPerMessage":8,"maxMessageImageBytes":6291456,"maxImagePixels":64000000,"maxImageDimension":8192}}}`, true},
+		{"attachment without policy", `{"protocolVersion":1,"server":{"name":"dsh-mygo-host","version":"0.1.2","dshVersion":"0.2.1-rc.2"},"capabilities":["attachments"]}`, false},
+		{"policy without capability", `{"protocolVersion":1,"server":{"name":"dsh-mygo-host","version":"0.1.2","dshVersion":"0.2.1-rc.2"},"capabilities":[],"attachments":{"image":{"mediaTypes":["image/png"],"maxBase64Bytes":8388608,"maxImageBytes":6291456,"maxImagesPerMessage":8,"maxMessageImageBytes":6291456,"maxImagePixels":64000000,"maxImageDimension":8192}}}`, false},
+		{"unknown attachment type", `{"protocolVersion":1,"server":{"name":"dsh-mygo-host","version":"0.1.2","dshVersion":"0.2.1-rc.2"},"capabilities":["attachments"],"attachments":{"image":{"mediaTypes":["image/bmp"],"maxBase64Bytes":8388608,"maxImageBytes":6291456,"maxImagesPerMessage":8,"maxMessageImageBytes":6291456,"maxImagePixels":64000000,"maxImageDimension":8192}}}`, false},
+		{"implausible attachment limit", `{"protocolVersion":1,"server":{"name":"dsh-mygo-host","version":"0.1.2","dshVersion":"0.2.1-rc.2"},"capabilities":["attachments"],"attachments":{"image":{"mediaTypes":["image/png"],"maxBase64Bytes":8388608,"maxImageBytes":0,"maxImagesPerMessage":8,"maxMessageImageBytes":6291456,"maxImagePixels":64000000,"maxImageDimension":8192}}}`, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, err := DecodeInitialize(json.RawMessage(test.wire))

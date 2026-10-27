@@ -34,7 +34,7 @@ function runtime(capabilities = ['settings.configuration']) {
     agents: { async create(options) { return { agent: { status: 'idle', session: { id: options.sessionId, seq: 0 } }, async dispose() {} } } },
   }
   const server = new MygoServer(ctx, { notify() {}, createUserMessage: (value) => value, reasoningEffort: (value) => value, credentialRef: (value) => value, dshVersion: '0.2.1-rc.2' })
-  const initialized = server.initialize({ protocolVersion: 1, client: { name: 'test', version: '0.1.1', platform: 'test', locale: 'en' }, capabilities })
+  const initialized = server.initialize({ protocolVersion: 1, client: { name: 'test', version: '0.1.2', platform: 'test', locale: 'en' }, capabilities })
   return { server, ctx, initialized, references }
 }
 

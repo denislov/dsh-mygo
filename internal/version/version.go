@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	App             = "0.1.1"
+	App             = "0.1.2"
 	Protocol        = 1
 	DSH             = "0.2.1-rc.2"
 	Repository      = "denislov/dsh-mygo"

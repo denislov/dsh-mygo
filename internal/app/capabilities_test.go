@@ -66,8 +66,8 @@ func TestInitializeDoesNotEnableUnnegotiatedCapabilities(t *testing.T) {
 		want      protocol.Capabilities
 	}{
 		{"SDK", true, `{"serverInfo":{"name":"sdk"}}`, protocol.Capabilities{}},
-		{"future capability", false, `{"protocolVersion":1,"server":{"name":"host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":["future.test"]}`, protocol.Capabilities{}},
-		{"minimal host", false, `{"protocolVersion":1,"server":{"name":"host","version":"0.1.1","dshVersion":"0.2.1-rc.2"},"capabilities":["approval"]}`, protocol.Capabilities{Approval: true}},
+		{"future capability", false, `{"protocolVersion":1,"server":{"name":"host","version":"0.1.2","dshVersion":"0.2.1-rc.2"},"capabilities":["future.test"]}`, protocol.Capabilities{}},
+		{"minimal host", false, `{"protocolVersion":1,"server":{"name":"host","version":"0.1.2","dshVersion":"0.2.1-rc.2"},"capabilities":["approval"]}`, protocol.Capabilities{Approval: true}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{results: map[string]json.RawMessage{

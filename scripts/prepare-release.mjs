@@ -30,7 +30,15 @@ export async function prepareRelease(root) {
   await writeFile(join(output, 'dsh-mygo-signing.cer'), certificate)
   await copyFile(join(root, 'docs/getting-started.md'), join(output, 'START_HERE.zh-CN.md'))
   const fingerprint = digest(certificate).toUpperCase().match(/../g).join(':')
-  const patchNotes = identity.version === '0.1.1' ? `## 0.1.1 修复
+  const patchNotes = identity.version === '0.1.2' ? `## 0.1.2 修复
+
+- 修复选择 DeepSeek Account 模型时 Host 崩溃的问题；插件诊断不再写入 JSON-RPC 通道。
+- AI 回合把中间过程折叠为可展开的「更早消息」，最终回答只出现一次并只有一个复制按钮。
+- 修复空白会话标题缺失、复用方式与 DSH Web 不一致的问题。
+- 加载会话时保留全局界面可用，不再整块变灰。
+- 应用自有 Host 包按内容指纹同步，升级时保留旧副本，内容一致时不再重复替换。
+
+` : identity.version === '0.1.1' ? `## 0.1.1 修复
 
 - 修复模型清单被打包过滤后，magpie/pi-ai 模型插件无法加载、再次启动失败的问题。
 - 升级时同步应用自有 Host 包，保留旧副本与用户的模型、凭据、会话和草稿。

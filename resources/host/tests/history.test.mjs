@@ -6,7 +6,7 @@ import { AssistantStreamBaseline } from '../stream-baseline.mjs'
 
 const handshake = {
   protocolVersion: 1,
-  client: { name: 'dsh-mygo', version: '0.1.1', platform: 'test', locale: 'zh-CN' },
+  client: { name: 'dsh-mygo', version: '0.1.2', platform: 'test', locale: 'zh-CN' },
   capabilities: ['session.history'],
 }
 
